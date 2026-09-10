@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { handleAuditForNotifications } from "./notifications.js";
+import bcrypt from "bcrypt";
 
 const now = () => new Date().toISOString();
 
@@ -31,15 +32,17 @@ class Mutex {
 
 /* ── Seed data ── */
 function seedData() {
+  // Default password: password123
+  const defaultHash = bcrypt.hashSync("password123", 10);
   const users = [
-    { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true },
-    { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true },
-    { id: "u_sales", name: "Sales User", email: "sales@orac.co.zw", role: "Sales", is_active: true },
-    { id: "u_finance", name: "Finance User", email: "finance@orac.co.zw", role: "Finance", is_active: true },
-    { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true },
-    { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", is_active: true },
-    { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true },
-    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats" }
+    { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true, password_hash: defaultHash },
+    { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true, password_hash: defaultHash },
+    { id: "u_sales", name: "Sales User", email: "sales@orac.co.zw", role: "Sales", is_active: true, password_hash: defaultHash },
+    { id: "u_finance", name: "Finance User", email: "finance@orac.co.zw", role: "Finance", is_active: true, password_hash: defaultHash },
+    { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true, password_hash: defaultHash },
+    { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", is_active: true, password_hash: defaultHash },
+    { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true, password_hash: defaultHash },
+    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats", password_hash: defaultHash }
   ];
 
   const clients = [

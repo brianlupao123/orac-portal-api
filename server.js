@@ -1,15 +1,26 @@
 import express from "express";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStore } from "./src/store.js";
+
 import apiRouter from "./src/router.js";
 import { config, validateRuntimeConfig } from "./src/config.js";
 
 validateRuntimeConfig();
 
+import { ensureTableExists } from "./src/pool.js";
+import { createStore as createJsonStore } from "./src/store.js";
+import { createStore as createPostgresStore } from "./src/postgresStore.js";
+
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const publicDir = join(__dirname, "public");
-export const store = createStore(join(__dirname, "data", "db.json"));
+
+export const store = config.storeDriver === "postgres" 
+  ? createPostgresStore(join(__dirname, "data", "db.json")) 
+  : createJsonStore(join(__dirname, "data", "db.json"));
+
+if (config.storeDriver === "postgres") {
+  ensureTableExists().catch(console.error);
+}
 
 const app = express();
 app.disable("x-powered-by");

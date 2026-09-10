@@ -1,4 +1,4 @@
-﻿import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,8 +50,12 @@ export function validateRuntimeConfig() {
     }
   }
 
-  if (config.storeDriver !== "json") {
-    throw new Error("Only STORE_DRIVER=json is supported until the PostgreSQL adapter is implemented.");
+  if (config.storeDriver !== "json" && config.storeDriver !== "postgres") {
+    throw new Error("STORE_DRIVER must be 'json' or 'postgres'.");
+  }
+
+  if (config.storeDriver === "postgres" && !process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required when STORE_DRIVER=postgres");
   }
 }
 
