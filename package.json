@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "migrate:store": "node scripts/migrate-store.js",
+    "seed:neon": "node scripts/seed-neon.js"
   },
   "keywords": [
     "orac",

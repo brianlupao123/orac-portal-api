@@ -5,7 +5,9 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: config.isProduction ? { rejectUnauthorized: false } : false
+  max: 5,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000
 });
 
 // Run this once at startup to ensure the table exists

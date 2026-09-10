@@ -45,6 +45,9 @@ export function validateRuntimeConfig() {
   }
 
   if (config.isProduction) {
+    if (config.storeDriver !== "postgres") {
+      throw new Error("Production requires STORE_DRIVER=postgres.");
+    }
     if (!process.env.JWT_SECRET || config.jwtSecret === DEV_JWT_SECRET || config.jwtSecret.length < 32) {
       throw new Error("Production JWT_SECRET must be set to a strong value of at least 32 characters.");
     }

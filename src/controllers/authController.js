@@ -15,10 +15,7 @@ export const loginDemoUser = (req, res) => {
     if (!password) {
       return res.status(401).json({ success: false, message: "Password is required." });
     }
-    // Backward compatibility for old DBs without password_hash
-    const valid = user.password_hash 
-      ? bcrypt.compareSync(password, user.password_hash)
-      : password === "password123"; 
+    const valid = Boolean(user.password_hash) && bcrypt.compareSync(password, user.password_hash);
       
     if (!valid) {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
@@ -32,10 +29,11 @@ export const loginDemoUser = (req, res) => {
 
   req.store.audit(req.db, user, "user", user.id, "DEMO_LOGIN", null, { id: user.id, email: user.email, role: user.role });
 
+  const { password_hash, password: ignoredPassword, ...publicUser } = user;
   res.json({
     success: true,
     data: {
-      user,
+      user: publicUser,
       token,
       note: "JWT Login successful"
     }
@@ -48,5 +46,6 @@ export const getMe = (req, res) => {
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found." });
   }
-  res.json({ success: true, data: user });
+  const { password_hash, password: ignoredPassword, ...publicUser } = user;
+  res.json({ success: true, data: publicUser });
 };

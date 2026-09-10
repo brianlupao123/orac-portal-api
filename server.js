@@ -10,6 +10,7 @@ validateRuntimeConfig();
 import { ensureTableExists } from "./src/pool.js";
 import { createStore as createJsonStore } from "./src/store.js";
 import { createStore as createPostgresStore } from "./src/postgresStore.js";
+import { persistenceMiddleware } from "./src/persistenceMiddleware.js";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const publicDir = join(__dirname, "public");
@@ -19,7 +20,7 @@ export const store = config.storeDriver === "postgres"
   : createJsonStore(join(__dirname, "data", "db.json"));
 
 if (config.storeDriver === "postgres") {
-  ensureTableExists().catch(console.error);
+  await ensureTableExists();
 }
 
 const app = express();
@@ -41,27 +42,7 @@ app.use((req, res, next) => {
 });
 
 // Mutex lock middleware for API routes
-app.use("/api", async (req, res, next) => {
-  const { db, release } = await store.read();
-  req.db = db;
-  req.store = store;
-  req.releaseDb = release;
-
-  // Automatically commit changes to db.json on successful mutations before responding
-  const originalJson = res.json;
-  res.json = function (body) {
-    if (req.method !== "GET" && res.statusCode >= 200 && res.statusCode < 300) {
-      store.write(req.db, req.releaseDb);
-    }
-    return originalJson.call(this, body);
-  };
-
-  // Guarantee lock release
-  res.on("finish", () => store.release(req.releaseDb));
-  res.on("close", () => store.release(req.releaseDb));
-
-  next();
-});
+app.use("/api", persistenceMiddleware(store));
 
 // API Routes
 app.use("/api", apiRouter);

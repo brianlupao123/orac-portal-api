@@ -1,13 +1,12 @@
 services:
   - type: web
-    name: orac-portal-api
+    name: orac-operations-api
     runtime: node
     buildCommand: npm ci
-    startCommand: node server.js
+    startCommand: npm start
+    healthCheckPath: /api/summary
     envVars:
       - key: NODE_ENV
         value: production
-      - key: JWT_SECRET
-        generateValue: true
-      - key: CORS_ORIGINS
-        value: https://orac-portal.onrender.com
+      - key: STORE_DRIVER
+        value: postgres

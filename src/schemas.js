@@ -75,7 +75,8 @@ export const CreateLeadSchema = z.object({
 });
 
 export const LoginSchema = z.object({
-  email: z.string().email("Valid email required")
+  email: z.string().email("Valid email required"),
+  password: z.string().min(1).max(72).optional()
 });
 
 export const AdminCreateUserSchema = z.object({
