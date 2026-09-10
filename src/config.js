@@ -1,0 +1,58 @@
+﻿import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const projectRoot = join(__dirname, "..");
+const envPath = join(projectRoot, ".env");
+
+function loadDotEnvFile() {
+  if (!existsSync(envPath)) return;
+  const lines = readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    let value = trimmed.slice(separator + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadDotEnvFile();
+
+const DEV_JWT_SECRET = "orac-local-development-secret-change-before-production";
+
+export const config = {
+  nodeEnv: process.env.NODE_ENV || "development",
+  port: Number(process.env.PORT || 5050),
+  jwtSecret: process.env.JWT_SECRET || DEV_JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || "8h",
+  storeDriver: process.env.STORE_DRIVER || "json",
+  jsonDbPath: process.env.JSON_DB_PATH || "./data/db.json",
+  isProduction: (process.env.NODE_ENV || "development") === "production"
+};
+
+export function validateRuntimeConfig() {
+  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
+    throw new Error("Invalid PORT. Expected a number between 1 and 65535.");
+  }
+
+  if (config.isProduction) {
+    if (!process.env.JWT_SECRET || config.jwtSecret === DEV_JWT_SECRET || config.jwtSecret.length < 32) {
+      throw new Error("Production JWT_SECRET must be set to a strong value of at least 32 characters.");
+    }
+  }
+
+  if (config.storeDriver !== "json") {
+    throw new Error("Only STORE_DRIVER=json is supported until the PostgreSQL adapter is implemented.");
+  }
+}
+
+export { DEV_JWT_SECRET };

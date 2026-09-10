@@ -1,0 +1,260 @@
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dirname } from "node:path";
+import { handleAuditForNotifications } from "./notifications.js";
+
+const now = () => new Date().toISOString();
+
+/* ── Mutex: guarantees sequential access to db.json on Windows ── */
+class Mutex {
+  constructor() {
+    this._tail = Promise.resolve();
+  }
+
+  acquire() {
+    let release;
+    const prev = this._tail;
+    this._tail = new Promise((resolve) => {
+      release = () => resolve();
+    });
+
+    // Make release idempotent (safe to call twice)
+    let called = false;
+    const safeRelease = () => {
+      if (called) return;
+      called = true;
+      release();
+    };
+
+    return prev.then(() => safeRelease);
+  }
+}
+
+/* ── Seed data ── */
+function seedData() {
+  const users = [
+    { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true },
+    { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true },
+    { id: "u_sales", name: "Sales User", email: "sales@orac.co.zw", role: "Sales", is_active: true },
+    { id: "u_finance", name: "Finance User", email: "finance@orac.co.zw", role: "Finance", is_active: true },
+    { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true },
+    { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", is_active: true },
+    { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true },
+    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats" }
+  ];
+
+  const clients = [
+    { id: "c_zimplats", name: "Zimplats", client_type: "permanent", contact_person: "Procurement Office", email: "procurement@zimplats.example" },
+    { id: "c_mimosa", name: "Mimosa Mining Company", client_type: "permanent", contact_person: "Maintenance Office", email: "maintenance@mimosa.example" },
+    { id: "c_walkin", name: "Walk-in Client", client_type: "walk_in", contact_person: "Front Desk", email: "" }
+  ];
+
+  const mine_sites = [
+    { id: "ms_ngezi", client_id: "c_zimplats", name: "Ngezi", location: "Zimbabwe" },
+    { id: "ms_selous", client_id: "c_zimplats", name: "Selous", location: "Zimbabwe" },
+    { id: "ms_zvishavane", client_id: "c_mimosa", name: "Zvishavane", location: "Zimbabwe" }
+  ];
+
+  const plants = [
+    { id: "pl_smc", mine_site_id: "ms_ngezi", name: "SMC Concentrator", plant_code: "SMC-CON" },
+    { id: "pl_smelter", mine_site_id: "ms_selous", name: "Smelter", plant_code: "SMELTER" },
+    { id: "pl_mimosa_conc", mine_site_id: "ms_zvishavane", name: "Concentrator", plant_code: "MIM-CON" }
+  ];
+
+  const plant_sections = [
+    { id: "ps_cyclone", plant_id: "pl_smc", name: "Cyclone Cluster", section_code: "CYCLONE" },
+    { id: "ps_conveyor", plant_id: "pl_smc", name: "Discharge Conveyor Line", section_code: "CONV-DIS" },
+    { id: "ps_furnace", plant_id: "pl_smelter", name: "Furnace Refractory Section", section_code: "FURN-REF" }
+  ];
+
+  const equipment_tags = [
+    { id: "eq_smc_0102", plant_section_id: "ps_cyclone", tag_code: "EQ-TAG-SMC-0102", equipment_name: "Cyclone Wear Liner Assembly", criticality: "high", status: "active" },
+    { id: "eq_smc_0207", plant_section_id: "ps_conveyor", tag_code: "EQ-TAG-SMC-0207", equipment_name: "Discharge Conveyor Idler Bank", criticality: "medium", status: "active" },
+    { id: "eq_smelt_0041", plant_section_id: "ps_furnace", tag_code: "EQ-TAG-SMELT-0041", equipment_name: "Furnace Lining Zone", criticality: "critical", status: "active" }
+  ];
+
+  const catalog_items = [
+    { id: "cat_ceramic", item_code: "ALU-CER-TILE", item_name: "Alumina Ceramic Tiles", category: "Wear Protection", unit_of_measure: "m2", unit_price: 95, material_grade: "92% alumina", dimensions: "custom" },
+    { id: "cat_rubber", item_code: "RUB-LINING", item_name: "Heavy Duty Rubber Lining", category: "Lining", unit_of_measure: "m2", unit_price: 70, material_grade: "industrial rubber", dimensions: "10-25mm" },
+    { id: "cat_idler", item_code: "IDLER-ROLLER", item_name: "Idler Roller", category: "Conveyor Components", unit_of_measure: "each", unit_price: 120, material_grade: "steel/rubber", dimensions: "site specific" },
+    { id: "cat_labor", item_code: "LAB-FIELD-HR", item_name: "Field Service Labour", category: "Labour", unit_of_measure: "hour", unit_price: 45, material_grade: "", dimensions: "" }
+  ];
+
+  return {
+    users,
+    clients,
+    mine_sites,
+    plants,
+    plant_sections,
+    equipment_tags,
+    catalog_items,
+    company_profile: {
+      company_name: "Orac Systems",
+      legal_name: "Handon Enterprises (Pvt) Ltd",
+      address: "Harare, Zimbabwe",
+      phone: "",
+      email: "info@orac.co.zw",
+      brand_primary: "#6EC1E4",
+      brand_slate: "#54595F"
+    },
+    leads: [],
+    quotes: [],
+    quote_lines: [],
+    purchase_orders: [],
+    po_amendments: [],
+    dispatch_cards: [],
+    field_worksheets: [],
+    timesheets: [],
+    material_usage: [],
+    invoices: [],
+    invoice_lines: [],
+    pastel_export_batches: [],
+    pastel_export_lines: [],
+    suppliers: [
+      { id: "sup_ceramics", name: "African Ceramics Supply Co.", contact_person: "Tendai Moyo", email: "tendai@africanceram.example", phone: "+263 77 111 0001", lead_time_days: 14 },
+      { id: "sup_rubber", name: "Zimrubber Industrial", contact_person: "Farai Ndlovu", email: "farai@zimrubber.example", phone: "+263 77 222 0002", lead_time_days: 7 },
+      { id: "sup_conveyor", name: "ConveyorTech Africa", contact_person: "Blessing Chikwanda", email: "blessing@conveyortech.example", phone: "+263 77 333 0003", lead_time_days: 21 }
+    ],
+    stock_items: [
+      { id: "si_ceramic_tile", catalog_item_id: "cat_ceramic", item_code: "ALU-CER-TILE", item_name: "Alumina Ceramic Tiles", unit_of_measure: "m2", quantity_on_hand: 48, reorder_level: 20, unit_cost: 85, supplier_id: "sup_ceramics", location: "Store A - Shelf 1" },
+      { id: "si_rubber_lining", catalog_item_id: "cat_rubber", item_code: "RUB-LINING", item_name: "Heavy Duty Rubber Lining", unit_of_measure: "m2", quantity_on_hand: 30, reorder_level: 15, unit_cost: 60, supplier_id: "sup_rubber", location: "Store A - Shelf 2" },
+      { id: "si_idler_roller", catalog_item_id: "cat_idler", item_code: "IDLER-ROLLER", item_name: "Idler Roller", unit_of_measure: "each", quantity_on_hand: 12, reorder_level: 8, unit_cost: 100, supplier_id: "sup_conveyor", location: "Store B - Rack 3" },
+      { id: "si_fasteners", catalog_item_id: null, item_code: "FAST-M16-SS", item_name: "M16 Stainless Fastener Kit", unit_of_measure: "set", quantity_on_hand: 60, reorder_level: 25, unit_cost: 12, supplier_id: "sup_ceramics", location: "Store A - Shelf 4" }
+    ],
+    stock_movements: [],
+    audit_logs: [
+      { id: "audit_seed", actor_id: "u_admin", entity_type: "system", entity_id: "seed", action: "SYSTEM_SEEDED", old_values: null, new_values: null, created_at: now() }
+    ],
+    notifications: []
+  };
+}
+
+function normalizeDb(db) {
+  const seeded = seedData();
+  for (const [key, value] of Object.entries(seeded)) {
+    if (!Array.isArray(value)) continue;
+    if (!Array.isArray(db[key])) db[key] = [];
+  }
+
+  const existingUserIds = new Set(db.users.map((user) => user.id));
+  for (const user of seeded.users) {
+    if (!existingUserIds.has(user.id)) db.users.push(user);
+  }
+
+  if (db.suppliers.length === 0 && seeded.suppliers) {
+    db.suppliers = [...seeded.suppliers];
+  }
+  if (db.stock_items.length === 0 && seeded.stock_items) {
+    db.stock_items = [...seeded.stock_items];
+  }
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+
+  // Backfill client_id onto pre-existing seeded users where missing
+  // (covers a local db.json created before Phase 06 introduced this field).
+  for (const seededUser of seeded.users) {
+    if (seededUser.client_id) {
+      const existing = db.users.find((u) => u.id === seededUser.id);
+      if (existing && !existing.client_id) existing.client_id = seededUser.client_id;
+    }
+  }
+
+  if (!db.company_profile || typeof db.company_profile !== "object") {
+    db.company_profile = seeded.company_profile;
+  }
+
+  return db;
+}
+
+export function createStore(filePath) {
+  const mutex = new Mutex();
+  const inMemory = filePath === ":memory:";
+
+  if (!inMemory) {
+    // Ensure data directory exists on startup
+    mkdirSync(dirname(filePath), { recursive: true });
+
+    // Seed if file doesn't exist
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, JSON.stringify(seedData(), null, 2));
+    }
+  }
+
+  return {
+    id(prefix) {
+      return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    },
+
+    /* Acquire the mutex, then read the file synchronously (no race window). */
+    async read() {
+      const release = await mutex.acquire();
+      if (inMemory) {
+        return { db: seedData(), release };
+      }
+      try {
+        const raw = readFileSync(filePath, "utf8");
+        const db = normalizeDb(JSON.parse(raw));
+        return { db, release };
+      } catch (err) {
+        // File corrupted or unreadable — reseed
+        const db = seedData();
+        writeFileSync(filePath, JSON.stringify(db, null, 2));
+        return { db, release };
+      }
+    },
+
+    /* Write synchronously, then release the mutex. */
+    write(db, release) {
+      try {
+        if (!inMemory) {
+          writeFileSync(filePath, JSON.stringify(db, null, 2));
+        }
+      } finally {
+        if (release) release();
+      }
+    },
+
+    /* Release the mutex without writing (for read-only requests). */
+    release(releaseFn) {
+      if (releaseFn) releaseFn();
+    },
+
+    audit(db, actor, entityType, entityId, action, oldValues, newValues) {
+      const entry = {
+        id: this.id("audit"),
+        actor_id: actor?.id || "system",
+        entity_type: entityType,
+        entity_id: entityId,
+        action,
+        old_values: oldValues,
+        new_values: newValues,
+        created_at: now()
+      };
+      db.audit_logs.push(entry);
+      handleAuditForNotifications(db, entry);
+    },
+
+    recalculateVariance(db, purchaseOrderId) {
+      if (!purchaseOrderId) return;
+      const po = db.purchase_orders.find((item) => item.id === purchaseOrderId);
+      if (!po) return;
+
+      const jobs = db.dispatch_cards.filter((job) => job.purchase_order_id === po.id);
+      const jobIds = new Set(jobs.map((job) => job.id));
+      const labor = db.timesheets
+        .filter((item) => jobIds.has(item.dispatch_card_id))
+        .reduce((sum, item) => sum + Number(item.hours_logged || 0) * Number(item.hourly_rate || 0), 0);
+      const materials = db.material_usage
+        .filter((item) => jobIds.has(item.dispatch_card_id))
+        .reduce((sum, item) => sum + Number(item.total_cost || 0), 0);
+
+      po.logged_value = labor + materials;
+      const previouslyRequired = po.requires_amendment;
+      po.requires_amendment = po.logged_value > po.po_amount;
+      
+      if (!previouslyRequired && po.requires_amendment) {
+        this.audit(db, null, "purchase_order", po.id, "PO_AMENDMENT_REQUIRED", { requires_amendment: false }, po);
+      }
+    }
+  };
+}

@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: orac-portal-api
+    runtime: node
+    buildCommand: npm ci
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://orac-portal.onrender.com
