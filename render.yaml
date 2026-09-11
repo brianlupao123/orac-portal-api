@@ -4,9 +4,19 @@ services:
     runtime: node
     buildCommand: npm ci
     startCommand: npm start
-    healthCheckPath: /api/summary
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
       - key: STORE_DRIVER
         value: postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: CORS_ORIGINS
+        value: https://orac-industrial-service-portal.onrender.com
+      - key: FRONTEND_BASE_URL
+        value: https://orac-industrial-service-portal.onrender.com

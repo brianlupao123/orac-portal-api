@@ -103,7 +103,17 @@ export const recordStockMovement = (req, res) => {
   if (!item) return res.status(404).json({ success: false, message: "Stock item not found." });
 
   const qty = Number(body.quantity);
-  const effectiveQty = body.movement_type === "out" ? -Math.abs(qty) : qty;
+  // "out" always subtracts, regardless of the sign sent. "adjustment"
+  // respects whatever sign was sent (positive to increase, negative to
+  // decrease). "in" (and any other/unrecognized value) always increases.
+  let effectiveQty;
+  if (body.movement_type === "out") {
+    effectiveQty = -Math.abs(qty);
+  } else if (body.movement_type === "adjustment") {
+    effectiveQty = qty;
+  } else {
+    effectiveQty = Math.abs(qty);
+  }
   const projected = item.quantity_on_hand + effectiveQty;
 
   if (projected < 0) {

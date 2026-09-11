@@ -126,6 +126,33 @@ export const createWorksheet = (req, res) => {
   res.json({ success: true, data: worksheet });
 };
 
+export const updateWorksheet = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "createWorksheet");
+  
+  const worksheetId = req.params.id;
+  const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
+  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  
+  if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
+    return res.status(400).json({ success: false, message: `Worksheet cannot be edited in ${worksheet.status} status.` });
+  }
+
+  const before = { ...worksheet };
+  const body = req.body;
+  
+  if (body.activity !== undefined) worksheet.activity = body.activity;
+  if (body.hours !== undefined) worksheet.hours = body.hours;
+  if (body.tools_used !== undefined) worksheet.tools_used = String(body.tools_used || "").trim();
+  if (body.outcomes !== undefined) worksheet.outcomes = String(body.outcomes || "").trim();
+  if (body.challenges !== undefined) worksheet.challenges = String(body.challenges || "").trim();
+  
+  worksheet.updated_at = new Date().toISOString();
+  req.store.audit(req.db, actor, "field_worksheet", worksheet.id, "WORKSHEET_UPDATED", before, worksheet);
+  
+  res.json({ success: true, data: worksheet });
+};
+
 export const submitWorksheet = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "submitWorksheet");

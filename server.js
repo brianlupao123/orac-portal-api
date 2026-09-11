@@ -27,6 +27,13 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
+// Render probes this endpoint without an application session. Keeping it
+// outside the API router means a healthy service is not marked unavailable
+// merely because its protected routes require a bearer token.
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ success: true, status: "ok", store_driver: config.storeDriver });
+});
+
 // CORS — allow the deployed frontend to call the API
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
 app.use((req, res, next) => {

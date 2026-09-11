@@ -28,6 +28,11 @@ export function persistenceMiddleware(store) {
         }).catch(next);
         return res;
       };
+      // Some successful GET routes stream/send content rather than calling
+      // res.json(), so release on response completion as well as disconnect.
+      res.once("finish", () => {
+        if (!writeStarted) releaseRead();
+      });
       res.once("close", () => {
         if (!writeStarted) releaseRead();
       });

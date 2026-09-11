@@ -127,11 +127,13 @@ function seedData() {
     audit_logs: [
       { id: "audit_seed", actor_id: "u_admin", entity_type: "system", entity_id: "seed", action: "SYSTEM_SEEDED", old_values: null, new_values: null, created_at: now() }
     ],
-    notifications: []
+    notifications: [],
+    // NEW — Phase 6: "Request Access" queue (see accessRequestsController.js).
+    access_requests: []
   };
 }
 
-function normalizeDb(db) {
+export function normalizeDb(db) {
   const seeded = seedData();
   for (const [key, value] of Object.entries(seeded)) {
     if (!Array.isArray(value)) continue;

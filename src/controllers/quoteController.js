@@ -42,6 +42,61 @@ export const createQuote = (req, res) => {
   res.json({ success: true, data: quote });
 };
 
+export const updateQuote = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "createQuote"); // Sales or Admin
+
+  const quote = req.db.quotes.find((item) => item.id === req.params.id);
+  if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
+  if (quote.status !== "Draft") {
+    return res.status(400).json({ success: false, message: "Only Draft quotes can be edited." });
+  }
+
+  const before = { ...quote };
+  const body = req.body;
+  if (body.description) quote.description = body.description;
+  if (body.equipment_tag_id !== undefined) quote.equipment_tag_id = body.equipment_tag_id || null;
+
+  // Handle line item updates
+  if (body.lines && Array.isArray(body.lines)) {
+    // Remove existing lines
+    req.db.quote_lines = req.db.quote_lines.filter(l => l.quotation_id !== quote.id);
+    
+    // Add new lines
+    const newLines = body.lines.map((line) => ({
+      id: req.store.id("ql"),
+      quotation_id: quote.id,
+      catalog_item_id: line.catalog_item_id || null,
+      description: line.description,
+      quantity: line.quantity,
+      unit_price: line.unit_price,
+      line_total: line.quantity * line.unit_price
+    }));
+    req.db.quote_lines.push(...newLines);
+    quote.total_amount = newLines.reduce((sum, line) => sum + line.line_total, 0);
+  }
+
+  req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_UPDATED", before, quote);
+  res.json({ success: true, data: quote });
+};
+
+export const cancelQuote = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "createQuote");
+
+  const quote = req.db.quotes.find((item) => item.id === req.params.id);
+  if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
+  if (quote.status !== "Draft") {
+    return res.status(400).json({ success: false, message: "Only Draft quotes can be cancelled." });
+  }
+
+  const before = { ...quote };
+  quote.status = "Cancelled";
+  
+  req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_CANCELLED", before, quote);
+  res.json({ success: true, data: quote });
+};
+
 export const transition = (req, res) => {
   const actor = getActor(req);
   const result = transitionQuote(req.db, req.store, req.params.id, req.body.target_state, req.body, actor);

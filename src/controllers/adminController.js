@@ -1,4 +1,5 @@
 import { requirePermission } from "../permissions.js";
+import bcrypt from "bcrypt";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -16,6 +17,7 @@ export const createUser = (req, res) => {
     role: body.role,
     is_active: body.is_active !== undefined ? body.is_active : true,
     client_id: body.client_id || null,
+    password_hash: bcrypt.hashSync(body.password, 10),
     created_at: new Date().toISOString()
   };
   req.db.users.push(user);
@@ -32,6 +34,7 @@ export const updateUser = (req, res) => {
   ["name", "email", "role", "is_active", "client_id"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
+  if (req.body.password !== undefined) target.password_hash = bcrypt.hashSync(req.body.password, 10);
   req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, target);
   res.json({ success: true, data: target });
 };

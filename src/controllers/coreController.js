@@ -15,7 +15,10 @@ const collectionGuards = {
   users: [roles.ADMIN],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT],
-  purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT]
+  purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
+  // NEW — Phase 6: names/emails of everyone who has ever requested access.
+  // Admin-only, same reasoning as `users`.
+  access_requests: [roles.ADMIN]
 };
 
 // Client Viewer isolation (Phase 06). Each resolver returns the owning
@@ -127,5 +130,59 @@ export const getCollection = (collectionName) => {
       data = scopeByClient(data, actor, (item) => resolveClientId(item, req.db));
     }
     res.json({ success: true, data });
+  };
+};
+
+/**
+ * Generic soft-delete: sets is_active = false on any entity in any collection.
+ * For invoices, also sets status = "voided".
+ */
+export const deactivateEntity = (collectionName) => {
+  return (req, res) => {
+    const actor = getActor(req);
+    if (!actor || !["Admin", "Management", "Finance"].includes(actor.role)) {
+      return res.status(403).json({ success: false, message: "Only Admin, Management, or Finance can deactivate records." });
+    }
+
+    const collection = req.db[collectionName];
+    if (!collection) return res.status(404).json({ success: false, message: "Collection not found." });
+
+    const item = collection.find((i) => i.id === req.params.id);
+    if (!item) return res.status(404).json({ success: false, message: `${collectionName} record not found.` });
+
+    const before = { ...item };
+    item.is_active = false;
+    if (collectionName === "invoices") item.status = "voided";
+    item.deactivated_by = actor.id;
+    item.deactivated_at = new Date().toISOString();
+
+    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_DEACTIVATED`, before, item);
+    res.json({ success: true, data: item });
+  };
+};
+
+/**
+ * Reactivate a soft-deleted entity.
+ */
+export const reactivateEntity = (collectionName) => {
+  return (req, res) => {
+    const actor = getActor(req);
+    if (!actor || !["Admin"].includes(actor.role)) {
+      return res.status(403).json({ success: false, message: "Only Admin can reactivate records." });
+    }
+
+    const collection = req.db[collectionName];
+    if (!collection) return res.status(404).json({ success: false, message: "Collection not found." });
+
+    const item = collection.find((i) => i.id === req.params.id);
+    if (!item) return res.status(404).json({ success: false, message: `${collectionName} record not found.` });
+
+    const before = { ...item };
+    item.is_active = true;
+    delete item.deactivated_by;
+    delete item.deactivated_at;
+
+    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_REACTIVATED`, before, item);
+    res.json({ success: true, data: item });
   };
 };

@@ -82,6 +82,7 @@ export const LoginSchema = z.object({
 export const AdminCreateUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Valid email required"),
+  password: z.string().min(10, "Password must be at least 10 characters").max(72),
   role: z.enum(Object.values(roles), { errorMap: () => ({ message: "Invalid role" }) }),
   is_active: z.boolean().optional(),
   client_id: z.string().optional()
@@ -90,6 +91,7 @@ export const AdminCreateUserSchema = z.object({
 export const AdminUpdateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
+  password: z.string().min(10, "Password must be at least 10 characters").max(72).optional(),
   role: z.enum(Object.values(roles)).optional(),
   is_active: z.boolean().optional(),
   client_id: z.string().optional()

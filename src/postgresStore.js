@@ -1,5 +1,5 @@
 import { pool } from "./pool.js";
-import { createStore as createJsonStore } from "./store.js";
+import { createStore as createJsonStore, normalizeDb } from "./store.js";
 
 // The pilot uses one JSONB aggregate. It is deliberately initialized only by
 // scripts/seed-neon.js, never by a failed request or server startup.
@@ -32,7 +32,11 @@ export function createStore(_filePath, databasePool = pool) {
         if (result.rowCount !== 1) {
           throw Object.assign(new Error("Database is not initialized. Run npm run seed:neon first."), { status: 503 });
         }
-        return { db: result.rows[0].data, release };
+        // FIX: Normalize the stored JSONB just like the JSON file store does.
+        // This backfills any missing collection keys (e.g. access_requests,
+        // notifications) and seed users that were added after the initial import.
+        const db = normalizeDb(result.rows[0].data);
+        return { db, release };
       } catch (error) {
         release();
         throw error;

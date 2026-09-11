@@ -15,13 +15,14 @@ import {
   StockMovementSchema
 } from "./schemas.js";
 
-import { loginDemoUser, getMe } from "./controllers/authController.js";
-import { createQuote, transition, capturePo, submitClientPo } from "./controllers/quoteController.js";
+import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
+import { createAccessRequest, approveAccessRequest, rejectAccessRequest } from "./controllers/accessRequestsController.js";
+import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
-  submitWorksheet, reviewWorksheet, approveAmendment
+  submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet
 } from "./controllers/dispatchController.js";
-import { getSummary, exportPastel, createLead, getCollection } from "./controllers/coreController.js";
+import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity } from "./controllers/coreController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
@@ -33,6 +34,18 @@ const router = express.Router();
 // Public routes
 router.post("/auth/login", validate(LoginSchema), loginDemoUser);
 router.post("/leads", validate(CreateLeadSchema), createLead);
+
+// NEW — Phase 6: forgot/reset password (public; token proves identity).
+// Not run through the `validate()` middleware — schemas.js's exact export
+// conventions weren't available when this was written. Both functions do
+// their own inline validation. Add proper zod schemas here once schemas.js
+// is available, for consistency with the rest of the router.
+router.post("/auth/request-password-reset", requestPasswordReset);
+router.post("/auth/reset-password", resetPassword);
+
+// NEW — Phase 6: "Request Access" replaces open self-signup. Public
+// submission only; approval requires auth + manageUsers (below).
+router.post("/access-requests", createAccessRequest);
 
 // Protected routes
 router.use(authMiddleware);
@@ -53,6 +66,7 @@ router.get("/documents/quotes/:id.pdf", getQuotePdf);
 router.get("/documents/job-cards/:id.pdf", getJobCardPdf);
 router.get("/documents/worksheets/:id.pdf", getWorksheetPdf);
 router.get("/documents/invoices/:id.pdf", getInvoicePdf);
+router.post("/invoices/:id/void", deactivateEntity("invoices"));
 router.get("/documents/purchase-orders/:id.pdf", getPoDocumentPdf);
 
 // Reports (Phase 04)
@@ -80,8 +94,15 @@ router.patch("/admin/catalog_items/:id", validate(AdminUpdateCatalogItemSchema),
 router.get("/admin/company_profile", getCompanyProfile);
 router.patch("/admin/company_profile", validate(AdminCompanyProfileSchema), updateCompanyProfile);
 
+// NEW — Phase 6: Access request review (Admin only, enforced inside the
+// controller via requirePermission(actor, "manageUsers")).
+router.post("/access-requests/:id/approve", approveAccessRequest);
+router.post("/access-requests/:id/reject", rejectAccessRequest);
+
 // Quotes
 router.post("/quotes", validate(CreateQuoteSchema), createQuote);
+router.patch("/quotes/:id", updateQuote);
+router.post("/quotes/:id/cancel", cancelQuote);
 router.post("/quotes/:id/transition", validate(TransitionQuoteSchema), transition);
 router.post("/quotes/:id/po", validate(VerifyPoSchema), capturePo);
 router.post("/quotes/:id/client-po", validate(ClientSubmitPoSchema), submitClientPo);
@@ -91,6 +112,7 @@ router.post("/dispatch_cards/:id/timesheets", validate(AddTimesheetSchema), addT
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
+router.patch("/field_worksheets/:id", updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
 
 // Purchase Orders
@@ -117,11 +139,14 @@ const collections = [
   "purchase_orders", "dispatch_cards", "field_worksheets",
   "invoices", "equipment_tags", "catalog_items", "audit_logs",
   "mine_sites", "plants", "plant_sections",
-  "suppliers", "stock_items", "stock_movements"
+  "suppliers", "stock_items", "stock_movements",
+  "access_requests"
 ];
 
 collections.forEach((collection) => {
   router.get(`/${collection}`, getCollection(collection));
+  router.post(`/admin/${collection}/:id/deactivate`, deactivateEntity(collection));
+  router.post(`/admin/${collection}/:id/reactivate`, reactivateEntity(collection));
 });
 
 export default router;

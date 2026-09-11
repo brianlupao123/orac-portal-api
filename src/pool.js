@@ -19,3 +19,10 @@ export async function ensureTableExists() {
     );
   `);
 }
+
+// Keep-alive ping to prevent Neon cold starts (scales to zero after 5 mins)
+if (process.env.DATABASE_URL) {
+  setInterval(() => {
+    pool.query("SELECT 1").catch(err => console.error("Keep-alive ping failed:", err.message));
+  }, 4.5 * 60 * 1000); // 4.5 minutes
+}
