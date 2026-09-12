@@ -30,7 +30,8 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | ID | Role | Action | Expected Result | Actual Result | Evidence | Status | Sign-off |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | UAT-001 | Public | Open `/` directly | Public industrial service landing loads. | HTTP 200; current public bundle served. | Read-only HTTP check, 2026-09-12 | PASS | Codex |
-| UAT-002 | Public | Open `/login` directly | Login route loads; no static-site 404. | HTTP 200; deployed bundle excludes old dark-panel copy and includes current sign-out marker. | Read-only HTTP and bundle-marker check, 2026-09-12 | PASS | Codex |
+| UAT-002 | Public | Open `/login` directly | Login route loads; no static-site 404. | HTTP 200. | Read-only HTTP check, 2026-09-12 | PASS | Codex |
+| UAT-006 | N/A | Inspect deployed frontend bundle for release markers | Current login implementation and explicit sign-out marker are present; removed Quick Access and old dark-panel copy are absent. | Required markers present/absent as expected. This is deployment evidence, not a human visual UAT. | Read-only bundle-marker check, 2026-09-12 | PASS | Codex |
 | UAT-003 | Authenticated user | Sign in with authorized account | Correct role dashboard loads; no console/API error. | | | NOT RUN | |
 | UAT-004 | Authenticated user | Use visible header Sign out | Session clears and user returns to public/login route. | | | NOT RUN | |
 | UAT-005 | Authenticated user | Use profile-menu Sign out | Session clears and user returns to public/login route. | | | NOT RUN | |
