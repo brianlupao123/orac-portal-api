@@ -85,6 +85,13 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | UAT-051 | Supervisor | Review dashboard | Only review, dispatch, and operational priorities appear. | | | NOT RUN | |
 | UAT-052 | Client Viewer | Review dashboard and Client Portal | Only own organisation metrics and records appear. | | | NOT RUN | |
 | UAT-053 | Management | Review dashboard | Management oversight metrics and permitted navigation appear. | | | NOT RUN | |
+| UAT-054 | Admin | Review dashboard against curated demo data | KPI and activity values are populated, internally consistent, and do not show duplicate seed records. | | | NOT RUN | |
+
+## Platform Security and Connectivity
+
+| ID | Role | Action | Expected Result | Actual Result | Evidence | Status | Sign-off |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| UAT-060 | N/A | Confirm explicit SSL/TLS database configuration in private local and Render environment settings, then review API startup/deploy logs and call `/healthz` | Secure explicit SSL mode is configured; API health returns HTTP 200; no SSL compatibility warning appears in the reviewed startup/deploy log. | | | NOT RUN | |
 
 ## Defects and Follow-up
 
