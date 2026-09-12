@@ -9,7 +9,9 @@
     "test": "node --test tests/*.test.js",
     "admin:reset-password": "node scripts/reset-admin-password.js",
     "migrate:store": "node scripts/migrate-store.js",
-    "seed:neon": "node scripts/seed-neon.js"
+    "seed:neon": "node scripts/seed-neon.js",
+    "demo:preview": "node scripts/seed-curated-demo.js",
+    "demo:seed": "node scripts/seed-curated-demo.js --apply"
   },
   "keywords": [
     "orac",
