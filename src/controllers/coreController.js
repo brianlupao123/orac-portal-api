@@ -14,7 +14,9 @@ function getActor(req) {
 const collectionGuards = {
   users: [roles.ADMIN],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
-  invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT],
+  // Client Viewers may read invoices only after the client-scoping step below
+  // filters them to their own organisation.
+  invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER],
   purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
