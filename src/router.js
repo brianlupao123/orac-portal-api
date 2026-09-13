@@ -28,6 +28,7 @@ import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorkshe
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, getLowStockReport } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
+import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, flagAiResponse } from "./controllers/aiController.js";
 
 const router = express.Router();
 
@@ -53,6 +54,14 @@ router.use(authMiddleware);
 router.get("/auth/me", getMe);
 router.get("/summary", getSummary);
 router.get("/exports/pastel.csv", exportPastel);
+
+// Phase 0.5 is deterministic and providerless. These routes have no model,
+// provider, free-text, or business-record mutation capability.
+router.get("/ai/health", getAiHealth);
+router.post("/ai/briefing", getBriefing);
+router.post("/ai/attention", getAttentionItems);
+router.post("/ai/explain", getMetricExplanation);
+router.post("/ai/feedback", flagAiResponse);
 
 // Printable/document-data endpoints (Phase 03)
 router.get("/document-data/quotes/:id", getQuoteDocument);

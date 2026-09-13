@@ -3,7 +3,7 @@ import { hasPermission, requirePermission } from "../permissions.js";
 import { roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
 
-function getActor(req) {
+export function getActor(req) {
   // GET endpoints might be called by an authenticated user
   if (!req.user) return req.db.users[0]; // fallback for unauthenticated leads
   return req.db.users.find((u) => u.id === req.user.id);
@@ -107,27 +107,25 @@ function scopeOperationalData(data, collectionName, actor, db) {
   return data;
 }
 
-export const getSummary = (req, res) => {
-  const actor = getActor(req);
-
-  let quotesData = req.db.quotes;
-  let dispatchData = req.db.dispatch_cards;
-  let invoicesData = req.db.invoices;
-  let purchaseOrdersData = req.db.purchase_orders;
-  let clientsCount = req.db.clients.length;
-  let worksheetsData = req.db.field_worksheets;
+export function buildScopedSummary(db, actor) {
+  let quotesData = db.quotes;
+  let dispatchData = db.dispatch_cards;
+  let invoicesData = db.invoices;
+  let purchaseOrdersData = db.purchase_orders;
+  let clientsCount = db.clients.length;
+  let worksheetsData = db.field_worksheets;
 
   if (isClientViewer(actor)) {
     quotesData = scopeByClient(quotesData, actor, clientScopedResolvers.quotes);
-    dispatchData = scopeByClient(dispatchData, actor, (item) => clientScopedResolvers.dispatch_cards(item, req.db));
-    invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, req.db));
-    purchaseOrdersData = scopeByClient(purchaseOrdersData, actor, (item) => clientScopedResolvers.purchase_orders(item, req.db));
+    dispatchData = scopeByClient(dispatchData, actor, (item) => clientScopedResolvers.dispatch_cards(item, db));
+    invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, db));
+    purchaseOrdersData = scopeByClient(purchaseOrdersData, actor, (item) => clientScopedResolvers.purchase_orders(item, db));
     clientsCount = actor.client_id ? 1 : 0;
   }
 
   if (actor?.role === roles.TECHNICIAN || actor?.role === roles.SUPERVISOR) {
-    dispatchData = scopeOperationalData(dispatchData, "dispatch_cards", actor, req.db);
-    worksheetsData = scopeOperationalData(worksheetsData, "field_worksheets", actor, req.db);
+    dispatchData = scopeOperationalData(dispatchData, "dispatch_cards", actor, db);
+    worksheetsData = scopeOperationalData(worksheetsData, "field_worksheets", actor, db);
     quotesData = [];
     invoicesData = [];
     purchaseOrdersData = [];
@@ -139,21 +137,22 @@ export const getSummary = (req, res) => {
     return acc;
   }, {});
 
-  res.json({
-    success: true,
-    data: {
-      clients: clientsCount,
-      quotes: quotesData.length,
-      dispatches: dispatchData.length,
-      invoices: invoicesData.length,
-      worksheets: worksheetsData.length,
-      pending_review: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
-      returned_for_correction: worksheetsData.filter((worksheet) => worksheet.status === "Returned_For_Correction").length,
-      pending_po: quotesData.filter((quote) => quote.status === "Approved_Pending_PO").length,
-      blocked_amendments: purchaseOrdersData.filter((po) => po.requires_amendment).length,
-      status_counts: statusCounts
-    }
-  });
+  return {
+    clients: clientsCount,
+    quotes: quotesData.length,
+    dispatches: dispatchData.length,
+    invoices: invoicesData.length,
+    worksheets: worksheetsData.length,
+    pending_review: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
+    returned_for_correction: worksheetsData.filter((worksheet) => worksheet.status === "Returned_For_Correction").length,
+    pending_po: quotesData.filter((quote) => quote.status === "Approved_Pending_PO").length,
+    blocked_amendments: purchaseOrdersData.filter((po) => po.requires_amendment).length,
+    status_counts: statusCounts
+  };
+}
+
+export const getSummary = (req, res) => {
+  res.json({ success: true, data: buildScopedSummary(req.db, getActor(req)) });
 };
 
 export const exportPastel = (req, res) => {
