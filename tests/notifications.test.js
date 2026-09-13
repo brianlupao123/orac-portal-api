@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../src/store.js";
 import { handleAuditForNotifications } from "../src/notifications.js";
+import { getVisibleNotifications } from "../src/controllers/notificationController.js";
 
 /* ── Helpers ── */
 function makeDb() {
@@ -53,18 +54,6 @@ function makeAudit(action, entityType, entityId, newValues, oldValues) {
     new_values: newValues || null,
     created_at: new Date().toISOString()
   };
-}
-
-/* ── Inline visibility filter (mirrors notificationController.js logic) ── */
-function getVisibleNotifications(db, user) {
-  const full = db.users.find(u => u.id === user.id) || user;
-  return db.notifications.filter(notif => {
-    if (full.role === "Client Viewer") {
-      if (!full.client_id) return false;
-      return notif.client_id === full.client_id && notif.target_roles.includes("Client Viewer");
-    }
-    return notif.target_roles.includes(full.role);
-  });
 }
 
 /* ── Tests ── */
@@ -215,4 +204,22 @@ test("duplicate audit_log_id does not create duplicate notification", () => {
   handleAuditForNotifications(db, audit); // same audit entry again
 
   assert.equal(db.notifications.length, 1, "Should not create duplicate notification");
+});
+
+test("curated user-targeted notifications remain visible without role metadata", () => {
+  const { db } = makeDb();
+  db.notifications.push({
+    id: "notification_demo_001",
+    user_id: "u_supervisor",
+    type: "worksheet_submitted",
+    message: "Worksheet FW-DEMO-002 is ready for review.",
+    read_at: null,
+    created_at: new Date().toISOString()
+  });
+
+  const supervisor = db.users.find((user) => user.id === "u_supervisor");
+  const technician = db.users.find((user) => user.id === "u_tech");
+
+  assert.equal(getVisibleNotifications(db, supervisor).length, 1);
+  assert.equal(getVisibleNotifications(db, technician).length, 0);
 });

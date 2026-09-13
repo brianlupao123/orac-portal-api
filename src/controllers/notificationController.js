@@ -10,20 +10,28 @@ function resolveUser(db, jwtUser) {
  * Filter notifications based on role visibility rules and client-scoped isolation.
  * Server-side enforcement — frontend filtering is only UX.
  */
-function getVisibleNotifications(db, jwtUser) {
+export function getVisibleNotifications(db, jwtUser) {
   if (!db.notifications) return [];
 
   const user = resolveUser(db, jwtUser);
 
   return db.notifications.filter(notif => {
+    const targetRoles = Array.isArray(notif.target_roles) ? notif.target_roles : [];
+
+    // Curated and legacy notifications can target one specific user. Keep this
+    // narrow path separate from role and client visibility.
+    if (notif.user_id) {
+      return notif.user_id === user.id;
+    }
+
     // Client Viewer only sees their assigned client notifications
     if (user.role === "Client Viewer") {
       if (!user.client_id) return false;
-      return notif.client_id === user.client_id && notif.target_roles.includes("Client Viewer");
+      return notif.client_id === user.client_id && targetRoles.includes("Client Viewer");
     }
 
     // Role-based visibility for all other roles
-    return notif.target_roles.includes(user.role);
+    return targetRoles.includes(user.role);
   }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
@@ -42,6 +50,7 @@ export function markRead(req, res) {
   }
 
   const user = resolveUser(req.db, req.user);
+  if (!Array.isArray(notif.read_by)) notif.read_by = [];
   if (!notif.read_by.includes(user.id)) {
     notif.read_by.push(user.id);
   }
@@ -55,6 +64,7 @@ export function markAllRead(req, res) {
   const user = resolveUser(req.db, req.user);
 
   for (const notif of visible) {
+    if (!Array.isArray(notif.read_by)) notif.read_by = [];
     if (!notif.read_by.includes(user.id)) {
       notif.read_by.push(user.id);
     }
