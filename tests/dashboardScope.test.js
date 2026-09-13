@@ -1,0 +1,75 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { getCollection, getSummary } from "../src/controllers/coreController.js";
+
+function createResponse() {
+  return {
+    statusCode: 200,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    }
+  };
+}
+
+function createDatabase(users) {
+  return {
+    users,
+    clients: [{ id: "client-a" }, { id: "client-b" }],
+    quotes: [
+      { id: "quote-a", client_id: "client-a", status: "PO_Verified" },
+      { id: "quote-b", client_id: "client-b", status: "Invoiced" }
+    ],
+    purchase_orders: [{ id: "po-a", quotation_id: "quote-a", requires_amendment: false }],
+    invoices: [{ id: "invoice-b", dispatch_card_id: "dispatch-b" }],
+    dispatch_cards: [
+      { id: "dispatch-a", quotation_id: "quote-a", assigned_technician_id: "tech-1", assigned_supervisor_id: "supervisor-1", status: "In_Progress" },
+      { id: "dispatch-b", quotation_id: "quote-b", assigned_technician_id: "tech-2", assigned_supervisor_id: "supervisor-2", status: "In_Progress" }
+    ],
+    field_worksheets: [
+      { id: "worksheet-a", dispatch_card_id: "dispatch-a", technician_id: "tech-1", supervisor_id: "supervisor-1", status: "Submitted" },
+      { id: "worksheet-b", dispatch_card_id: "dispatch-b", technician_id: "tech-2", supervisor_id: "supervisor-2", status: "Returned_For_Correction" }
+    ]
+  };
+}
+
+test("Technician dashboard summary and operational collections are limited to assigned work", () => {
+  const technician = { id: "tech-1", role: "Technician", is_active: true };
+  const req = { user: { id: technician.id }, db: createDatabase([technician]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.clients, 0);
+  assert.equal(summaryResponse.body.data.quotes, 0);
+  assert.equal(summaryResponse.body.data.invoices, 0);
+  assert.equal(summaryResponse.body.data.dispatches, 1);
+  assert.equal(summaryResponse.body.data.worksheets, 1);
+
+  const dispatchResponse = createResponse();
+  getCollection("dispatch_cards")(req, dispatchResponse);
+  assert.deepEqual(dispatchResponse.body.data.map((dispatch) => dispatch.id), ["dispatch-a"]);
+});
+
+test("Supervisor dashboard summary and operational collections are limited to review scope", () => {
+  const supervisor = { id: "supervisor-1", role: "Supervisor", is_active: true };
+  const req = { user: { id: supervisor.id }, db: createDatabase([supervisor]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.clients, 0);
+  assert.equal(summaryResponse.body.data.quotes, 0);
+  assert.equal(summaryResponse.body.data.invoices, 0);
+  assert.equal(summaryResponse.body.data.dispatches, 1);
+  assert.equal(summaryResponse.body.data.pending_review, 1);
+
+  const worksheetResponse = createResponse();
+  getCollection("field_worksheets")(req, worksheetResponse);
+  assert.deepEqual(worksheetResponse.body.data.map((worksheet) => worksheet.id), ["worksheet-a"]);
+});

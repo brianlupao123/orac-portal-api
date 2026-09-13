@@ -43,6 +43,49 @@ const clientScopedResolvers = {
   }
 };
 
+function isTechnicianAssignedToDispatch(dispatch, actor, db) {
+  return dispatch.assigned_technician_id === actor.id ||
+    dispatch.technician_id === actor.id ||
+    dispatch.assigned_to === actor.id ||
+    db.field_worksheets.some((worksheet) =>
+      worksheet.dispatch_card_id === dispatch.id && worksheet.technician_id === actor.id
+    );
+}
+
+function isSupervisorAssignedToDispatch(dispatch, actor, db) {
+  return dispatch.assigned_supervisor_id === actor.id ||
+    dispatch.supervisor_id === actor.id ||
+    db.field_worksheets.some((worksheet) =>
+      worksheet.dispatch_card_id === dispatch.id && worksheet.supervisor_id === actor.id
+    );
+}
+
+function scopeOperationalData(data, collectionName, actor, db) {
+  if (actor?.role === roles.TECHNICIAN) {
+    if (collectionName === "dispatch_cards") {
+      return data.filter((dispatch) => isTechnicianAssignedToDispatch(dispatch, actor, db));
+    }
+    if (collectionName === "field_worksheets") {
+      return data.filter((worksheet) => worksheet.technician_id === actor.id);
+    }
+  }
+
+  if (actor?.role === roles.SUPERVISOR) {
+    if (collectionName === "dispatch_cards") {
+      return data.filter((dispatch) => isSupervisorAssignedToDispatch(dispatch, actor, db));
+    }
+    if (collectionName === "field_worksheets") {
+      return data.filter((worksheet) => {
+        const dispatch = db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
+        return worksheet.supervisor_id === actor.id ||
+          (dispatch && isSupervisorAssignedToDispatch(dispatch, actor, db));
+      });
+    }
+  }
+
+  return data;
+}
+
 export const getSummary = (req, res) => {
   const actor = getActor(req);
 
@@ -51,6 +94,7 @@ export const getSummary = (req, res) => {
   let invoicesData = req.db.invoices;
   let purchaseOrdersData = req.db.purchase_orders;
   let clientsCount = req.db.clients.length;
+  let worksheetsData = req.db.field_worksheets;
 
   if (isClientViewer(actor)) {
     quotesData = scopeByClient(quotesData, actor, clientScopedResolvers.quotes);
@@ -58,6 +102,15 @@ export const getSummary = (req, res) => {
     invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, req.db));
     purchaseOrdersData = scopeByClient(purchaseOrdersData, actor, (item) => clientScopedResolvers.purchase_orders(item, req.db));
     clientsCount = actor.client_id ? 1 : 0;
+  }
+
+  if (actor?.role === roles.TECHNICIAN || actor?.role === roles.SUPERVISOR) {
+    dispatchData = scopeOperationalData(dispatchData, "dispatch_cards", actor, req.db);
+    worksheetsData = scopeOperationalData(worksheetsData, "field_worksheets", actor, req.db);
+    quotesData = [];
+    invoicesData = [];
+    purchaseOrdersData = [];
+    clientsCount = 0;
   }
 
   const statusCounts = quotesData.reduce((acc, quote) => {
@@ -72,6 +125,9 @@ export const getSummary = (req, res) => {
       quotes: quotesData.length,
       dispatches: dispatchData.length,
       invoices: invoicesData.length,
+      worksheets: worksheetsData.length,
+      pending_review: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
+      returned_for_correction: worksheetsData.filter((worksheet) => worksheet.status === "Returned_For_Correction").length,
       pending_po: quotesData.filter((quote) => quote.status === "Approved_Pending_PO").length,
       blocked_amendments: purchaseOrdersData.filter((po) => po.requires_amendment).length,
       status_counts: statusCounts
@@ -131,6 +187,7 @@ export const getCollection = (collectionName) => {
     if (resolveClientId && isClientViewer(actor)) {
       data = scopeByClient(data, actor, (item) => resolveClientId(item, req.db));
     }
+    data = scopeOperationalData(data, collectionName, actor, req.db);
     res.json({ success: true, data });
   };
 };
