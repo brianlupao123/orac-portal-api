@@ -23,9 +23,10 @@ This packet is the current evidence-backed acceptance record for the Orac-IOS pi
 | `0c2573b` | PO verifier cannot approve the linked worksheet | SOURCE + AUTOMATED VERIFIED |
 | `f4243ad` | PostgreSQL certificate validation required by the application pool | SOURCE + AUTOMATED VERIFIED |
 | `1fd558d` | Worksheet submitter cannot approve their own submission | SOURCE + AUTOMATED VERIFIED |
+| `7a50b95` | Guarded generic quote lines, leads, and stock movements | SOURCE + AUTOMATED VERIFIED |
 | `e91187d` (frontend) | Technician/Supervisor role-scoped dashboard UI | SOURCE + AUTOMATED VERIFIED |
 
-Backend regression evidence: **54 tests passed, 0 failed** after `1fd558d`.
+Backend regression evidence: **56 tests passed, 0 failed** after `7a50b95`.
 
 ## Verified Collection Access Matrix
 
@@ -35,12 +36,15 @@ This matrix covers current explicit guards for the listed generic collection end
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | clients | Allowed | Allowed | Allowed | Allowed | Allowed | Denied | Denied | Scoped: own client |
 | quotes | Allowed | Allowed | Allowed | Allowed | Allowed | Denied | Denied | Scoped: own client |
+| quote_lines | Allowed | Allowed | Allowed | Allowed | Allowed | Denied | Denied | Scoped: own client |
+| leads | Allowed | Allowed | Allowed | Denied | Denied | Denied | Denied | Denied |
 | dispatch_cards | Allowed | Allowed | Denied | Denied | Allowed | Scoped: review work | Scoped: assigned work | Denied |
 | field_worksheets | Allowed | Allowed | Denied | Denied | Allowed | Scoped: review work | Scoped: assigned work | Denied |
 | purchase_orders | Allowed | Allowed | Denied | Allowed | Allowed | Denied | Denied | Denied |
 | invoices | Allowed | Allowed | Denied | Allowed | Denied | Denied | Denied | Scoped: own client |
 | users | Allowed | Denied | Denied | Denied | Denied | Denied | Denied | Denied |
 | audit_logs | Allowed | Allowed | Denied | Allowed | Denied | Denied | Denied | Denied |
+| stock_movements | Allowed | Allowed | Denied | Denied | Allowed | Denied | Denied | Denied |
 
 ## Workflow and Financial Controls
 
@@ -58,29 +62,22 @@ This matrix covers current explicit guards for the listed generic collection end
 
 Record each result with role, action, expected result, actual result, timestamp, evidence reference, and PASS/FAIL/BLOCKED status.
 
-1. Confirm Render reports backend commit `1fd558d` and frontend commit `e91187d`.
+1. Confirm Render reports backend commit `7a50b95` and frontend commit `e91187d`.
 2. Technician: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only assigned work.
 3. Supervisor: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only review-scoped work.
-4. Technician and Supervisor: generic `clients`, `quotes`, and quote document access outside their work are denied.
+4. Technician and Supervisor: generic `clients`, `quotes`, `quote_lines`, and quote document access outside their work are denied.
 5. Client Viewer: invoices and quotes contain only their organisation's records; guessed other-client document IDs are denied.
 6. Deactivate a non-critical pilot account and verify its existing session receives 401 on the next protected request.
 7. Complete one normal and one urgent quote-to-invoice trace using continuous linked records.
 8. Test invoice void, generic transactional archive rejection, PO-verifier separation, and worksheet-submitter separation.
 9. Confirm the approved frontend origin works and an unapproved browser origin is rejected after the CORS policy is finalized.
+10. Verify quote-line Client Viewer scoping, Sales lead access, and Operations stock-movement access; verify each non-permitted role is denied.
 
-## Verified Gap: Unguarded Generic Collections
+## Completed Narrow Collection-Guard Release
 
-The generic router exposes `leads`, `quote_lines`, and `stock_movements`, but the current explicit collection-guard registry does not list them. Therefore they currently inherit the controller's authenticated-user default. This is **NOT IMPLEMENTED** as a full policy control.
+Commit `7a50b95` adds explicit guards for `quote_lines`, `leads`, and `stock_movements`. Quote lines inherit quote access and Client Viewer server-side scoping; lead access is limited to Admin, Management, and Sales; stock movements are limited to Admin, Management, and Operations.
 
-Recommended narrow remediation, pending explicit owner approval because it changes production access policy:
-
-| Collection | Proposed direct-read roles | Rationale |
-| --- | --- | --- |
-| quote_lines | Same as `quotes`; Client Viewer server-scoped | Prevents bypassing quote restrictions through line-item data. |
-| leads | Admin, Management, Sales | Commercial contact data belongs to commercial oversight. |
-| stock_movements | Admin, Management, Operations | Inventory movement history is operationally sensitive. |
-
-This is not the broader default-deny registry. The latter remains a separate P1 change requiring a complete endpoint/caller inventory.
+The larger default-deny registry is still a separate P1 change requiring a complete endpoint/caller inventory. It has not been implemented or implied by this narrow release.
 
 ## Remaining Release Gates
 
