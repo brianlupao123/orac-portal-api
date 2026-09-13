@@ -34,7 +34,11 @@ The assistant must not approve, verify, dispatch, invoice, void, export, change 
 
 ## Grounding Rule
 
-Every live metric claim must match an exact metric key and value from the authenticated user's current scoped data payload. Every policy answer must cite a current approved knowledge-base article and version. Any mismatch triggers template fallback or unavailable status.
+Every live metric claim must match an exact metric key and value from the authenticated user's current scoped data payload. Every policy answer must cite a current approved knowledge-base article and version.
+
+Before a policy citation, the backend grounding validator must verify that the requested article exists in the approved index and that its own metadata is `Status: Approved`. Draft, retired, missing, malformed, or index/metadata-inconsistent articles are not eligible for citation. The assistant must return `Unavailable` for unsupported policy guidance rather than infer or reuse a draft.
+
+Any metric or policy validation mismatch triggers template fallback or unavailable status.
 
 ## Feedback and Audit
 
