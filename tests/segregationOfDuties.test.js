@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reviewWorksheet } from "../src/controllers/dispatchController.js";
+import { createWorksheet, reviewWorksheet, submitWorksheet } from "../src/controllers/dispatchController.js";
 
 function createResponse() {
   return {
@@ -16,12 +16,32 @@ function createResponse() {
   };
 }
 
-function createRequest(actor, { decision = "approve", verifiedBy = "finance-1" } = {}) {
+function createRequest(actor, {
+  decision = "approve",
+  verifiedBy = "finance-1",
+  submittedBy = "technician-1",
+  legacySubmittedBy = null
+} = {}) {
   const verifier = actor.id === verifiedBy
     ? actor
     : { id: verifiedBy, role: "Finance", is_active: true };
-  const worksheet = { id: "worksheet-1", dispatch_card_id: "dispatch-1", status: "Submitted" };
+  const worksheet = {
+    id: "worksheet-1",
+    dispatch_card_id: "dispatch-1",
+    status: "Submitted",
+    submitted_by: submittedBy
+  };
   const auditEntries = [];
+  if (legacySubmittedBy) {
+    auditEntries.push({
+      id: "audit-submission",
+      actor_id: legacySubmittedBy,
+      entity_type: "field_worksheet",
+      entity_id: worksheet.id,
+      action: "WORKSHEET_SUBMITTED",
+      created_at: "2026-09-13T09:00:00.000Z"
+    });
+  }
   return {
     user: { id: actor.id },
     params: { id: worksheet.id },
@@ -79,4 +99,70 @@ test("PO verifier may return a worksheet for correction with a comment", () => {
   assert.equal(res.statusCode, 200);
   assert.equal(req.worksheet.status, "Returned_For_Correction");
   assert.equal(req.auditEntries[0].action, "WORKSHEET_RETURNED");
+});
+
+test("worksheet submitter cannot approve their own submission", () => {
+  const supervisor = { id: "supervisor-1", role: "Supervisor", is_active: true };
+  const req = createRequest(supervisor, { submittedBy: supervisor.id });
+  const res = createResponse();
+
+  reviewWorksheet(req, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(req.worksheet.status, "Submitted");
+  assert.match(res.body.message, /submitted this worksheet/i);
+});
+
+test("legacy worksheet approval uses submission audit evidence without backfilling fields", () => {
+  const supervisor = { id: "supervisor-1", role: "Supervisor", is_active: true };
+  const req = createRequest(supervisor, { submittedBy: null, legacySubmittedBy: supervisor.id });
+  const res = createResponse();
+
+  reviewWorksheet(req, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(req.worksheet.submitted_by, null);
+});
+
+test("worksheet approval fails closed when legacy submission ownership cannot be verified", () => {
+  const supervisor = { id: "supervisor-1", role: "Supervisor", is_active: true };
+  const req = createRequest(supervisor, { submittedBy: null });
+  const res = createResponse();
+
+  reviewWorksheet(req, res);
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(req.worksheet.status, "Submitted");
+  assert.match(res.body.message, /ownership cannot be verified/i);
+});
+
+test("new worksheet submissions persist the submitting actor", () => {
+  const technician = { id: "technician-1", role: "Technician", is_active: true };
+  const auditEntries = [];
+  const req = {
+    user: { id: technician.id },
+    params: { id: "dispatch-1" },
+    body: { activity: "Inspect lining", hours: 2, submit: false },
+    db: {
+      users: [technician],
+      dispatch_cards: [{ id: "dispatch-1" }],
+      field_worksheets: [],
+      audit_logs: auditEntries
+    },
+    store: {
+      id: () => "worksheet-1",
+      audit(_db, actor, entityType, entityId, action, before, after) {
+        auditEntries.push({ actor_id: actor.id, entity_type: entityType, entity_id: entityId, action, before, after });
+      }
+    }
+  };
+
+  createWorksheet(req, createResponse());
+  req.params.id = "worksheet-1";
+  req.body = {};
+  const submitResponse = createResponse();
+  submitWorksheet(req, submitResponse);
+
+  assert.equal(submitResponse.statusCode, 200);
+  assert.equal(req.db.field_worksheets[0].submitted_by, technician.id);
 });

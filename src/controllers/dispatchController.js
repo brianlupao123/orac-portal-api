@@ -112,6 +112,7 @@ export const createWorksheet = (req, res) => {
     challenges: String(body.challenges || "").trim(),
     evidence_files: body.evidence_files || [],
     status: body.submit ? "Submitted" : "Draft",
+    submitted_by: body.submit ? actor.id : null,
     supervisor_comment: "",
     approved_by: null,
     approved_at: null,
@@ -167,6 +168,7 @@ export const submitWorksheet = (req, res) => {
 
   const before = { ...worksheet };
   worksheet.status = "Submitted";
+  worksheet.submitted_by = actor.id;
   worksheet.submitted_at = new Date().toISOString();
   worksheet.updated_at = new Date().toISOString();
   req.store.audit(req.db, actor, "field_worksheet", worksheet.id, "WORKSHEET_SUBMITTED", before, worksheet);
@@ -192,6 +194,23 @@ export const reviewWorksheet = (req, res) => {
   }
 
   if (decision === "approve") {
+    const submissionAudit = (req.db.audit_logs || [])
+      .filter((entry) => entry.entity_type === "field_worksheet" && entry.entity_id === worksheet.id && entry.action === "WORKSHEET_SUBMITTED")
+      .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0];
+    const submittedBy = worksheet.submitted_by || submissionAudit?.actor_id;
+    if (!submittedBy) {
+      return res.status(409).json({
+        success: false,
+        message: "Worksheet approval is blocked because its submission ownership cannot be verified. Return and resubmit the worksheet."
+      });
+    }
+    if (submittedBy === actor.id) {
+      return res.status(403).json({
+        success: false,
+        message: "The user who submitted this worksheet cannot approve it. Assign an independent reviewer."
+      });
+    }
+
     const dispatch = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
     const purchaseOrder = dispatch && req.db.purchase_orders.find((item) =>
       item.id === dispatch.purchase_order_id || item.quotation_id === dispatch.quotation_id
