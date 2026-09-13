@@ -62,7 +62,7 @@ This matrix covers current explicit guards for the listed generic collection end
 
 Record each result with role, action, expected result, actual result, timestamp, evidence reference, and PASS/FAIL/BLOCKED status.
 
-1. Confirm Render reports backend commit `7a50b95` and frontend commit `e91187d`.
+1. Confirm Render reports a backend revision that includes code commit `7a50b95` (or a later revision) and frontend commit `e91187d`.
 2. Technician: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only assigned work.
 3. Supervisor: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only review-scoped work.
 4. Technician and Supervisor: generic `clients`, `quotes`, `quote_lines`, and quote document access outside their work are denied.
