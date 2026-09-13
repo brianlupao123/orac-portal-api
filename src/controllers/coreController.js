@@ -17,6 +17,8 @@ const collectionGuards = {
   // roles receive context through their assigned dispatches/worksheets instead.
   clients: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
   quotes: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
+  quote_lines: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
+  leads: [roles.ADMIN, roles.MANAGEMENT, roles.SALES],
   dispatch_cards: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   field_worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
@@ -24,6 +26,7 @@ const collectionGuards = {
   // filters them to their own organisation.
   invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER],
   purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
+  stock_movements: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
   access_requests: [roles.ADMIN]
