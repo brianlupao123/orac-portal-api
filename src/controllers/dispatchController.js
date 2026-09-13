@@ -191,6 +191,19 @@ export const reviewWorksheet = (req, res) => {
     return res.status(400).json({ success: false, message: "Returning a worksheet requires a supervisor comment." });
   }
 
+  if (decision === "approve") {
+    const dispatch = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
+    const purchaseOrder = dispatch && req.db.purchase_orders.find((item) =>
+      item.id === dispatch.purchase_order_id || item.quotation_id === dispatch.quotation_id
+    );
+    if (purchaseOrder?.verified_by === actor.id) {
+      return res.status(403).json({
+        success: false,
+        message: "The user who verified this purchase order cannot approve its field worksheet. Assign an independent reviewer."
+      });
+    }
+  }
+
   const before = { ...worksheet };
   worksheet.status = decision === "approve" ? "Supervisor_Approved" : "Returned_For_Correction";
   worksheet.supervisor_comment = comment || "";
