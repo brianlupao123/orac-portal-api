@@ -120,6 +120,7 @@ export function buildScopedSummary(db, actor) {
     dispatchData = scopeByClient(dispatchData, actor, (item) => clientScopedResolvers.dispatch_cards(item, db));
     invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, db));
     purchaseOrdersData = scopeByClient(purchaseOrdersData, actor, (item) => clientScopedResolvers.purchase_orders(item, db));
+    worksheetsData = scopeByClient(worksheetsData, actor, (item) => clientScopedResolvers.field_worksheets(item, db));
     clientsCount = actor.client_id ? 1 : 0;
   }
 

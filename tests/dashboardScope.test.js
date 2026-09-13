@@ -73,3 +73,19 @@ test("Supervisor dashboard summary and operational collections are limited to re
   getCollection("field_worksheets")(req, worksheetResponse);
   assert.deepEqual(worksheetResponse.body.data.map((worksheet) => worksheet.id), ["worksheet-a"]);
 });
+
+test("Client Viewer summary counts only worksheets linked to their own client", () => {
+  const clientViewer = { id: "client-user-1", role: "Client Viewer", client_id: "client-a", is_active: true };
+  const req = { user: { id: clientViewer.id }, db: createDatabase([clientViewer]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.clients, 1);
+  assert.equal(summaryResponse.body.data.quotes, 1);
+  assert.equal(summaryResponse.body.data.dispatches, 1);
+  assert.equal(summaryResponse.body.data.invoices, 0);
+  assert.equal(summaryResponse.body.data.worksheets, 1);
+  assert.equal(summaryResponse.body.data.pending_review, 1);
+  assert.equal(summaryResponse.body.data.returned_for_correction, 0);
+});
