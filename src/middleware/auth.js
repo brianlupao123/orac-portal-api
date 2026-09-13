@@ -10,7 +10,20 @@ export function authMiddleware(req, res, next) {
   const token = authHeader.split(" ")[1];
   try {
     const payload = jwt.verify(token, config.jwtSecret);
-    req.user = payload;
+    // Token claims are a login-time snapshot. Re-load the account for every
+    // request so deactivation and role/client-scope changes take effect at once.
+    const user = req.db?.users?.find((item) => item.id === payload.id);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ success: false, message: "Unauthorized. Account is inactive." });
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      client_id: user.client_id,
+      is_active: true
+    };
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: "Unauthorized. Token invalid." });
