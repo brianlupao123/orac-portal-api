@@ -40,6 +40,8 @@ Every live metric claim must match an exact metric key and value from the authen
 
 Every answer needs a request identifier and a visible flag action. Audit records must capture role, approved intent, source metric keys, cited article/version, response mode, time, token and latency totals, and feedback state. Store redacted structured summaries by default rather than unrestricted raw prompts or responses.
 
+AI audit records follow the existing audit-log visibility rule: Admin, Management, and Finance may view them; all other roles are denied. This access rule must be enforced by the backend when AI audit retrieval is implemented.
+
 ## Unresolved Governance Decisions
 
 - Model/provider and data-processing agreement.
@@ -47,4 +49,3 @@ Every answer needs a request identifier and a visible flag action. Audit records
 - Monthly budget, per-user rate limits, and cost owner.
 - Log/feedback retention period.
 - Named feedback reviewers and escalation ownership.
-
