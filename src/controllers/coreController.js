@@ -133,6 +133,15 @@ export function buildScopedSummary(db, actor) {
     clientsCount = 0;
   }
 
+  // Sales may work with client and quote information, but must not receive
+  // dashboard aggregates derived from dispatch, worksheet, invoice, or PO data.
+  if (actor?.role === roles.SALES) {
+    dispatchData = [];
+    invoicesData = [];
+    worksheetsData = [];
+    purchaseOrdersData = [];
+  }
+
   const statusCounts = quotesData.reduce((acc, quote) => {
     acc[quote.status] = (acc[quote.status] || 0) + 1;
     return acc;

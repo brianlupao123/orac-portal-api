@@ -89,3 +89,21 @@ test("Client Viewer summary counts only worksheets linked to their own client", 
   assert.equal(summaryResponse.body.data.pending_review, 1);
   assert.equal(summaryResponse.body.data.returned_for_correction, 0);
 });
+
+test("Sales dashboard summary excludes aggregates from denied operational and financial collections", () => {
+  const sales = { id: "sales-1", role: "Sales", is_active: true };
+  const req = { user: { id: sales.id }, db: createDatabase([sales]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.clients, 2);
+  assert.equal(summaryResponse.body.data.quotes, 2);
+  assert.equal(summaryResponse.body.data.pending_po, 0);
+  assert.equal(summaryResponse.body.data.dispatches, 0);
+  assert.equal(summaryResponse.body.data.worksheets, 0);
+  assert.equal(summaryResponse.body.data.pending_review, 0);
+  assert.equal(summaryResponse.body.data.returned_for_correction, 0);
+  assert.equal(summaryResponse.body.data.invoices, 0);
+  assert.equal(summaryResponse.body.data.blocked_amendments, 0);
+});
