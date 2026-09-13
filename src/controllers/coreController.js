@@ -13,6 +13,12 @@ function getActor(req) {
 // Collections not listed here remain open to any authenticated user.
 const collectionGuards = {
   users: [roles.ADMIN],
+  // Master-data and commercial collections must be explicitly guarded. Field
+  // roles receive context through their assigned dispatches/worksheets instead.
+  clients: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
+  quotes: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
+  dispatch_cards: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  field_worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   // Client Viewers may read invoices only after the client-scoping step below
   // filters them to their own organisation.
