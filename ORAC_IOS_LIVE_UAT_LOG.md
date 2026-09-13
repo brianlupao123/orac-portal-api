@@ -50,7 +50,7 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | ID | Role | Action | Expected Result | Actual Result | Evidence | Status | Sign-off |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | UAT-020 | Finance or Operations | Verify a seeded client PO | PO reference and amount are required; verified status persists. | | | NOT RUN | |
-| UAT-021 | Operations | Create or update a dispatch linked to PO Verified quote | Dispatch is linked to quote, PO, asset, and assigned technician. | | | NOT RUN | |
+| UAT-021 | Operations | Create or update a dispatch linked to PO Verified quote | Dispatch is linked to the quote, verified PO, and available asset context; configured assignment data is retained. | | | NOT RUN | |
 | UAT-022 | Technician | Create/update worksheet for assigned dispatch | Worksheet persists and remains scoped to assigned work. | | | NOT RUN | |
 | UAT-023 | Technician | Submit worksheet | Status changes to Submitted; Supervisor receives or can view review work. | | | NOT RUN | |
 | UAT-024 | Supervisor | Approve submitted worksheet | Status changes to Supervisor Approved and approval persists. | | | NOT RUN | |
@@ -58,6 +58,9 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | UAT-026 | Finance | Attempt invoice with unapproved worksheet | Invoice is blocked with a clear business message. | | | NOT RUN | |
 | UAT-027 | Finance | Attempt invoice with unresolved PO amendment | Invoice is blocked with a clear business message. | | | NOT RUN | |
 | UAT-028 | Finance | Generate invoice for fully eligible job | Invoice is created only after PO and worksheet controls pass. | | | NOT RUN | |
+| UAT-029 | Finance or Admin | Void an eligible unpaid invoice with a non-empty reason | Dedicated void action succeeds and writes audit evidence. | | | NOT RUN | |
+| UAT-029A | Finance or Admin | Attempt to void a paid invoice | API rejects the void; invoice remains paid. | | | NOT RUN | |
+| UAT-029B | Finance or Admin | Attempt to void without a reason | API rejects the void; invoice remains unchanged. | | | NOT RUN | |
 
 ## Inventory and Administration
 
@@ -68,6 +71,8 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | UAT-032 | Admin or Operations | Override a negative stock movement deliberately | Explicit override succeeds and audit evidence exists. | | | NOT RUN | |
 | UAT-033 | Admin or Management | Create/edit client, asset, catalog, or supplier | Permitted CRUD persists after refresh. | | | NOT RUN | |
 | UAT-034 | Technician | Attempt administration or stock-master action | API denies unauthorized action. | | | NOT RUN | |
+| UAT-035 | Supervisor or Operations | Submit a worksheet, then attempt to approve the same worksheet as the submitter | API denies approval; worksheet remains Submitted. | | | NOT RUN | |
+| UAT-036 | Operations or Admin | PO verifier attempts to approve the linked worksheet, then attempts return-for-correction | Approval is denied; return-for-correction remains permitted with a comment. | | | NOT RUN | |
 
 ## Client Isolation
 
@@ -93,6 +98,7 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | ID | Role | Action | Expected Result | Actual Result | Evidence | Status | Sign-off |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | UAT-060 | N/A | Confirm explicit SSL/TLS database configuration in private local and Render environment settings, then review API startup/deploy logs and call `/healthz` | Secure explicit SSL mode is configured; API health returns HTTP 200; no SSL compatibility warning appears in the reviewed startup/deploy log. | | | NOT RUN | |
+| UAT-061 | Admin | Deactivate a non-test user account, then make an authenticated request using that account's existing session | API rejects the request as inactive; the frontend clears the session and returns to sign-in. | | | NOT RUN | |
 
 ## Defects and Follow-up
 
