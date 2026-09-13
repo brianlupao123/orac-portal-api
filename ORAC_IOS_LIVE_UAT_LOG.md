@@ -92,6 +92,7 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 | UAT-052 | Client Viewer | Review dashboard and Client Portal | Only own organisation metrics and records appear. | | | NOT RUN | |
 | UAT-053 | Management | Review dashboard | Management oversight metrics and permitted navigation appear. | | | NOT RUN | |
 | UAT-054 | Admin | Review dashboard against curated demo data | KPI and activity values are populated, internally consistent, and do not show duplicate seed records. | | | NOT RUN | |
+| UAT-055 | Sales | Review dashboard after the Sales summary remediation | Only permitted client and quote metrics appear. Dispatch, worksheet, invoice, pending-PO, and blocked-amendment aggregates are absent or zero. | | | NOT RUN | |
 
 ## Platform Security and Connectivity
 
@@ -104,4 +105,4 @@ record identifier, HTTP status, screenshot name, and a concise outcome only.
 
 | Defect ID | UAT ID | Severity | Description | Owner | Target Commit | Retest Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+| DEF-001 | UAT-055 | High | Pre-existing Sales dashboard summary exposed aggregates derived from collections Sales cannot read directly. Source remediation clears those datasets before summary calculation. | Backend | `c71c950` | SOURCE + AUTOMATED VERIFIED; live Render/UAT retest required |

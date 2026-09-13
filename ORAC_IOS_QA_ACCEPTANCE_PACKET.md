@@ -24,9 +24,10 @@ This packet is the current evidence-backed acceptance record for the Orac-IOS pi
 | `f4243ad` | PostgreSQL certificate validation required by the application pool | SOURCE + AUTOMATED VERIFIED |
 | `1fd558d` | Worksheet submitter cannot approve their own submission | SOURCE + AUTOMATED VERIFIED |
 | `7a50b95` | Guarded generic quote lines, leads, and stock movements | SOURCE + AUTOMATED VERIFIED |
+| `c71c950` | Sales dashboard summary excludes denied operational and financial aggregates | SOURCE + AUTOMATED VERIFIED |
 | `e91187d` (frontend) | Technician/Supervisor role-scoped dashboard UI | SOURCE + AUTOMATED VERIFIED |
 
-Backend regression evidence: **56 tests passed, 0 failed** after `7a50b95`.
+Backend regression evidence: **64 tests passed, 0 failed** after `c71c950`.
 
 ## Verified Collection Access Matrix
 
@@ -62,7 +63,7 @@ This matrix covers current explicit guards for the listed generic collection end
 
 Record each result with role, action, expected result, actual result, timestamp, evidence reference, and PASS/FAIL/BLOCKED status.
 
-1. Confirm Render reports a backend revision that includes code commit `7a50b95` (or a later revision) and frontend commit `e91187d`.
+1. Confirm Render reports a backend revision that includes code commit `c71c950` (or a later revision) and frontend commit `e91187d`.
 2. Technician: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only assigned work.
 3. Supervisor: dashboard has no organisation-wide KPI values; `/summary`, dispatches, and worksheets include only review-scoped work.
 4. Technician and Supervisor: generic `clients`, `quotes`, `quote_lines`, and quote document access outside their work are denied.
@@ -72,6 +73,7 @@ Record each result with role, action, expected result, actual result, timestamp,
 8. Test invoice void, generic transactional archive rejection, PO-verifier separation, and worksheet-submitter separation.
 9. Confirm the approved frontend origin works and an unapproved browser origin is rejected after the CORS policy is finalized.
 10. Verify quote-line Client Viewer scoping, Sales lead access, and Operations stock-movement access; verify each non-permitted role is denied.
+11. Sales: confirm the dashboard exposes only permitted client and quote metrics and does not expose dispatch, worksheet, invoice, pending-PO, or blocked-amendment aggregates.
 
 ## Completed Narrow Collection-Guard Release
 
