@@ -22,7 +22,7 @@ import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet
 } from "./controllers/dispatchController.js";
-import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity } from "./controllers/coreController.js";
+import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
@@ -66,7 +66,7 @@ router.get("/documents/quotes/:id.pdf", getQuotePdf);
 router.get("/documents/job-cards/:id.pdf", getJobCardPdf);
 router.get("/documents/worksheets/:id.pdf", getWorksheetPdf);
 router.get("/documents/invoices/:id.pdf", getInvoicePdf);
-router.post("/invoices/:id/void", deactivateEntity("invoices"));
+router.post("/invoices/:id/void", voidInvoice);
 router.get("/documents/purchase-orders/:id.pdf", getPoDocumentPdf);
 
 // Reports (Phase 04)

@@ -1,5 +1,5 @@
 import { exportInvoicesCsv } from "../exporter.js";
-import { requirePermission } from "../permissions.js";
+import { hasPermission, requirePermission } from "../permissions.js";
 import { roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
 
@@ -27,6 +27,18 @@ const collectionGuards = {
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
   access_requests: [roles.ADMIN]
+};
+
+const archivePermissions = {
+  users: "manageUsers",
+  clients: "manageClients",
+  mine_sites: "manageAssets",
+  plants: "manageAssets",
+  plant_sections: "manageAssets",
+  equipment_tags: "manageAssets",
+  catalog_items: "manageCatalog",
+  suppliers: "manageInventory",
+  stock_items: "manageInventory"
 };
 
 // Client Viewer isolation (Phase 06). Each resolver returns the owning
@@ -198,15 +210,19 @@ export const getCollection = (collectionName) => {
   };
 };
 
-/**
- * Generic soft-delete: sets is_active = false on any entity in any collection.
- * For invoices, also sets status = "voided".
- */
+/** Generic archive control for master data only. */
 export const deactivateEntity = (collectionName) => {
   return (req, res) => {
     const actor = getActor(req);
-    if (!actor || !["Admin", "Management", "Finance"].includes(actor.role)) {
-      return res.status(403).json({ success: false, message: "Only Admin, Management, or Finance can deactivate records." });
+    const requiredPermission = archivePermissions[collectionName];
+    if (!requiredPermission) {
+      return res.status(405).json({
+        success: false,
+        message: `${collectionName} records are immutable and cannot be archived through the generic route.`
+      });
+    }
+    if (!hasPermission(actor, requiredPermission)) {
+      return res.status(403).json({ success: false, message: `Role ${actor?.role || "Unknown"} cannot archive ${collectionName}.` });
     }
 
     const collection = req.db[collectionName];
@@ -217,7 +233,6 @@ export const deactivateEntity = (collectionName) => {
 
     const before = { ...item };
     item.is_active = false;
-    if (collectionName === "invoices") item.status = "voided";
     item.deactivated_by = actor.id;
     item.deactivated_at = new Date().toISOString();
 
@@ -226,14 +241,19 @@ export const deactivateEntity = (collectionName) => {
   };
 };
 
-/**
- * Reactivate a soft-deleted entity.
- */
+/** Reactivate archived master data using the same domain permission. */
 export const reactivateEntity = (collectionName) => {
   return (req, res) => {
     const actor = getActor(req);
-    if (!actor || !["Admin"].includes(actor.role)) {
-      return res.status(403).json({ success: false, message: "Only Admin can reactivate records." });
+    const requiredPermission = archivePermissions[collectionName];
+    if (!requiredPermission) {
+      return res.status(405).json({
+        success: false,
+        message: `${collectionName} records are immutable and cannot be reactivated through the generic route.`
+      });
+    }
+    if (!hasPermission(actor, requiredPermission)) {
+      return res.status(403).json({ success: false, message: `Role ${actor?.role || "Unknown"} cannot reactivate ${collectionName}.` });
     }
 
     const collection = req.db[collectionName];
@@ -250,4 +270,36 @@ export const reactivateEntity = (collectionName) => {
     req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_REACTIVATED`, before, item);
     res.json({ success: true, data: item });
   };
+};
+
+export const voidInvoice = (req, res) => {
+  const actor = getActor(req);
+  if (!actor || ![roles.ADMIN, roles.FINANCE].includes(actor.role)) {
+    return res.status(403).json({ success: false, message: "Only Admin or Finance can void invoices." });
+  }
+
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) {
+    return res.status(400).json({ success: false, message: "A void reason is required." });
+  }
+
+  const invoice = req.db.invoices.find((item) => item.id === req.params.id);
+  if (!invoice) return res.status(404).json({ success: false, message: "Invoice not found." });
+
+  const currentStatus = String(invoice.status || "").toLowerCase();
+  if (currentStatus === "paid") {
+    return res.status(409).json({ success: false, message: "Paid invoices cannot be voided. Issue a separate credit note or reversal instead." });
+  }
+  if (currentStatus === "voided") {
+    return res.status(409).json({ success: false, message: "Invoice is already voided." });
+  }
+
+  const before = { ...invoice };
+  invoice.status = "voided";
+  invoice.void_reason = reason;
+  invoice.voided_by = actor.id;
+  invoice.voided_at = new Date().toISOString();
+
+  req.store.audit(req.db, actor, "invoice", invoice.id, "INVOICE_VOIDED", before, invoice);
+  res.json({ success: true, data: invoice });
 };
