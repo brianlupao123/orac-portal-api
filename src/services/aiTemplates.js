@@ -13,6 +13,18 @@ const METRIC_LABELS = {
   invoices: "Invoices"
 };
 
+const EVIDENCE_TARGETS = {
+  clients: { targetId: "evidence-kpi-clients", type: "kpi" },
+  quotes: { targetId: "evidence-kpi-quotes", type: "kpi" },
+  dispatches: { targetId: "evidence-kpi-dispatches", type: "kpi" },
+  invoices: { targetId: "evidence-kpi-invoices", type: "kpi" },
+  worksheets: { targetId: "evidence-kpi-worksheets", type: "kpi" },
+  pending_review: { targetId: "evidence-kpi-worksheets-review", type: "kpi" },
+  returned_for_correction: { targetId: "evidence-kpi-returned-for-correction", type: "kpi" },
+  pending_po: { targetId: "evidence-pipeline-approved-pending-po", type: "pipeline" },
+  blocked_amendments: { targetId: "evidence-kpi-blocked-amendments", type: "kpi" }
+};
+
 function assertMetric(payload, metric) {
   if (!Object.hasOwn(payload, metric)) {
     throw new Error(`Metric ${metric} is unavailable for this summary.`);
@@ -20,8 +32,26 @@ function assertMetric(payload, metric) {
   return payload[metric];
 }
 
+function evidenceReference(payload, metric) {
+  const value = assertMetric(payload, metric);
+  const target = EVIDENCE_TARGETS[metric];
+  if (!target) return null;
+  return {
+    metric,
+    label: METRIC_LABELS[metric] || metric,
+    value,
+    ...target
+  };
+}
+
 function claim(payload, metric, sentence) {
-  return { metric, value: assertMetric(payload, metric), sentence };
+  const reference = evidenceReference(payload, metric);
+  return {
+    metric,
+    value: assertMetric(payload, metric),
+    sentence,
+    evidenceRefs: reference ? [reference] : []
+  };
 }
 
 export function metricsForRole(role) {

@@ -18,8 +18,22 @@ function audit(req, actor, requestId, intent, response) {
     intent,
     response_mode: response.label,
     metric_keys: response.claims.map((item) => item.metric),
+    evidence_targets: response.evidenceRefs.map((item) => item.targetId),
     generated_at: response.generatedAt
   });
+}
+
+function uniqueEvidenceRefs(claims) {
+  const seen = new Set();
+  const refs = [];
+  for (const claim of claims) {
+    for (const ref of claim.evidenceRefs || []) {
+      if (!ref?.metric || !ref?.targetId || seen.has(`${ref.metric}:${ref.targetId}`)) continue;
+      seen.add(`${ref.metric}:${ref.targetId}`);
+      refs.push(ref);
+    }
+  }
+  return refs;
 }
 
 function respond(req, res, actor, intent, build) {
@@ -33,12 +47,14 @@ function respond(req, res, actor, intent, build) {
       claims: build(buildScopedSummary(req.db, actor)),
       generatedAt: new Date().toISOString()
     };
+    response.evidenceRefs = uniqueEvidenceRefs(response.claims);
   } catch {
     response = {
       requestId,
       intent,
       label: "Unavailable",
       claims: [],
+      evidenceRefs: [],
       generatedAt: new Date().toISOString()
     };
   }

@@ -60,10 +60,19 @@ test("providerless briefing claims are exact fields from the Operations scoped s
   for (const item of res.body.data.claims) {
     assert.ok(Object.hasOwn(summary, item.metric));
     assert.equal(item.value, summary[item.metric]);
+    assert.ok(Array.isArray(item.evidenceRefs));
+    for (const ref of item.evidenceRefs) {
+      assert.equal(ref.metric, item.metric);
+      assert.ok(Object.hasOwn(summary, ref.metric));
+      assert.equal(ref.value, summary[ref.metric]);
+      assert.match(ref.targetId, /^evidence-/);
+    }
   }
+  assert.ok(res.body.data.evidenceRefs.length > 0);
   assert.equal(req.auditEntries.length, 1);
   assert.equal(req.auditEntries[0].action, "AI_PHASE_0_5_RESPONSE");
   assert.deepEqual(req.auditEntries[0].newValues.metric_keys, res.body.data.claims.map((item) => item.metric));
+  assert.deepEqual(req.auditEntries[0].newValues.evidence_targets, res.body.data.evidenceRefs.map((item) => item.targetId));
 });
 
 test("Finance attention items use only its current summary payload", () => {
@@ -77,6 +86,7 @@ test("Finance attention items use only its current summary payload", () => {
   for (const item of res.body.data.claims) {
     assert.equal(item.value, summary[item.metric]);
     assert.ok(item.value > 0);
+    assert.ok(item.evidenceRefs.every((ref) => Object.hasOwn(summary, ref.metric)));
   }
 });
 
@@ -89,8 +99,42 @@ test("unknown metric returns unavailable and is still audited", () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.label, "Unavailable");
   assert.deepEqual(res.body.data.claims, []);
+  assert.deepEqual(res.body.data.evidenceRefs, []);
   assert.equal(req.auditEntries.length, 1);
   assert.deepEqual(req.auditEntries[0].newValues.metric_keys, []);
+  assert.deepEqual(req.auditEntries[0].newValues.evidence_targets, []);
+});
+
+test("assistant evidence references are limited to metrics exposed for the enabled role", () => {
+  const expectedTargets = {
+    Finance: new Set([
+      "evidence-kpi-blocked-amendments",
+      "evidence-pipeline-approved-pending-po",
+      "evidence-kpi-invoices"
+    ]),
+    Operations: new Set([
+      "evidence-kpi-dispatches",
+      "evidence-kpi-worksheets-review",
+      "evidence-kpi-returned-for-correction"
+    ])
+  };
+
+  for (const role of ["Finance", "Operations"]) {
+    const req = request(role);
+    const res = response();
+    getBriefing(req, res);
+
+    const summary = buildScopedSummary(req.db, req.db.users[0]);
+    const claimMetrics = new Set(res.body.data.claims.map((claim) => claim.metric));
+
+    for (const ref of res.body.data.evidenceRefs) {
+      assert.ok(claimMetrics.has(ref.metric));
+      assert.ok(Object.hasOwn(summary, ref.metric));
+      assert.equal(ref.value, summary[ref.metric]);
+      assert.match(ref.targetId, /^evidence-/);
+      assert.ok(expectedTargets[role].has(ref.targetId));
+    }
+  }
 });
 
 test("Supervisor is rejected by the server even if the frontend exposes a control", () => {
