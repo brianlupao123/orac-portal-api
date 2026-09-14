@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { getActor, buildScopedSummary } from "./coreController.js";
 import { metricsForRole, buildBriefing, buildAttentionItems, explainMetric } from "../services/aiTemplates.js";
+import { roles } from "../permissions.js";
 
-const ENABLED_ROLES = new Set(["Operations", "Finance"]);
+const ENABLED_ROLES = new Set(Object.values(roles));
 
 function allowedActor(req, res) {
   const actor = getActor(req);

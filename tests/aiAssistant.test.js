@@ -105,8 +105,11 @@ test("unknown metric returns unavailable and is still audited", () => {
   assert.deepEqual(req.auditEntries[0].newValues.evidence_targets, []);
 });
 
-test("assistant evidence references are limited to metrics exposed for the enabled role", () => {
+test("assistant evidence references are limited to metrics exposed for each enabled role", () => {
   const expectedTargets = {
+    Admin: new Set(["evidence-kpi-clients", "evidence-kpi-quotes", "evidence-kpi-blocked-amendments"]),
+    Management: new Set(["evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-worksheets-review"]),
+    Sales: new Set(["evidence-kpi-clients", "evidence-kpi-quotes"]),
     Finance: new Set([
       "evidence-kpi-blocked-amendments",
       "evidence-pipeline-approved-pending-po",
@@ -116,10 +119,13 @@ test("assistant evidence references are limited to metrics exposed for the enabl
       "evidence-kpi-dispatches",
       "evidence-kpi-worksheets-review",
       "evidence-kpi-returned-for-correction"
-    ])
+    ]),
+    Supervisor: new Set(["evidence-kpi-dispatches", "evidence-kpi-worksheets-review", "evidence-kpi-returned-for-correction"]),
+    Technician: new Set(["evidence-kpi-dispatches", "evidence-kpi-worksheets", "evidence-kpi-worksheets-review"]),
+    "Client Viewer": new Set(["evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-invoices"])
   };
 
-  for (const role of ["Finance", "Operations"]) {
+  for (const role of ["Admin", "Management", "Sales", "Finance", "Operations", "Supervisor", "Technician", "Client Viewer"]) {
     const req = request(role);
     const res = response();
     getBriefing(req, res);
@@ -137,14 +143,16 @@ test("assistant evidence references are limited to metrics exposed for the enabl
   }
 });
 
-test("Supervisor is rejected by the server even if the frontend exposes a control", () => {
-  const req = request("Supervisor");
-  const res = response();
+test("every active ORAC role receives only its scoped providerless assistant configuration", () => {
+  for (const role of ["Admin", "Management", "Sales", "Finance", "Operations", "Supervisor", "Technician", "Client Viewer"]) {
+    const req = request(role);
+    const res = response();
+    getAiHealth(req, res);
 
-  getAiHealth(req, res);
-
-  assert.equal(res.statusCode, 403);
-  assert.equal(req.auditEntries.length, 0);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.enabled, true);
+    assert.ok(res.body.data.metrics.length > 0);
+  }
 });
 
 test("knowledge-base lookup excludes drafts and requires complete approved metadata", () => {

@@ -1,6 +1,12 @@
 const ROLE_METRICS = {
+  Admin: ["clients", "quotes", "dispatches", "invoices", "blocked_amendments"],
+  Management: ["clients", "quotes", "dispatches", "invoices", "pending_review"],
+  Sales: ["clients", "quotes"],
   Operations: ["dispatches", "worksheets", "pending_review", "returned_for_correction"],
-  Finance: ["blocked_amendments", "pending_po", "invoices"]
+  Finance: ["blocked_amendments", "pending_po", "invoices"],
+  Supervisor: ["dispatches", "pending_review", "returned_for_correction"],
+  Technician: ["dispatches", "worksheets", "pending_review"],
+  "Client Viewer": ["clients", "quotes", "dispatches", "invoices"]
 };
 
 const METRIC_LABELS = {
@@ -59,6 +65,26 @@ export function metricsForRole(role) {
 }
 
 export function buildBriefing(payload, role) {
+  if (role === "Admin") {
+    return [
+      claim(payload, "clients", `${assertMetric(payload, "clients")} client organisation(s) are in the current system view.`),
+      claim(payload, "quotes", `${assertMetric(payload, "quotes")} active quote record(s) are visible.`),
+      claim(payload, "blocked_amendments", `${assertMetric(payload, "blocked_amendments")} PO amendment(s) need attention.`)
+    ];
+  }
+  if (role === "Management") {
+    return [
+      claim(payload, "quotes", `${assertMetric(payload, "quotes")} quote record(s) are in the current business view.`),
+      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are visible.`),
+      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} worksheet(s) await review.`)
+    ];
+  }
+  if (role === "Sales") {
+    return [
+      claim(payload, "clients", `${assertMetric(payload, "clients")} client organisation(s) are available to Sales.`),
+      claim(payload, "quotes", `${assertMetric(payload, "quotes")} active quote record(s) are available for follow-up.`)
+    ];
+  }
   if (role === "Operations") {
     return [
       claim(payload, "dispatches", `Your dashboard currently includes ${assertMetric(payload, "dispatches")} dispatch record(s).`),
@@ -71,6 +97,27 @@ export function buildBriefing(payload, role) {
       claim(payload, "blocked_amendments", `${assertMetric(payload, "blocked_amendments")} PO(s) are flagged as requiring amendment.`),
       claim(payload, "pending_po", `${assertMetric(payload, "pending_po")} quote(s) are awaiting a purchase order.`),
       claim(payload, "invoices", `Your dashboard currently includes ${assertMetric(payload, "invoices")} invoice record(s).`)
+    ];
+  }
+  if (role === "Supervisor") {
+    return [
+      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are in your review scope.`),
+      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} worksheet(s) await your review.`),
+      claim(payload, "returned_for_correction", `${assertMetric(payload, "returned_for_correction")} worksheet(s) await technician correction.`)
+    ];
+  }
+  if (role === "Technician") {
+    return [
+      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are assigned to you.`),
+      claim(payload, "worksheets", `${assertMetric(payload, "worksheets")} worksheet(s) are in your work scope.`),
+      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} submitted worksheet(s) await review.`)
+    ];
+  }
+  if (role === "Client Viewer") {
+    return [
+      claim(payload, "quotes", `${assertMetric(payload, "quotes")} quote record(s) belong to your organisation.`),
+      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} service dispatch record(s) belong to your organisation.`),
+      claim(payload, "invoices", `${assertMetric(payload, "invoices")} invoice record(s) belong to your organisation.`)
     ];
   }
   throw new Error("This role is not enabled for the providerless assistant.");
