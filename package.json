@@ -11,7 +11,8 @@
     "migrate:store": "node scripts/migrate-store.js",
     "seed:neon": "node scripts/seed-neon.js",
     "demo:preview": "node scripts/seed-curated-demo.js",
-    "demo:seed": "node scripts/seed-curated-demo.js --apply"
+    "demo:seed": "node scripts/seed-curated-demo.js --apply",
+    "maintain": "node scripts/verify-maintenance.mjs"
   },
   "keywords": [
     "orac",

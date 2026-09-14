@@ -1,6 +1,7 @@
 # Orac-IOS System Handover
 
 **Audience:** Orac Systems / Handon Enterprises leadership, operational users, support staff, and future developers.  
+**System name:** **ORAC-IOS: Orac Industrial Operations System.**
 **System purpose:** controlled, traceable industrial field-service work from lead through quotation, client authorization, field execution, invoice, and accounting export.  
 **Evidence rule:** source-backed behavior and automated tests are not called live-verified until observed on the deployed system.
 
@@ -21,9 +22,9 @@
 
 | Area | Current status | Evidence |
 | --- | --- | --- |
-| Backend access and financial controls | SOURCE + AUTOMATED VERIFIED | 56 backend tests passed after code commit `7a50b95`. |
-| Backend current revision | SOURCE VERIFIED | `6f51929`, including the security controls released through `7a50b95`. |
-| Frontend role-scoped dashboard | SOURCE + AUTOMATED VERIFIED | Frontend commit `e91187d`. |
+| Backend access, financial controls, and assistant scope | SOURCE + AUTOMATED VERIFIED | 71 backend tests passed after commit `17e7517`. |
+| Backend current revision | SOURCE VERIFIED | `17e7517`. |
+| Frontend role-scoped dashboard, assistant, and brand UI | SOURCE + AUTOMATED VERIFIED | Frontend commit `de6efe9`; frontend tests and production build passed before push. |
 | Curated pilot data | SOURCE VERIFIED | Controlled fictional dataset and linked hierarchy exist in the Neon pilot store. |
 | Render deployment behavior | LIVE-UNVERIFIED | Render commit confirmation and browser UAT remain required. |
 | Backup restore | NOT VERIFIED | A restore drill has not yet been recorded. |
