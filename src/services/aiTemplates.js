@@ -10,6 +10,8 @@ const ROLE_METRICS = {
 };
 
 const METRIC_LABELS = {
+  clients: "Clients",
+  quotes: "Active quotes",
   dispatches: "Dispatch records",
   worksheets: "Field worksheets",
   pending_review: "Worksheets awaiting review",
@@ -18,6 +20,18 @@ const METRIC_LABELS = {
   pending_po: "Quotes awaiting a purchase order",
   invoices: "Invoices"
 };
+
+const QUESTION_METRICS = [
+  { pattern: /\b(clients?|organisations?|customers?)\b/i, metric: "clients" },
+  { pattern: /\b(quotes?|quotations?|pipeline|sales)\b/i, metric: "quotes" },
+  { pattern: /\b(dispatch(?:es)?|jobs?|service)\b/i, metric: "dispatches" },
+  { pattern: /\b(invoices?|billing|payments?)\b/i, metric: "invoices" },
+  { pattern: /\b(worksheets?|work sheets?|field work)\b/i, metric: "worksheets" },
+  { pattern: /\b(reviews?|approvals?)\b/i, metric: "pending_review" },
+  { pattern: /\b(return(?:ed)?|corrections?|resubmit)\b/i, metric: "returned_for_correction" },
+  { pattern: /\b(purchase orders?|\bpo\b|pending po)\b/i, metric: "pending_po" },
+  { pattern: /\b(amendments?|blocked|risks?)\b/i, metric: "blocked_amendments" }
+];
 
 const EVIDENCE_TARGETS = {
   clients: { targetId: "evidence-kpi-clients", type: "kpi" },
@@ -126,6 +140,21 @@ export function buildBriefing(payload, role) {
 export function buildAttentionItems(payload, role) {
   const claims = buildBriefing(payload, role);
   return claims.filter((item) => Number(item.value) > 0);
+}
+
+export function buildChatReply(payload, role, question) {
+  const allowedMetrics = ROLE_METRICS[role] || [];
+  const requested = QUESTION_METRICS
+    .filter(({ pattern, metric }) => pattern.test(question) && allowedMetrics.includes(metric))
+    .map(({ metric }) => metric);
+  const metrics = [...new Set(requested)].slice(0, 3);
+  const selected = metrics.length > 0 ? metrics : allowedMetrics.slice(0, 3);
+
+  return selected.map((metric) => claim(
+    payload,
+    metric,
+    `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)} in your verified dashboard summary.`
+ ));
 }
 
 export function explainMetric(payload, role, metric) {

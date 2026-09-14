@@ -28,7 +28,7 @@ import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorkshe
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, getLowStockReport } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
-import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, flagAiResponse } from "./controllers/aiController.js";
+import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, flagAiResponse } from "./controllers/aiController.js";
 
 const router = express.Router();
 
@@ -61,6 +61,7 @@ router.get("/ai/health", getAiHealth);
 router.post("/ai/briefing", getBriefing);
 router.post("/ai/attention", getAttentionItems);
 router.post("/ai/explain", getMetricExplanation);
+router.post("/ai/chat", getChatResponse);
 router.post("/ai/feedback", flagAiResponse);
 
 // Printable/document-data endpoints (Phase 03)

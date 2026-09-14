@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getAiHealth, getAttentionItems, getBriefing, getMetricExplanation } from "../src/controllers/aiController.js";
+import { getAiHealth, getAttentionItems, getBriefing, getChatResponse, getMetricExplanation } from "../src/controllers/aiController.js";
 import { buildScopedSummary } from "../src/controllers/coreController.js";
 import { approvedKnowledgeArticles } from "../src/services/knowledgeBase.js";
 
@@ -103,6 +103,28 @@ test("unknown metric returns unavailable and is still audited", () => {
   assert.equal(req.auditEntries.length, 1);
   assert.deepEqual(req.auditEntries[0].newValues.metric_keys, []);
   assert.deepEqual(req.auditEntries[0].newValues.evidence_targets, []);
+});
+
+test("dashboard chat maps a typed question to role-scoped evidence without auditing the raw question", () => {
+  const req = request("Finance", { message: "Which invoices and purchase orders need attention?" });
+  const res = response();
+
+  getChatResponse(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.match(res.body.data.message, /Invoices/);
+  assert.deepEqual(res.body.data.claims.map((claim) => claim.metric), ["invoices", "pending_po"]);
+  assert.equal(Object.hasOwn(req.auditEntries[0].newValues, "question"), false);
+});
+
+test("dashboard chat rejects an empty message", () => {
+  const req = request("Operations", { message: "   " });
+  const res = response();
+
+  getChatResponse(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(req.auditEntries.length, 0);
 });
 
 test("assistant evidence references are limited to metrics exposed for each enabled role", () => {

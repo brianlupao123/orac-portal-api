@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getActor, buildScopedSummary } from "./coreController.js";
-import { metricsForRole, buildBriefing, buildAttentionItems, explainMetric } from "../services/aiTemplates.js";
+import { metricsForRole, buildBriefing, buildAttentionItems, buildChatReply, explainMetric } from "../services/aiTemplates.js";
 import { roles } from "../permissions.js";
 
 const ENABLED_ROLES = new Set(Object.values(roles));
@@ -49,6 +49,7 @@ function respond(req, res, actor, intent, build) {
       generatedAt: new Date().toISOString()
     };
     response.evidenceRefs = uniqueEvidenceRefs(response.claims);
+    response.message = response.claims.map((claim) => claim.sentence).join(" ");
   } catch {
     response = {
       requestId,
@@ -56,6 +57,7 @@ function respond(req, res, actor, intent, build) {
       label: "Unavailable",
       claims: [],
       evidenceRefs: [],
+      message: "I could not verify that from your current dashboard evidence.",
       generatedAt: new Date().toISOString()
     };
   }
@@ -71,7 +73,7 @@ export function getAiHealth(req, res) {
     data: {
       phase: "0.5",
       enabled: true,
-      intents: ["dashboard_briefing", "attention_items", "metric_explanation"],
+      intents: ["dashboard_briefing", "attention_items", "metric_explanation", "dashboard_chat"],
       metrics: metricsForRole(actor.role)
     }
   });
@@ -92,6 +94,17 @@ export function getMetricExplanation(req, res) {
   if (!actor) return;
   const metric = typeof req.body?.metric === "string" ? req.body.metric : "";
   respond(req, res, actor, "metric_explanation", (payload) => [explainMetric(payload, actor.role, metric)]);
+}
+
+export function getChatResponse(req, res) {
+  const actor = allowedActor(req, res);
+  if (!actor) return;
+  const question = typeof req.body?.message === "string" ? req.body.message.trim().slice(0, 500) : "";
+  if (!question) {
+    return res.status(400).json({ success: false, message: "Enter a dashboard question before sending." });
+  }
+  // The raw question is deliberately not stored in the audit record.
+  respond(req, res, actor, "dashboard_chat", (payload) => buildChatReply(payload, actor.role, question));
 }
 
 export function flagAiResponse(req, res) {
