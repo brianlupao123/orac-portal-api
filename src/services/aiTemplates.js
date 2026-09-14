@@ -1,4 +1,6 @@
-const ROLE_METRICS = {
+import { getKnowledgeForMetric, getRoleGuidance, ORAC_WORKFLOW_KNOWLEDGE } from "./aiKnowledgeBase.js";
+
+export const ROLE_METRICS = {
   Admin: ["clients", "quotes", "dispatches", "invoices", "blocked_amendments"],
   Management: ["clients", "quotes", "dispatches", "invoices", "pending_review"],
   Sales: ["clients", "quotes"],
@@ -9,7 +11,7 @@ const ROLE_METRICS = {
   "Client Viewer": ["clients", "quotes", "dispatches", "invoices"]
 };
 
-const METRIC_LABELS = {
+export const METRIC_LABELS = {
   clients: "Clients",
   quotes: "Active quotes",
   dispatches: "Dispatch records",
@@ -22,7 +24,7 @@ const METRIC_LABELS = {
 };
 
 const QUESTION_METRICS = [
-  { pattern: /\b(clients?|organisations?|customers?)\b/i, metric: "clients" },
+  { pattern: /\b(clients?|organisations?|organizations?|customers?)\b/i, metric: "clients" },
   { pattern: /\b(quotes?|quotations?|pipeline|sales)\b/i, metric: "quotes" },
   { pattern: /\b(dispatch(?:es)?|jobs?|service)\b/i, metric: "dispatches" },
   { pattern: /\b(invoices?|billing|payments?)\b/i, metric: "invoices" },
@@ -30,8 +32,17 @@ const QUESTION_METRICS = [
   { pattern: /\b(reviews?|approvals?)\b/i, metric: "pending_review" },
   { pattern: /\b(return(?:ed)?|corrections?|resubmit)\b/i, metric: "returned_for_correction" },
   { pattern: /\b(purchase orders?|\bpo\b|pending po)\b/i, metric: "pending_po" },
-  { pattern: /\b(amendments?|blocked|risks?)\b/i, metric: "blocked_amendments" }
+  { pattern: /\b(amendments?|blocked|risks?|problem|delay|stuck)\b/i, metric: "blocked_amendments" }
 ];
+
+const KNOWN_TOPIC_WORDS = [
+  "client", "customer", "quote", "quotation", "pipeline", "sales", "dispatch", "job", "service",
+  "invoice", "billing", "payment", "worksheet", "field work", "review", "approval", "returned",
+  "correction", "po", "purchase order", "amendment", "blocked", "risk", "attention", "summary",
+  "next", "priority", "workflow", "what should"
+];
+
+const FOLLOW_UP_PATTERN = /\b(that|that one|this|this one|tell me more|explain that|more detail|which one|why|what next)\b/i;
 
 const EVIDENCE_TARGETS = {
   clients: { targetId: "evidence-kpi-clients", type: "kpi" },
@@ -74,87 +85,157 @@ function claim(payload, metric, sentence) {
   };
 }
 
+function attachMessage(claims, message) {
+  claims.message = message;
+  return claims;
+}
+
+function formatDashboardAnswer({ title, finding, evidence, nextAction }) {
+  return [
+    title,
+    finding ? `Finding: ${finding}` : "",
+    evidence ? `Evidence: ${evidence}` : "",
+    nextAction ? `Next action: ${nextAction}` : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function metricEvidence(payload, metrics) {
+  return metrics
+    .filter((metric) => Object.hasOwn(payload, metric))
+    .map((metric) => `${METRIC_LABELS[metric]} = ${assertMetric(payload, metric)}`)
+    .join("; ");
+}
+
+function metricFinding(payload, metrics) {
+  return metrics
+    .filter((metric) => Object.hasOwn(payload, metric))
+    .map((metric) => `${METRIC_LABELS[metric].toLowerCase()} currently shows ${assertMetric(payload, metric)}`)
+    .join(", ");
+}
+
+function priorityMetricsForRole(role) {
+  if (role === "Finance") return ["blocked_amendments", "pending_po", "invoices"];
+  if (role === "Operations") return ["pending_review", "returned_for_correction", "dispatches"];
+  if (role === "Supervisor") return ["pending_review", "returned_for_correction", "dispatches"];
+  if (role === "Technician") return ["dispatches", "worksheets", "pending_review"];
+  if (role === "Sales") return ["quotes", "clients"];
+  if (role === "Client Viewer") return ["quotes", "dispatches", "invoices"];
+  if (role === "Management") return ["pending_review", "quotes", "dispatches"];
+  return ["blocked_amendments", "quotes", "clients"];
+}
+
+function classifyConversationIntent(text) {
+  const q = String(text || "").toLowerCase().trim();
+  if (/^(hi|hello|hey|good morning|good afternoon|good evening)\b/.test(q)) return "greeting";
+  if (q.includes("what can you do") || q.includes("help") || q.includes("how do i use") || q.includes("what should i ask")) return "help";
+  if (q.includes("confused") || q.includes("worried") || q.includes("anxious") || q.includes("stress") || q.includes("stuck") || q.includes("not working") || q.includes("don't understand") || q.includes("do not understand")) return "support";
+  if (q.includes("stupid") || q.includes("useless") || q.includes("nonsense") || q.includes("idiot") || q.includes("shut up")) return "boundary";
+  if (FOLLOW_UP_PATTERN.test(q)) return "follow_up";
+  if (!KNOWN_TOPIC_WORDS.some((word) => q.includes(word))) return "no_match";
+  return "dashboard";
+}
+
+function guidanceMessage(role) {
+  const guidance = getRoleGuidance(role);
+  if (!guidance) return "I can help explain verified dashboard evidence for your role.";
+  return `${guidance.purpose}\n\nYou can ask about:\n${guidance.topics.map((topic) => `- ${METRIC_LABELS[topic] || topic}`).join("\n")}\n\nUseful questions:\n- Summarize my dashboard\n- What needs attention?\n- What should I do next?`;
+}
+
+function nextActionFor(role, metrics) {
+  const guidance = getRoleGuidance(role);
+  if (!guidance?.priorities?.length) return "Use the highlighted evidence to decide the next permitted workflow action.";
+  const first = metrics[0];
+  const knowledge = getKnowledgeForMetric(first);
+  return knowledge?.nextAction || guidance.priorities[0];
+}
+
 export function metricsForRole(role) {
   return (ROLE_METRICS[role] || []).map((key) => ({ key, label: METRIC_LABELS[key] }));
 }
 
 export function buildBriefing(payload, role) {
-  if (role === "Admin") {
-    return [
-      claim(payload, "clients", `${assertMetric(payload, "clients")} client organisation(s) are in the current system view.`),
-      claim(payload, "quotes", `${assertMetric(payload, "quotes")} active quote record(s) are visible.`),
-      claim(payload, "blocked_amendments", `${assertMetric(payload, "blocked_amendments")} PO amendment(s) need attention.`)
-    ];
-  }
-  if (role === "Management") {
-    return [
-      claim(payload, "quotes", `${assertMetric(payload, "quotes")} quote record(s) are in the current business view.`),
-      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are visible.`),
-      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} worksheet(s) await review.`)
-    ];
-  }
-  if (role === "Sales") {
-    return [
-      claim(payload, "clients", `${assertMetric(payload, "clients")} client organisation(s) are available to Sales.`),
-      claim(payload, "quotes", `${assertMetric(payload, "quotes")} active quote record(s) are available for follow-up.`)
-    ];
-  }
-  if (role === "Operations") {
-    return [
-      claim(payload, "dispatches", `Your dashboard currently includes ${assertMetric(payload, "dispatches")} dispatch record(s).`),
-      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} worksheet(s) are awaiting review.`),
-      claim(payload, "returned_for_correction", `${assertMetric(payload, "returned_for_correction")} worksheet(s) are returned for correction.`)
-    ];
-  }
-  if (role === "Finance") {
-    return [
-      claim(payload, "blocked_amendments", `${assertMetric(payload, "blocked_amendments")} PO(s) are flagged as requiring amendment.`),
-      claim(payload, "pending_po", `${assertMetric(payload, "pending_po")} quote(s) are awaiting a purchase order.`),
-      claim(payload, "invoices", `Your dashboard currently includes ${assertMetric(payload, "invoices")} invoice record(s).`)
-    ];
-  }
-  if (role === "Supervisor") {
-    return [
-      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are in your review scope.`),
-      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} worksheet(s) await your review.`),
-      claim(payload, "returned_for_correction", `${assertMetric(payload, "returned_for_correction")} worksheet(s) await technician correction.`)
-    ];
-  }
-  if (role === "Technician") {
-    return [
-      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} dispatch record(s) are assigned to you.`),
-      claim(payload, "worksheets", `${assertMetric(payload, "worksheets")} worksheet(s) are in your work scope.`),
-      claim(payload, "pending_review", `${assertMetric(payload, "pending_review")} submitted worksheet(s) await review.`)
-    ];
-  }
-  if (role === "Client Viewer") {
-    return [
-      claim(payload, "quotes", `${assertMetric(payload, "quotes")} quote record(s) belong to your organisation.`),
-      claim(payload, "dispatches", `${assertMetric(payload, "dispatches")} service dispatch record(s) belong to your organisation.`),
-      claim(payload, "invoices", `${assertMetric(payload, "invoices")} invoice record(s) belong to your organisation.`)
-    ];
-  }
-  throw new Error("This role is not enabled for the providerless assistant.");
+  const metrics = (ROLE_METRICS[role] || []).slice(0, 3);
+  if (!metrics.length) throw new Error("This role is not enabled for the providerless assistant.");
+  const claims = metrics.map((metric) => claim(payload, metric, `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)} in this role-scoped dashboard.`));
+  return attachMessage(claims, formatDashboardAnswer({
+    title: `${role} dashboard summary`,
+    finding: metricFinding(payload, metrics),
+    evidence: metricEvidence(payload, metrics),
+    nextAction: nextActionFor(role, metrics)
+  }));
 }
 
 export function buildAttentionItems(payload, role) {
-  const claims = buildBriefing(payload, role);
-  return claims.filter((item) => Number(item.value) > 0);
+  const metrics = priorityMetricsForRole(role).filter((metric) => Object.hasOwn(payload, metric));
+  const positive = metrics.filter((metric) => Number(assertMetric(payload, metric)) > 0);
+  const selected = (positive.length > 0 ? positive : metrics).slice(0, 3);
+  const claims = selected.map((metric) => claim(payload, metric, `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)}.`));
+  return attachMessage(claims, formatDashboardAnswer({
+    title: `${role} attention check`,
+    finding: positive.length > 0 ? metricFinding(payload, selected) : "no positive attention metric is visible in the current dashboard summary",
+    evidence: metricEvidence(payload, selected),
+    nextAction: nextActionFor(role, selected)
+  }));
 }
 
-export function buildChatReply(payload, role, question) {
+export function buildChatReply(payload, role, question, options = {}) {
   const allowedMetrics = ROLE_METRICS[role] || [];
+  const intent = classifyConversationIntent(question);
+  const guidance = getRoleGuidance(role);
+
+  if (intent === "greeting") {
+    return attachMessage([], `Hello. I can help you understand the ${role} dashboard using role-scoped evidence.\n\nTry asking: what needs attention, summarize this dashboard, or what should I do next.`);
+  }
+
+  if (intent === "help") {
+    return attachMessage([], guidanceMessage(role));
+  }
+
+  if (intent === "boundary") {
+    return attachMessage([], `I am here to help with the dashboard. I will keep answers focused on verified role-scoped evidence.\n\nTry asking: what needs attention, summarize this dashboard, or what should I do next.`);
+  }
+
+  if (intent === "no_match") {
+    return attachMessage([], `I do not have verified dashboard data for that question.\n\nFor ${role}, I can help with:\n${(guidance?.topics || allowedMetrics).map((topic) => `- ${METRIC_LABELS[topic] || topic}`).join("\n")}\n\nI can also explain the ORAC workflow: ${ORAC_WORKFLOW_KNOWLEDGE.quote_to_cash.explanation}`);
+  }
+
+  if (intent === "follow_up") {
+    const metric = options.lastContext?.metric;
+    if (metric && allowedMetrics.includes(metric) && Object.hasOwn(payload, metric)) {
+      const detail = explainMetric(payload, role, metric);
+      return attachMessage([detail], formatDashboardAnswer({
+        title: `More detail: ${METRIC_LABELS[metric]}`,
+        finding: `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)} for your role.`,
+        evidence: metricEvidence(payload, [metric]),
+        nextAction: nextActionFor(role, [metric])
+      }));
+    }
+    return attachMessage([], "I can only follow up on the previous evidence if it is still available in your current role-scoped dashboard. Please ask about a visible dashboard metric.");
+  }
+
+  if (intent === "support") {
+    const metrics = priorityMetricsForRole(role).filter((metric) => allowedMetrics.includes(metric) && Object.hasOwn(payload, metric)).slice(0, 2);
+    const claims = metrics.map((metric) => claim(payload, metric, `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)}.`));
+    return attachMessage(claims, formatDashboardAnswer({
+      title: "Let us make this simple",
+      finding: metricFinding(payload, metrics),
+      evidence: metricEvidence(payload, metrics),
+      nextAction: nextActionFor(role, metrics)
+    }));
+  }
+
   const requested = QUESTION_METRICS
     .filter(({ pattern, metric }) => pattern.test(question) && allowedMetrics.includes(metric))
     .map(({ metric }) => metric);
-  const metrics = [...new Set(requested)].slice(0, 3);
-  const selected = metrics.length > 0 ? metrics : allowedMetrics.slice(0, 3);
-
-  return selected.map((metric) => claim(
-    payload,
-    metric,
-    `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)} in your verified dashboard summary.`
- ));
+  const selected = [...new Set(requested)].slice(0, 3);
+  const metrics = selected.length > 0 ? selected : allowedMetrics.slice(0, 3);
+  const claims = metrics.map((metric) => claim(payload, metric, `${METRIC_LABELS[metric]} currently shows ${assertMetric(payload, metric)} in your verified dashboard summary.`));
+  return attachMessage(claims, formatDashboardAnswer({
+    title: `${role} dashboard answer`,
+    finding: metricFinding(payload, metrics),
+    evidence: metricEvidence(payload, metrics),
+    nextAction: nextActionFor(role, metrics)
+  }));
 }
 
 export function explainMetric(payload, role, metric) {
@@ -162,5 +243,9 @@ export function explainMetric(payload, role, metric) {
     throw new Error("This metric is unavailable for your dashboard.");
   }
   const value = assertMetric(payload, metric);
-  return claim(payload, metric, `${METRIC_LABELS[metric]} currently shows ${value} in your verified dashboard summary.`);
+  const knowledge = getKnowledgeForMetric(metric);
+  const sentence = knowledge
+    ? `${knowledge.title}: current value is ${value}. ${knowledge.explanation} Next action: ${knowledge.nextAction}`
+    : `${METRIC_LABELS[metric]} currently shows ${value} in your verified dashboard summary.`;
+  return claim(payload, metric, sentence);
 }

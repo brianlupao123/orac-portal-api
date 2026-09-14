@@ -49,7 +49,7 @@ function respond(req, res, actor, intent, build) {
       generatedAt: new Date().toISOString()
     };
     response.evidenceRefs = uniqueEvidenceRefs(response.claims);
-    response.message = response.claims.map((claim) => claim.sentence).join(" ");
+    response.message = response.claims.message || response.claims.map((claim) => claim.sentence).join(" ");
   } catch {
     response = {
       requestId,
@@ -104,7 +104,12 @@ export function getChatResponse(req, res) {
     return res.status(400).json({ success: false, message: "Enter a dashboard question before sending." });
   }
   // The raw question is deliberately not stored in the audit record.
-  respond(req, res, actor, "dashboard_chat", (payload) => buildChatReply(payload, actor.role, question));
+  const lastContext = req.body?.lastContext && typeof req.body.lastContext === "object" ? {
+    metric: typeof req.body.lastContext.metric === "string" ? req.body.lastContext.metric : "",
+    targetId: typeof req.body.lastContext.targetId === "string" ? req.body.lastContext.targetId : "",
+    label: typeof req.body.lastContext.label === "string" ? req.body.lastContext.label : ""
+  } : null;
+  respond(req, res, actor, "dashboard_chat", (payload) => buildChatReply(payload, actor.role, question, { lastContext }));
 }
 
 export function flagAiResponse(req, res) {

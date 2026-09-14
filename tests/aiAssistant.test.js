@@ -98,7 +98,7 @@ test("unknown metric returns unavailable and is still audited", () => {
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.label, "Unavailable");
-  assert.deepEqual(res.body.data.claims, []);
+  assert.equal(res.body.data.claims.length, 0);
   assert.deepEqual(res.body.data.evidenceRefs, []);
   assert.equal(req.auditEntries.length, 1);
   assert.deepEqual(req.auditEntries[0].newValues.metric_keys, []);
@@ -127,24 +127,52 @@ test("dashboard chat rejects an empty message", () => {
   assert.equal(req.auditEntries.length, 0);
 });
 
+test("no-match chat questions return no unsupported claims or evidence", () => {
+  const req = request("Finance", { message: "Can you tell me the weather for tomorrow?" });
+  const res = response();
+
+  getChatResponse(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.claims.length, 0);
+  assert.deepEqual(res.body.data.evidenceRefs, []);
+  assert.match(res.body.data.message, /do not have verified dashboard data/i);
+});
+
+test("follow-up context is accepted only when the metric is in the current role summary", () => {
+  const validReq = request("Finance", {
+    message: "Tell me more about that",
+    lastContext: { metric: "invoices", targetId: "evidence-kpi-invoices", label: "Invoices" }
+  });
+  const validRes = response();
+  getChatResponse(validReq, validRes);
+
+  assert.equal(validRes.statusCode, 200);
+  assert.deepEqual(validRes.body.data.claims.map((claim) => claim.metric), ["invoices"]);
+  assert.equal(validRes.body.data.evidenceRefs[0].targetId, "evidence-kpi-invoices");
+
+  const blockedReq = request("Sales", {
+    message: "Explain that",
+    lastContext: { metric: "invoices", targetId: "evidence-kpi-invoices", label: "Invoices" }
+  });
+  const blockedRes = response();
+  getChatResponse(blockedReq, blockedRes);
+
+  assert.equal(blockedRes.statusCode, 200);
+  assert.equal(blockedRes.body.data.claims.length, 0);
+  assert.deepEqual(blockedRes.body.data.evidenceRefs, []);
+});
+
 test("assistant evidence references are limited to metrics exposed for each enabled role", () => {
   const expectedTargets = {
-    Admin: new Set(["evidence-kpi-clients", "evidence-kpi-quotes", "evidence-kpi-blocked-amendments"]),
-    Management: new Set(["evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-worksheets-review"]),
+    Admin: new Set(["evidence-kpi-clients", "evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-invoices", "evidence-kpi-blocked-amendments"]),
+    Management: new Set(["evidence-kpi-clients", "evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-invoices", "evidence-kpi-worksheets-review"]),
     Sales: new Set(["evidence-kpi-clients", "evidence-kpi-quotes"]),
-    Finance: new Set([
-      "evidence-kpi-blocked-amendments",
-      "evidence-pipeline-approved-pending-po",
-      "evidence-kpi-invoices"
-    ]),
-    Operations: new Set([
-      "evidence-kpi-dispatches",
-      "evidence-kpi-worksheets-review",
-      "evidence-kpi-returned-for-correction"
-    ]),
+    Finance: new Set(["evidence-kpi-blocked-amendments", "evidence-pipeline-approved-pending-po", "evidence-kpi-invoices"]),
+    Operations: new Set(["evidence-kpi-dispatches", "evidence-kpi-worksheets", "evidence-kpi-worksheets-review", "evidence-kpi-returned-for-correction"]),
     Supervisor: new Set(["evidence-kpi-dispatches", "evidence-kpi-worksheets-review", "evidence-kpi-returned-for-correction"]),
     Technician: new Set(["evidence-kpi-dispatches", "evidence-kpi-worksheets", "evidence-kpi-worksheets-review"]),
-    "Client Viewer": new Set(["evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-invoices"])
+    "Client Viewer": new Set(["evidence-kpi-clients", "evidence-kpi-quotes", "evidence-kpi-dispatches", "evidence-kpi-invoices"])
   };
 
   for (const role of ["Admin", "Management", "Sales", "Finance", "Operations", "Supervisor", "Technician", "Client Viewer"]) {
