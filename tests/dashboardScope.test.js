@@ -25,7 +25,7 @@ function createDatabase(users) {
       { id: "quote-a", client_id: "client-a", status: "PO_Verified" },
       { id: "quote-b", client_id: "client-b", status: "Invoiced" }
     ],
-    purchase_orders: [{ id: "po-a", quotation_id: "quote-a", requires_amendment: false }],
+    purchase_orders: [{ id: "po-a", quotation_id: "quote-a", requires_amendment: true }],
     invoices: [{ id: "invoice-b", dispatch_card_id: "dispatch-b" }],
     dispatch_cards: [
       { id: "dispatch-a", quotation_id: "quote-a", assigned_technician_id: "tech-1", assigned_supervisor_id: "supervisor-1", status: "In_Progress" },
@@ -88,6 +88,7 @@ test("Client Viewer summary counts only worksheets linked to their own client", 
   assert.equal(summaryResponse.body.data.worksheets, 1);
   assert.equal(summaryResponse.body.data.pending_review, 1);
   assert.equal(summaryResponse.body.data.returned_for_correction, 0);
+  assert.equal(summaryResponse.body.data.blocked_amendments, 0);
 });
 
 test("Sales dashboard summary excludes aggregates from denied operational and financial collections", () => {
@@ -106,4 +107,37 @@ test("Sales dashboard summary excludes aggregates from denied operational and fi
   assert.equal(summaryResponse.body.data.returned_for_correction, 0);
   assert.equal(summaryResponse.body.data.invoices, 0);
   assert.equal(summaryResponse.body.data.blocked_amendments, 0);
+});
+
+test("Finance dashboard summary excludes aggregates from denied field-work collections", () => {
+  const finance = { id: "finance-1", role: "Finance", is_active: true };
+  const req = { user: { id: finance.id }, db: createDatabase([finance]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.quotes, 2);
+  assert.equal(summaryResponse.body.data.invoices, 1);
+  assert.equal(summaryResponse.body.data.dispatches, 0);
+  assert.equal(summaryResponse.body.data.worksheets, 0);
+  assert.equal(summaryResponse.body.data.pending_review, 0);
+  assert.equal(summaryResponse.body.data.returned_for_correction, 0);
+  assert.equal(summaryResponse.body.data.blocked_amendments, 1);
+});
+
+test("Operations dashboard summary excludes aggregates from denied invoice collections", () => {
+  const operations = { id: "operations-1", role: "Operations", is_active: true };
+  const req = { user: { id: operations.id }, db: createDatabase([operations]) };
+  const summaryResponse = createResponse();
+
+  getSummary(req, summaryResponse);
+
+  assert.equal(summaryResponse.body.data.clients, 2);
+  assert.equal(summaryResponse.body.data.quotes, 2);
+  assert.equal(summaryResponse.body.data.dispatches, 2);
+  assert.equal(summaryResponse.body.data.worksheets, 2);
+  assert.equal(summaryResponse.body.data.invoices, 0);
+  assert.equal(summaryResponse.body.data.pending_review, 1);
+  assert.equal(summaryResponse.body.data.returned_for_correction, 1);
+  assert.equal(summaryResponse.body.data.blocked_amendments, 1);
 });

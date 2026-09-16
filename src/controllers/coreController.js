@@ -119,7 +119,7 @@ export function buildScopedSummary(db, actor) {
     quotesData = scopeByClient(quotesData, actor, clientScopedResolvers.quotes);
     dispatchData = scopeByClient(dispatchData, actor, (item) => clientScopedResolvers.dispatch_cards(item, db));
     invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, db));
-    purchaseOrdersData = scopeByClient(purchaseOrdersData, actor, (item) => clientScopedResolvers.purchase_orders(item, db));
+    purchaseOrdersData = [];
     worksheetsData = scopeByClient(worksheetsData, actor, (item) => clientScopedResolvers.field_worksheets(item, db));
     clientsCount = actor.client_id ? 1 : 0;
   }
@@ -140,6 +140,17 @@ export function buildScopedSummary(db, actor) {
     invoicesData = [];
     worksheetsData = [];
     purchaseOrdersData = [];
+  }
+
+  // Finance works with commercial, PO, and invoice evidence. It must not
+  // receive aggregates derived from operational dispatch or worksheet records.
+  if (actor?.role === roles.FINANCE) {
+    dispatchData = [];
+    worksheetsData = [];
+  }
+
+  if (actor?.role === roles.OPERATIONS) {
+    invoicesData = [];
   }
 
   const statusCounts = quotesData.reduce((acc, quote) => {
