@@ -5,6 +5,17 @@ function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
 
+function safeUser(user) {
+  const {
+    password_hash,
+    password,
+    reset_token,
+    reset_token_expires_at,
+    ...publicUser
+  } = user;
+  return publicUser;
+}
+
 // ── Users (Admin-only: role changes are gated entirely by manageUsers) ──
 export const createUser = (req, res) => {
   const actor = getActor(req);
@@ -21,8 +32,8 @@ export const createUser = (req, res) => {
     created_at: new Date().toISOString()
   };
   req.db.users.push(user);
-  req.store.audit(req.db, actor, "user", user.id, "ADMIN_USER_CREATED", null, user);
-  res.json({ success: true, data: user });
+  req.store.audit(req.db, actor, "user", user.id, "ADMIN_USER_CREATED", null, safeUser(user));
+  res.json({ success: true, data: safeUser(user) });
 };
 
 export const updateUser = (req, res) => {
@@ -30,13 +41,13 @@ export const updateUser = (req, res) => {
   requirePermission(actor, "manageUsers");
   const target = req.db.users.find((u) => u.id === req.params.id);
   if (!target) return res.status(404).json({ success: false, message: "User not found." });
-  const before = { ...target };
+  const before = safeUser(target);
   ["name", "email", "role", "is_active", "client_id"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
   if (req.body.password !== undefined) target.password_hash = bcrypt.hashSync(req.body.password, 10);
-  req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, target);
-  res.json({ success: true, data: target });
+  req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, safeUser(target));
+  res.json({ success: true, data: safeUser(target) });
 };
 
 // ── Clients ──

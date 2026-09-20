@@ -74,6 +74,30 @@ const clientScopedResolvers = {
   }
 };
 
+const sensitiveAuditKeys = new Set([
+  "password",
+  "password_hash",
+  "reset_token",
+  "reset_token_expires_at"
+]);
+
+function redactSensitiveFields(value) {
+  if (Array.isArray(value)) return value.map(redactSensitiveFields);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !sensitiveAuditKeys.has(key))
+      .map(([key, entry]) => [key, redactSensitiveFields(entry)])
+  );
+}
+
+function collectionResponseData(collectionName, data) {
+  if (collectionName === "users" || collectionName === "audit_logs") {
+    return redactSensitiveFields(data);
+  }
+  return data;
+}
+
 function isTechnicianAssignedToDispatch(dispatch, actor, db) {
   return dispatch.assigned_technician_id === actor.id ||
     dispatch.technician_id === actor.id ||
@@ -237,7 +261,7 @@ export const getCollection = (collectionName) => {
       data = scopeByClient(data, actor, (item) => resolveClientId(item, req.db));
     }
     data = scopeOperationalData(data, collectionName, actor, req.db);
-    res.json({ success: true, data });
+    res.json({ success: true, data: collectionResponseData(collectionName, data) });
   };
 };
 
