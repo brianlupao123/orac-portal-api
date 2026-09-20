@@ -9,9 +9,10 @@ export function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
 
-// Role guards for generic collection GET endpoints.
-// Collections not listed here remain open to any authenticated user.
-const collectionGuards = {
+// Role guards for every generic collection GET endpoint. Keep this explicit:
+// a newly mounted collection must receive a deliberate policy before it can
+// return data to any authenticated account.
+export const collectionGuards = {
   users: [roles.ADMIN],
   // Master-data and commercial collections must be explicitly guarded. Field
   // roles receive context through their assigned dispatches/worksheets instead.
@@ -27,6 +28,15 @@ const collectionGuards = {
   invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER],
   purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
   stock_movements: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  mine_sites: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  plants: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  plant_sections: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  equipment_tags: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  // Catalog pricing is commercial master data. Operations receives material
+  // context through approved work records, not an unrestricted catalog list.
+  catalog_items: [roles.ADMIN, roles.MANAGEMENT],
+  suppliers: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  stock_items: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
   access_requests: [roles.ADMIN]
@@ -215,13 +225,11 @@ export const getCollection = (collectionName) => {
     }
     const actor = getActor(req);
     const allowedRoles = collectionGuards[collectionName];
-    if (allowedRoles) {
-      if (!actor?.is_active || !allowedRoles.includes(actor.role)) {
-        return res.status(403).json({
-          success: false,
-          message: `Role ${actor?.role || "Unknown"} cannot view ${collectionName}.`
-        });
-      }
+    if (!allowedRoles || !actor?.is_active || !allowedRoles.includes(actor.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Role ${actor?.role || "Unknown"} cannot view ${collectionName}.`
+      });
     }
     let data = req.db[collectionName];
     const resolveClientId = clientScopedResolvers[collectionName];

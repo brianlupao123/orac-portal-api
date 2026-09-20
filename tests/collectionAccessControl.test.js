@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getCollection } from "../src/controllers/coreController.js";
+import { collectionGuards, getCollection } from "../src/controllers/coreController.js";
+import { roles } from "../src/permissions.js";
 
 function createResponse() {
   return {
@@ -27,6 +28,17 @@ function requestFor(actor) {
       quote_lines: [{ id: "line-a", quotation_id: "quote-a" }, { id: "line-b", quotation_id: "quote-b" }],
       leads: [{ id: "lead-a", company_name: "Client A" }],
       stock_movements: [{ id: "movement-a", stock_item_id: "stock-a" }],
+      mine_sites: [{ id: "mine-a" }],
+      plants: [{ id: "plant-a" }],
+      plant_sections: [{ id: "section-a" }],
+      equipment_tags: [{ id: "equipment-a" }],
+      catalog_items: [{ id: "catalog-a" }],
+      suppliers: [{ id: "supplier-a" }],
+      stock_items: [{ id: "stock-a" }],
+      purchase_orders: [],
+      invoices: [],
+      audit_logs: [],
+      access_requests: [],
       dispatch_cards: [{ id: "dispatch-a", quotation_id: "quote-a", assigned_technician_id: "tech-1", assigned_supervisor_id: "supervisor-1" }],
       field_worksheets: [{ id: "worksheet-a", dispatch_card_id: "dispatch-a", technician_id: "tech-1", supervisor_id: "supervisor-1" }]
     }
@@ -96,4 +108,56 @@ test("commercial leads and stock movements reject roles without the relevant ope
   const inventoryResponse = createResponse();
   getCollection("stock_movements")(requestFor(operations), inventoryResponse);
   assert.equal(inventoryResponse.statusCode, 200);
+});
+
+test("every generic collection has an explicit eight-role read policy", () => {
+  const genericCollections = [
+    "users", "clients", "leads", "quotes", "quote_lines", "purchase_orders",
+    "dispatch_cards", "field_worksheets", "invoices", "equipment_tags",
+    "catalog_items", "audit_logs", "mine_sites", "plants", "plant_sections",
+    "suppliers", "stock_items", "stock_movements", "access_requests"
+  ];
+  const knownRoles = new Set(Object.values(roles));
+
+  for (const collectionName of genericCollections) {
+    assert.ok(Array.isArray(collectionGuards[collectionName]), `${collectionName} must have a policy`);
+    assert.ok(collectionGuards[collectionName].length > 0, `${collectionName} must not be open by omission`);
+    for (const role of collectionGuards[collectionName]) {
+      assert.ok(knownRoles.has(role), `${collectionName} contains an unknown role`);
+    }
+  }
+});
+
+test("unlisted generic data is denied by default", () => {
+  const response = createResponse();
+  const admin = { id: "admin-1", role: "Admin", is_active: true };
+  const request = requestFor(admin);
+  request.db.unreviewed_collection = [{ id: "private-a" }];
+
+  getCollection("unreviewed_collection")(request, response);
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.body.success, false);
+});
+
+test("generic collection reads enforce the complete eight-role matrix", () => {
+  for (const [collectionName, allowedRoles] of Object.entries(collectionGuards)) {
+    for (const role of Object.values(roles)) {
+      const actor = {
+        id: role === roles.TECHNICIAN ? "tech-1" : role === roles.SUPERVISOR ? "supervisor-1" : `${role}-1`,
+        role,
+        client_id: role === roles.CLIENT_VIEWER ? "client-a" : undefined,
+        is_active: true
+      };
+      const response = createResponse();
+
+      getCollection(collectionName)(requestFor(actor), response);
+
+      assert.equal(
+        response.statusCode,
+        allowedRoles.includes(role) ? 200 : 403,
+        `${role} access to ${collectionName} must match the explicit policy`
+      );
+    }
+  }
 });
