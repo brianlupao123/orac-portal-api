@@ -25,33 +25,65 @@ export function createStore(_filePath, databasePool = pool) {
     id: helpers.id,
     audit: helpers.audit,
     recalculateVariance: helpers.recalculateVariance,
-    async read() {
-      const release = await acquire();
+    async read(options = { lock: true }) {
+      if (!options.lock) {
+        const client = await databasePool.connect();
+        try {
+          const result = await client.query("SELECT data FROM store WHERE id = 'main'");
+          if (result.rowCount !== 1) {
+            throw Object.assign(new Error("Database is not initialized. Run npm run seed:neon first."), { status: 503 });
+          }
+          return { db: normalizeDb(result.rows[0].data), release: null };
+        } finally {
+          client.release();
+        }
+      }
+
+      const releaseLock = await acquire();
+      const client = await databasePool.connect();
       try {
-        const result = await databasePool.query("SELECT data FROM store WHERE id = 'main'");
+        await client.query("BEGIN");
+        await client.query("SET LOCAL lock_timeout = '5s'");
+        await client.query("SET LOCAL statement_timeout = '10s'");
+        const result = await client.query("SELECT data FROM store WHERE id = 'main' FOR UPDATE");
         if (result.rowCount !== 1) {
           throw Object.assign(new Error("Database is not initialized. Run npm run seed:neon first."), { status: 503 });
         }
-        // FIX: Normalize the stored JSONB just like the JSON file store does.
-        // This backfills any missing collection keys (e.g. access_requests,
-        // notifications) and seed users that were added after the initial import.
         const db = normalizeDb(result.rows[0].data);
-        return { db, release };
+        return { db, release: { client, releaseLock } };
       } catch (error) {
-        release();
+        await client.query("ROLLBACK").catch(() => {});
+        client.release();
+        releaseLock();
         throw error;
       }
     },
-    async write(db, release) {
+    async write(db, context) {
+      if (!context?.client || context.released) return;
+      const { client } = context;
       try {
-        const result = await databasePool.query("UPDATE store SET data = $1 WHERE id = 'main'", [db]);
+        const result = await client.query("UPDATE store SET data = $1 WHERE id = 'main'", [db]);
         if (result.rowCount !== 1) throw new Error("Database state was not saved.");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
       } finally {
-        release?.();
+        context.released = true;
+        client.release();
+        context.releaseLock();
       }
     },
-    release(release) {
-      release?.();
+    async release(context) {
+      if (context?.client && !context.released) {
+        context.released = true;
+        try {
+          await context.client.query("ROLLBACK");
+        } finally {
+          context.client.release();
+          context.releaseLock();
+        }
+      }
     }
   };
 }

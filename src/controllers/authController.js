@@ -24,11 +24,7 @@ export const loginDemoUser = (req, res) => {
     }
   }
 
-  user.last_login = new Date().toISOString();
-
   const token = generateToken(user);
-
-  req.store.audit(req.db, user, "user", user.id, "DEMO_LOGIN", null, { id: user.id, email: user.email, role: user.role });
 
   const { password_hash, password: ignoredPassword, ...publicUser } = user;
   res.json({
