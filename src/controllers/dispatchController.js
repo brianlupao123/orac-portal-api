@@ -1,7 +1,30 @@
-import { requirePermission } from "../permissions.js";
+import { requirePermission, roles } from "../permissions.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
+}
+
+function isAssignedToDispatch(actor, dispatch, db) {
+  if ([roles.ADMIN, roles.OPERATIONS].includes(actor.role)) return true;
+  const linkedWorksheets = (db.field_worksheets || []).filter((worksheet) => worksheet.dispatch_card_id === dispatch.id);
+  if (actor.role === roles.TECHNICIAN) {
+    return dispatch.assigned_technician_id === actor.id ||
+      dispatch.technician_id === actor.id ||
+      dispatch.assigned_to === actor.id ||
+      linkedWorksheets.some((worksheet) => worksheet.technician_id === actor.id);
+  }
+  if (actor.role === roles.SUPERVISOR) {
+    return dispatch.assigned_supervisor_id === actor.id ||
+      dispatch.supervisor_id === actor.id ||
+      linkedWorksheets.some((worksheet) => worksheet.supervisor_id === actor.id);
+  }
+  return false;
+}
+
+function requireAssignedDispatch(actor, dispatch, db, res) {
+  if (isAssignedToDispatch(actor, dispatch, db)) return true;
+  res.status(403).json({ success: false, message: "This role may work only on an assigned dispatch." });
+  return false;
 }
 
 export const addTimesheet = (req, res) => {
@@ -11,6 +34,7 @@ export const addTimesheet = (req, res) => {
   const dispatchId = req.params.id;
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
   const entry = {
@@ -37,6 +61,7 @@ export const addMaterialUsage = (req, res) => {
   const dispatchId = req.params.id;
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
   const usage = {
@@ -97,12 +122,13 @@ export const createWorksheet = (req, res) => {
   const dispatchId = req.params.id;
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
   const worksheet = {
     id: req.store.id("ws"),
     dispatch_card_id: dispatchId,
-    technician_id: body.technician_id || actor.id,
+    technician_id: [roles.ADMIN, roles.OPERATIONS].includes(actor.role) ? (body.technician_id || actor.id) : actor.id,
     work_date: body.work_date || new Date().toISOString().slice(0, 10),
     activity: body.activity,
     hours: body.hours,
@@ -134,6 +160,12 @@ export const updateWorksheet = (req, res) => {
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
   if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (actor.role === roles.TECHNICIAN && worksheet.technician_id !== actor.id) {
+    return res.status(403).json({ success: false, message: "A Technician may edit only their own worksheet." });
+  }
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
     return res.status(400).json({ success: false, message: `Worksheet cannot be edited in ${worksheet.status} status.` });
@@ -161,6 +193,12 @@ export const submitWorksheet = (req, res) => {
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
   if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (actor.role === roles.TECHNICIAN && worksheet.technician_id !== actor.id) {
+    return res.status(403).json({ success: false, message: "A Technician may submit only their own worksheet." });
+  }
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
     return res.status(400).json({ success: false, message: `Worksheet cannot be submitted from ${worksheet.status}.` });
@@ -183,6 +221,9 @@ export const reviewWorksheet = (req, res) => {
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
   if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  const assignedDispatch = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
+  if (!assignedDispatch) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, assignedDispatch, req.db, res)) return;
   
   if (worksheet.status !== "Submitted") {
     return res.status(400).json({ success: false, message: `Worksheet review requires Submitted status, not ${worksheet.status}.` });
