@@ -49,7 +49,12 @@ function createRequest(actor, {
     db: {
       users: [actor, verifier],
       field_worksheets: [worksheet],
-      dispatch_cards: [{ id: "dispatch-1", purchase_order_id: "po-1", quotation_id: "quote-1" }],
+      dispatch_cards: [{
+        id: "dispatch-1",
+        purchase_order_id: "po-1",
+        quotation_id: "quote-1",
+        assigned_supervisor_id: actor.role === "Supervisor" ? actor.id : "supervisor-1"
+      }],
       purchase_orders: [{ id: "po-1", quotation_id: "quote-1", verified_by: verifiedBy }],
       audit_logs: auditEntries
     },
@@ -145,7 +150,7 @@ test("new worksheet submissions persist the submitting actor", () => {
     body: { activity: "Inspect lining", hours: 2, submit: false },
     db: {
       users: [technician],
-      dispatch_cards: [{ id: "dispatch-1" }],
+      dispatch_cards: [{ id: "dispatch-1", assigned_technician_id: technician.id }],
       field_worksheets: [],
       audit_logs: auditEntries
     },
