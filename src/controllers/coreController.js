@@ -115,7 +115,7 @@ function isSupervisorAssignedToDispatch(dispatch, actor, db) {
     );
 }
 
-function scopeOperationalData(data, collectionName, actor, db) {
+export function scopeOperationalData(data, collectionName, actor, db) {
   if (actor?.role === roles.TECHNICIAN) {
     if (collectionName === "dispatch_cards") {
       return data.filter((dispatch) => isTechnicianAssignedToDispatch(dispatch, actor, db));
