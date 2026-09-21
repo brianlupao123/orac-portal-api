@@ -1,3 +1,4 @@
 node_modules/
 data/db.json
 .env
+evidence/stage-reports/

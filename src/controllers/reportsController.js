@@ -1,4 +1,5 @@
 import { roles } from "../permissions.js";
+import { scopeOperationalData } from "./coreController.js";
 import {
   computePipelineReport,
   computePoComplianceReport,
@@ -21,6 +22,16 @@ const reportGuards = {
   variance: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS]
 };
 
+export function scopeDbForReport(db, actor) {
+  if (actor?.role !== roles.SUPERVISOR) return db;
+
+  return {
+    ...db,
+    dispatch_cards: scopeOperationalData(db.dispatch_cards, "dispatch_cards", actor, db),
+    field_worksheets: scopeOperationalData(db.field_worksheets, "field_worksheets", actor, db)
+  };
+}
+
 function makeReportHandler(reportKey, computeFn) {
   return (req, res) => {
     const actor = getActor(req);
@@ -31,7 +42,7 @@ function makeReportHandler(reportKey, computeFn) {
         message: `Role ${actor?.role || "Unknown"} cannot view the ${reportKey} report.`
       });
     }
-    res.json({ success: true, data: computeFn(req.db) });
+    res.json({ success: true, data: computeFn(scopeDbForReport(req.db, actor)) });
   };
 }
 

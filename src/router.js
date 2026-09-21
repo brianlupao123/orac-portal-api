@@ -29,6 +29,8 @@ import { createUser, updateUser, createClient, updateClient, createMineSite, upd
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, getLowStockReport } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, flagAiResponse } from "./controllers/aiController.js";
+import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
+import { getDailyTaskReport, getInvoiceReadySummary, getClientCompletionRecord } from "./controllers/operationalDocumentsController.js";
 
 const router = express.Router();
 
@@ -54,6 +56,10 @@ router.use(authMiddleware);
 router.get("/auth/me", getMe);
 router.get("/summary", getSummary);
 router.get("/exports/pastel.csv", exportPastel);
+router.get("/exports/pastel-review/quotes.csv", getPastelReviewQuotes);
+router.get("/exports/pastel-review/invoice-ready.csv", getPastelReviewInvoiceReady);
+router.post("/imports/leads/preview", previewLeadImport);
+router.get("/analytics/operational", getOperationalAnalytics);
 
 // Phase 0.5 is deterministic and providerless. These routes have no model,
 // provider, free-text, or business-record mutation capability.
@@ -70,6 +76,9 @@ router.get("/document-data/dispatch_cards/:id", getDispatchDocument);
 router.get("/document-data/field_worksheets/:id", getWorksheetDocument);
 router.get("/document-data/invoices/:id", getInvoiceDocument);
 router.get("/document-data/purchase_orders/:id", getPoDocument);
+router.get("/document-data/daily-task-report", getDailyTaskReport);
+router.get("/document-data/invoice-ready-summary", getInvoiceReadySummary);
+router.get("/document-data/client-completion/:id", getClientCompletionRecord);
 
 // Printable document endpoints (Phase 09)
 router.get("/documents/quotes/:id.pdf", getQuotePdf);
