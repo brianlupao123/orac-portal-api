@@ -34,6 +34,16 @@ export const AddTimesheetSchema = z.object({
   notes: z.string().optional()
 });
 
+export const KioskTimesheetBatchSchema = z.object({
+  work_date: z.string().min(1, "Work date is required"),
+  entries: z.array(z.object({
+    technician_id: z.string().min(1, "Technician is required"),
+    hours_logged: z.number().positive("Hours logged must be positive").max(24, "Hours logged cannot exceed 24"),
+    hourly_rate: z.number().min(0, "Hourly rate cannot be negative"),
+    notes: z.string().max(500, "Notes cannot exceed 500 characters").optional()
+  })).min(1, "At least one time entry is required").max(50, "A kiosk batch cannot exceed 50 entries")
+});
+
 export const AddMaterialSchema = z.object({
   catalog_item_id: z.string().nullable().optional(),
   description: z.string().min(1, "Description is required"),

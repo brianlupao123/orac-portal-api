@@ -3,7 +3,7 @@ import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
   LoginSchema, CreateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
-  AddTimesheetSchema, AddMaterialSchema, CreateWorksheetSchema,
+  AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema,
   ReviewWorksheetSchema, ApproveAmendmentSchema, CreateLeadSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
   AdminCreateMineSiteSchema, AdminUpdateMineSiteSchema, AdminCreatePlantSchema, AdminUpdatePlantSchema,
@@ -22,6 +22,7 @@ import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet
 } from "./controllers/dispatchController.js";
+import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
@@ -128,6 +129,8 @@ router.post("/quotes/:id/client-po", validate(ClientSubmitPoSchema), submitClien
 
 // Dispatches & Worksheets
 router.post("/dispatch_cards/:id/timesheets", validate(AddTimesheetSchema), addTimesheet);
+router.get("/kiosk/dispatch_cards/:id/roster", getKioskRoster);
+router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatchSchema), submitKioskTimesheets);
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
 router.post("/field_worksheets/:id/submit", submitWorksheet);

@@ -16,6 +16,7 @@ export const permissions = {
   verifyPo: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS],
   dispatch: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   addTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
+  submitKioskTimesheets: [roles.ADMIN, roles.OPERATIONS],
   addMaterials: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
