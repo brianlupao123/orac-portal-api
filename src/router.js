@@ -29,7 +29,7 @@ import { createUser, updateUser, createClient, updateClient, createMineSite, upd
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, getLowStockReport } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, flagAiResponse } from "./controllers/aiController.js";
-import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
+import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
 import { getDailyTaskReport, getInvoiceReadySummary, getClientCompletionRecord } from "./controllers/operationalDocumentsController.js";
 
 const router = express.Router();
@@ -59,6 +59,7 @@ router.get("/exports/pastel.csv", exportPastel);
 router.get("/exports/pastel-review/quotes.csv", getPastelReviewQuotes);
 router.get("/exports/pastel-review/invoice-ready.csv", getPastelReviewInvoiceReady);
 router.post("/imports/leads/preview", previewLeadImport);
+router.post("/imports/leads/commit", commitLeadImport);
 router.get("/analytics/operational", getOperationalAnalytics);
 
 // Phase 0.5 is deterministic and providerless. These routes have no model,
