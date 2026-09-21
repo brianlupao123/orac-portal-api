@@ -99,6 +99,37 @@ export function previewLeadImport(req, res) {
   return res.json({ success: true, preview_only: true, total_rows: rows.length, valid_rows: rows.filter((row) => row.valid).length, invalid_rows: rows.filter((row) => !row.valid).length, rows });
 }
 
+export function commitLeadImport(req, res) {
+  const actor = getActor(req);
+  if (!actor?.is_active || !leadPreviewRoles.includes(actor.role)) return deny(res, "Role cannot commit lead imports.");
+  if (req.body?.confirmation !== "IMPORT_LEADS") return res.status(400).json({ success: false, message: "Enter the exact confirmation IMPORT_LEADS before committing." });
+  const csv = String(req.body?.csv_content || "");
+  if (!csv || Buffer.byteLength(csv, "utf8") > 512 * 1024) return res.status(400).json({ success: false, message: "csv_content is required and must be at most 512 KB." });
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  const headers = parseCsvRow(lines[0] || "");
+  if (!headers || lines.length < 2 || lines.length > 501 || csvHeaders.some((header) => !headers.includes(header))) {
+    return res.status(400).json({ success: false, message: "CSV must contain 1 to 500 rows and required lead headers." });
+  }
+  const emails = new Set((req.db.leads || []).map((lead) => String(lead.email || "").toLowerCase()));
+  const candidates = [];
+  for (const [index, line] of lines.slice(1).entries()) {
+    const cells = parseCsvRow(line);
+    const values = Object.fromEntries(headers.map((header, cellIndex) => [header, cells?.[cellIndex] || ""]));
+    const email = values.email.toLowerCase();
+    if (!cells || csvHeaders.some((header) => !values[header]) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email) || emails.has(email)) {
+      return res.status(400).json({ success: false, message: `Import stopped: row ${index + 2} is invalid or duplicates an existing lead.` });
+    }
+    emails.add(email);
+    candidates.push(values);
+  }
+  const batchId = req.store.id("lead_import");
+  const imported = candidates.map((values) => ({ id: req.store.id("lead"), ...values, phone: values.phone || "", mine_site: values.mine_site || "", urgency: values.urgency || "standard", status: "New", import_batch_id: batchId, created_at: new Date().toISOString() }));
+  req.db.leads.push(...imported);
+  req.store.audit(req.db, actor, "lead_import", batchId, "LEAD_IMPORT_COMMITTED", null, { imported_count: imported.length, source: "csv_confirmed" });
+  for (const lead of imported) req.store.audit(req.db, actor, "lead", lead.id, "LEAD_IMPORTED", null, { id: lead.id, email: lead.email, import_batch_id: batchId });
+  return res.status(201).json({ success: true, data: { batch_id: batchId, imported_count: imported.length, leads: imported.map((lead) => ({ id: lead.id, email: lead.email, company_name: lead.company_name })) } });
+}
+
 function parseRange(query) {
   const from = String(query?.from || "");
   const to = String(query?.to || "");
