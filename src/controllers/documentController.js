@@ -1,5 +1,5 @@
 import { roles } from "../permissions.js";
-import { generatePdfHtml } from "../pdfGenerator.js";
+import { generatePdfBuffer } from "../pdfGenerator.js";
 
 function getActor(req) {
   return req.user?.id ? req.db.users.find((u) => u.id === req.user.id) : null;
@@ -265,6 +265,10 @@ function esc(str) { return String(str || "").replace(/&/g,"&amp;").replace(/</g,
 function currency(n) { return "$" + Number(n || 0).toFixed(2); }
 function hierarchyText(h) { return [h?.mine_site?.name, h?.plant?.name, h?.section?.name].filter(Boolean).map(esc).join(" &rarr; ") || "N/A"; }
 
+function sendPdf(res, title, content) {
+  res.type("application/pdf").send(generatePdfBuffer(title, BRAND_NAME, BRAND_LEGAL, content));
+}
+
 export const getQuotePdf = (req, res) => {
   if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER], "Role cannot view quote documents.")) return;
   const doc = findQuoteDoc(req.db, req.params.id);
@@ -305,7 +309,7 @@ export const getQuotePdf = (req, res) => {
       </tbody>
     </table>
   `;
-  res.type("html").send(generatePdfHtml("Quotation " + esc(doc.quote.quote_number), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  sendPdf(res, "Quotation " + esc(doc.quote.quote_number), content);
 };
 
 export const getJobCardPdf = (req, res) => {
@@ -344,7 +348,7 @@ export const getJobCardPdf = (req, res) => {
       </div>
     </div>
   `;
-  res.type("html").send(generatePdfHtml("Job Card " + esc(dispatchReference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  sendPdf(res, "Job Card " + esc(dispatchReference), content);
 };
 
 export const getWorksheetPdf = (req, res) => {
@@ -388,7 +392,7 @@ export const getWorksheetPdf = (req, res) => {
       </div>
     </div>
   `;
-  res.type("html").send(generatePdfHtml("Field Worksheet " + esc(worksheetReference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  sendPdf(res, "Field Worksheet " + esc(worksheetReference), content);
 };
 
 export const getInvoicePdf = (req, res) => {
@@ -445,7 +449,7 @@ export const getInvoicePdf = (req, res) => {
     </div>
     ${String(doc.invoice.status || "").toLowerCase() === "voided" ? '<div style="margin-top: 16px; font-weight: bold; color: #b42318;">VOIDED</div>' : ""}
   `;
-  res.type("html").send(generatePdfHtml("Invoice " + esc(doc.invoice.invoice_number), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  sendPdf(res, "Invoice " + esc(doc.invoice.invoice_number), content);
 };
 
 export const getPoDocumentPdf = (req, res) => {
@@ -464,5 +468,5 @@ export const getPoDocumentPdf = (req, res) => {
       <div><span class="detail-label">Amendment Required:</span> ${doc.po.requires_amendment ? "YES" : "No"}</div>
     </div>
   `;
-  res.type("html").send(generatePdfHtml("Purchase Order " + esc(doc.po.po_reference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  sendPdf(res, "Purchase Order " + esc(doc.po.po_reference), content);
 };

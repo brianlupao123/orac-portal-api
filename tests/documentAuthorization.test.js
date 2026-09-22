@@ -2,10 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as docs from "../src/controllers/documentController.js";
 
-// NOTE: PDF-body assertions assume generatePdfHtml() embeds the `content`
-// argument in its output. If the real generator transforms content, review
-// those assertions (they are marked "body:").
-
 function res() {
   return {
     statusCode: 200, sent: 0, contentType: null, body: undefined,
@@ -168,35 +164,38 @@ test("invoice documents stay blocked without verified PO, with PO amendment, or 
 test("invoice PDF states VOIDED truthfully and never exposes the internal void reason", () => {
   const voided = run(docs.getInvoicePdf, fixture(), "client", "i2");
   assert.equal(voided.statusCode, 200);
-  assert.match(voided.body, /VOIDED/, "body: voided banner");
-  assert.equal(voided.body.includes("internal secret reason"), false);
+  assert.equal(Buffer.isBuffer(voided.body), true);
+  assert.match(voided.body.toString("latin1"), /VOIDED/);
+  assert.equal(voided.body.toString("latin1").includes("internal secret reason"), false);
   const live = run(docs.getInvoicePdf, fixture(), "client", "i1");
-  assert.equal(/VOIDED/.test(live.body), false);
+  assert.equal(/VOIDED/.test(live.body.toString("latin1")), false);
 });
 
-test("PDF output escapes master-data names (stored XSS regression)", () => {
+test("PDF output contains text rather than executable HTML (stored XSS regression)", () => {
   for (const handlerName of ["getQuotePdf", "getJobCardPdf"]) {
     const r = run(docs[handlerName], fixture(), "admin", handlerName === "getQuotePdf" ? "q1" : "d1");
     assert.equal(r.statusCode, 200);
-    assert.equal(r.body.includes("<img src=x"), false, `${handlerName} body: raw markup must not appear`);
-    assert.match(r.body, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    const body = r.body.toString("latin1");
+    assert.equal(body.includes("<img src=x"), false, `${handlerName} body: raw markup must not appear`);
+    assert.match(body, /Site &lt;img src=x onerror=alert\\\(1\\\)&gt;/);
   }
 });
 
 test("worksheet PDF prints the fields the worksheet actually stores (current and legacy names)", () => {
-  const current = run(docs.getWorksheetPdf, fixture(), "admin", "w1").body;
+  const current = run(docs.getWorksheetPdf, fixture(), "admin", "w1").body.toString("latin1");
   assert.match(current, /Replaced liner/); assert.match(current, /6\.5/); assert.match(current, /2026-09-20/); assert.match(current, /w1/);
-  const legacy = run(docs.getWorksheetPdf, fixture(), "admin", "w3").body;
+  const legacy = run(docs.getWorksheetPdf, fixture(), "admin", "w3").body.toString("latin1");
   assert.match(legacy, /Legacy text/); assert.match(legacy, /WS-LEGACY/); assert.match(legacy, /2026-09-19/);
 });
 
 test("job card PDF falls back to dispatch_number then id when dispatch_reference is absent", () => {
   const db = fixture(); delete db.dispatch_cards[0].dispatch_reference; db.dispatch_cards[0].dispatch_number = "DN-9";
-  assert.match(run(docs.getJobCardPdf, db, "admin", "d1").body, /DN-9/);
+  assert.match(run(docs.getJobCardPdf, db, "admin", "d1").body.toString("latin1"), /DN-9/);
 });
 
-test("PDF handlers send success only as a single response and set html content type", () => {
+test("PDF handlers send a real PDF body exactly once with a PDF content type", () => {
   const r = run(docs.getQuotePdf, fixture(), "sales", "q1");
-  assert.equal(r.contentType, "html");
+  assert.equal(r.contentType, "application/pdf");
+  assert.equal(r.body.subarray(0, 5).toString("ascii"), "%PDF-");
   assert.equal(r.sent, 1);
 });
