@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { roles } from "./permissions.js";
 import { SERVICE_REQUEST_URGENCIES, TRIAGE_DECISION_NAMES } from "./serviceRequestRules.js";
+import { TECHNICIAN_TRADES } from "./trades.js";
 
 export const QuoteLineSchema = z.object({
   catalog_item_id: z.string().nullable().optional(),
@@ -96,7 +97,8 @@ export const AdminCreateUserSchema = z.object({
   password: z.string().min(10, "Password must be at least 10 characters").max(72),
   role: z.enum(Object.values(roles), { errorMap: () => ({ message: "Invalid role" }) }),
   is_active: z.boolean().optional(),
-  client_id: z.string().optional()
+  client_id: z.string().optional(),
+  trade: z.enum(TECHNICIAN_TRADES).nullable().optional()
 });
 
 export const AdminUpdateUserSchema = z.object({
@@ -105,7 +107,8 @@ export const AdminUpdateUserSchema = z.object({
   password: z.string().min(10, "Password must be at least 10 characters").max(72).optional(),
   role: z.enum(Object.values(roles)).optional(),
   is_active: z.boolean().optional(),
-  client_id: z.string().optional()
+  client_id: z.string().optional(),
+  trade: z.enum(TECHNICIAN_TRADES).nullable().optional()
 });
 
 export const AdminCreateClientSchema = z.object({

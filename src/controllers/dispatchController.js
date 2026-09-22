@@ -125,10 +125,16 @@ export const createWorksheet = (req, res) => {
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
+  const technicianId = [roles.ADMIN, roles.OPERATIONS].includes(actor.role)
+    ? (body.technician_id || job.assigned_technician_id)
+    : actor.id;
+  const technician = req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN);
+  if (!technician) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
   const worksheet = {
     id: req.store.id("ws"),
     dispatch_card_id: dispatchId,
-    technician_id: [roles.ADMIN, roles.OPERATIONS].includes(actor.role) ? (body.technician_id || actor.id) : actor.id,
+    technician_id: technicianId,
+    technician_trade: technician.trade || null,
     work_date: body.work_date || new Date().toISOString().slice(0, 10),
     activity: body.activity,
     hours: body.hours,
