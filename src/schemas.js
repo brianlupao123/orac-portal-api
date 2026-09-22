@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { roles } from "./permissions.js";
+import { SERVICE_REQUEST_URGENCIES, TRIAGE_DECISION_NAMES } from "./serviceRequestRules.js";
 
 export const QuoteLineSchema = z.object({
   catalog_item_id: z.string().nullable().optional(),
@@ -258,4 +259,22 @@ export const StockMovementSchema = z.object({
   reason: z.string().min(1, "Reason is required"),
   reference_id: z.string().optional(),
   override_negative: z.boolean().optional()
+});
+
+// ── Client Service Requests ────────────────────────────────────────────────
+// Strict: identity, tenant, status, triage and lead fields are never accepted
+// from the caller (client_id, created_by_user_id, status, triaged_*, converted_*).
+
+export const CreateServiceRequestSchema = z.strictObject({
+  title: z.string().trim().min(1, "Title is required").max(160, "Title cannot exceed 160 characters"),
+  service_need: z.string().trim().min(1, "Service need is required").max(2000, "Service need cannot exceed 2000 characters"),
+  urgency: z.enum(SERVICE_REQUEST_URGENCIES, { message: "Urgency must be standard, planned_shutdown or urgent_downtime" }).optional(),
+  mine_site_id: z.string().min(1).nullable().optional(),
+  equipment_tag_id: z.string().min(1).nullable().optional(),
+  requested_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Requested date must be YYYY-MM-DD").nullable().optional()
+});
+
+export const TriageServiceRequestSchema = z.strictObject({
+  decision: z.enum(TRIAGE_DECISION_NAMES, { message: "Decision must be acknowledge, accept or decline" }),
+  note: z.string().trim().max(1000, "Note cannot exceed 1000 characters").optional()
 });
