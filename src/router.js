@@ -12,7 +12,8 @@ import {
   ClientSubmitPoSchema,
   CreateSupplierSchema, UpdateSupplierSchema,
   CreateStockItemSchema, UpdateStockItemSchema,
-  StockMovementSchema
+  StockMovementSchema,
+  CreateServiceRequestSchema, TriageServiceRequestSchema
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
@@ -32,6 +33,10 @@ import { getNotifications, markAllRead, markRead } from "./controllers/notificat
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, flagAiResponse } from "./controllers/aiController.js";
 import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
 import { getDailyTaskReport, getInvoiceReadySummary, getClientCompletionRecord } from "./controllers/operationalDocumentsController.js";
+import {
+  createServiceRequest, listOwnServiceRequests, listServiceRequestTriageQueue,
+  triageServiceRequest, convertServiceRequestToLead
+} from "./controllers/serviceRequestsController.js";
 
 const router = express.Router();
 
@@ -155,6 +160,15 @@ router.get("/inventory/reports/low-stock", getLowStockReport);
 router.get("/notifications", getNotifications);
 router.post("/notifications/read-all", markAllRead);
 router.post("/notifications/:id/read", markRead);
+
+// Client Service Requests: Client Viewer request -> Sales/Operations triage ->
+// one explicit lead. Role and client scoping are enforced inside the controller.
+// Deliberately NOT a generic collection route (see collectionGuards).
+router.post("/service-requests", validate(CreateServiceRequestSchema), createServiceRequest);
+router.get("/service-requests/mine", listOwnServiceRequests);
+router.get("/service-requests/triage", listServiceRequestTriageQueue);
+router.post("/service-requests/:id/triage", validate(TriageServiceRequestSchema), triageServiceRequest);
+router.post("/service-requests/:id/convert-lead", convertServiceRequestToLead);
 
 // Generic GET endpoints for collections
 const collections = [
