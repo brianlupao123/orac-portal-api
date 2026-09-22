@@ -2,7 +2,7 @@ import { roles } from "../permissions.js";
 import { generatePdfHtml } from "../pdfGenerator.js";
 
 function getActor(req) {
-  return req.db.users.find((u) => u.id === req.user.id);
+  return req.user?.id ? req.db.users.find((u) => u.id === req.user.id) : null;
 }
 
 function deny(res, message) {
@@ -11,6 +11,19 @@ function deny(res, message) {
 
 function roleAllowed(actor, allowedRoles) {
   return Boolean(actor?.is_active) && allowedRoles.includes(actor.role);
+}
+
+function assertDocumentRole(req, res, allowedRoles, message) {
+  const actor = getActor(req);
+  if (!roleAllowed(actor, allowedRoles)) {
+    deny(res, message);
+    return false;
+  }
+  if (actor.role === roles.CLIENT_VIEWER && !actor.client_id) {
+    deny(res, "Client Viewer is not linked to a client account.");
+    return false;
+  }
+  return true;
 }
 
 function assertClientAccess(req, res, client) {
@@ -27,22 +40,30 @@ function assertClientAccess(req, res, client) {
 function assertQuoteAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER];
-  if (!roleAllowed(actor, allowed)) return deny(res, `Role ${actor?.role || "Unknown"} cannot view quote documents.`);
+  if (!roleAllowed(actor, allowed)) {
+    deny(res, `Role ${actor?.role || "Unknown"} cannot view quote documents.`);
+    return false;
+  }
   return assertClientAccess(req, res, doc.client);
 }
 
 function assertDispatchAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.FINANCE, roles.TECHNICIAN];
-  if (!roleAllowed(actor, allowed)) return deny(res, `Role ${actor?.role || "Unknown"} cannot view job card documents.`);
+  if (!roleAllowed(actor, allowed)) {
+    deny(res, `Role ${actor?.role || "Unknown"} cannot view job card documents.`);
+    return false;
+  }
   if (!assertClientAccess(req, res, doc.client)) return false;
   if (actor.role === roles.SUPERVISOR && doc.job.assigned_supervisor_id && doc.job.assigned_supervisor_id !== actor.id) {
-    return deny(res, "Supervisor can only view assigned job cards.");
+    deny(res, "Supervisor can only view assigned job cards.");
+    return false;
   }
   if (actor.role === roles.TECHNICIAN) {
     const assignedWorksheet = req.db.field_worksheets.some((worksheet) => worksheet.dispatch_card_id === doc.job.id && worksheet.technician_id === actor.id);
     if (!assignedWorksheet && doc.job.assigned_technician_id !== actor.id) {
-      return deny(res, "Technician can only view assigned job cards.");
+      deny(res, "Technician can only view assigned job cards.");
+      return false;
     }
   }
   return true;
@@ -51,13 +72,18 @@ function assertDispatchAccess(req, res, doc) {
 function assertWorksheetAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.CLIENT_VIEWER];
-  if (!roleAllowed(actor, allowed)) return deny(res, `Role ${actor?.role || "Unknown"} cannot view worksheet documents.`);
+  if (!roleAllowed(actor, allowed)) {
+    deny(res, `Role ${actor?.role || "Unknown"} cannot view worksheet documents.`);
+    return false;
+  }
   if (!assertClientAccess(req, res, doc.client)) return false;
   if (actor.role === roles.SUPERVISOR && doc.job?.assigned_supervisor_id && doc.job.assigned_supervisor_id !== actor.id) {
-    return deny(res, "Supervisor can only view worksheets for assigned jobs.");
+    deny(res, "Supervisor can only view worksheets for assigned jobs.");
+    return false;
   }
   if (actor.role === roles.TECHNICIAN && doc.worksheet.technician_id !== actor.id) {
-    return deny(res, "Technician can only view assigned worksheets.");
+    deny(res, "Technician can only view assigned worksheets.");
+    return false;
   }
   return true;
 }
@@ -65,14 +91,20 @@ function assertWorksheetAccess(req, res, doc) {
 function assertInvoiceAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.CLIENT_VIEWER];
-  if (!roleAllowed(actor, allowed)) return deny(res, `Role ${actor?.role || "Unknown"} cannot view invoice documents.`);
+  if (!roleAllowed(actor, allowed)) {
+    deny(res, `Role ${actor?.role || "Unknown"} cannot view invoice documents.`);
+    return false;
+  }
   return assertClientAccess(req, res, doc.client);
 }
 
 function assertPoAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER];
-  if (!roleAllowed(actor, allowed)) return deny(res, `Role ${actor?.role || "Unknown"} cannot view PO documents.`);
+  if (!roleAllowed(actor, allowed)) {
+    deny(res, `Role ${actor?.role || "Unknown"} cannot view PO documents.`);
+    return false;
+  }
   return assertClientAccess(req, res, doc.client);
 }
 
@@ -171,6 +203,7 @@ function findPoDoc(db, id) {
 }
 
 export const getQuoteDocument = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER], "Role cannot view quote documents.")) return;
   const doc = findQuoteDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Quote not found." });
   if (!assertQuoteAccess(req, res, doc)) return;
@@ -178,6 +211,7 @@ export const getQuoteDocument = (req, res) => {
 };
 
 export const getDispatchDocument = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.FINANCE, roles.TECHNICIAN], "Role cannot view job card documents.")) return;
   const doc = findDispatchDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!assertDispatchAccess(req, res, doc)) return;
@@ -185,13 +219,18 @@ export const getDispatchDocument = (req, res) => {
 };
 
 export const getWorksheetDocument = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.CLIENT_VIEWER], "Role cannot view worksheet documents.")) return;
   const doc = findWorksheetDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Worksheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
+  if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
+    return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
+  }
   res.json({ success: true, data: doc });
 };
 
 export const getInvoiceDocument = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.CLIENT_VIEWER], "Role cannot view invoice documents.")) return;
   const doc = findInvoiceDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Invoice not found." });
   if (!assertInvoiceAccess(req, res, doc)) return;
@@ -208,6 +247,7 @@ export const getInvoiceDocument = (req, res) => {
 };
 
 export const getPoDocument = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER], "Role cannot view PO documents.")) return;
   const doc = findPoDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Purchase order not found." });
   if (!assertPoAccess(req, res, doc)) return;
@@ -223,11 +263,12 @@ const BRAND_SLATE = "#54595F";
 
 function esc(str) { return String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function currency(n) { return "$" + Number(n || 0).toFixed(2); }
-function hierarchyText(h) { return [h?.mine_site?.name, h?.plant?.name, h?.section?.name].filter(Boolean).join(" &rarr; ") || "N/A"; }
+function hierarchyText(h) { return [h?.mine_site?.name, h?.plant?.name, h?.section?.name].filter(Boolean).map(esc).join(" &rarr; ") || "N/A"; }
 
 export const getQuotePdf = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER], "Role cannot view quote documents.")) return;
   const doc = findQuoteDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).type("html").send("<h1>Quote not found.</h1>");
+  if (!doc) return res.status(404).json({ success: false, message: "Quote not found." });
   if (!assertQuoteAccess(req, res, doc)) return;
 
   const content = `
@@ -268,13 +309,15 @@ export const getQuotePdf = (req, res) => {
 };
 
 export const getJobCardPdf = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.FINANCE, roles.TECHNICIAN], "Role cannot view job card documents.")) return;
   const doc = findDispatchDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).type("html").send("<h1>Job Card not found.</h1>");
+  if (!doc) return res.status(404).json({ success: false, message: "Job Card not found." });
   if (!assertDispatchAccess(req, res, doc)) return;
 
+  const dispatchReference = doc.job.dispatch_reference || doc.job.dispatch_number || doc.job.id;
   const content = `
     <div class="details-grid">
-      <div><span class="detail-label">Dispatch Reference:</span> ${esc(doc.job.dispatch_reference)}</div>
+      <div><span class="detail-label">Dispatch Reference:</span> ${esc(dispatchReference)}</div>
       <div><span class="detail-label">Status:</span> ${esc(doc.job.status)}</div>
       <div><span class="detail-label">Urgency:</span> ${doc.job.started_before_po ? "URGENT" : "Normal"}</div>
       <div><span class="detail-label">Client:</span> ${esc(doc.client?.name)}</div>
@@ -301,29 +344,37 @@ export const getJobCardPdf = (req, res) => {
       </div>
     </div>
   `;
-  res.type("html").send(generatePdfHtml("Job Card " + esc(doc.job.dispatch_reference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  res.type("html").send(generatePdfHtml("Job Card " + esc(dispatchReference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
 };
 
 export const getWorksheetPdf = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.CLIENT_VIEWER], "Role cannot view worksheet documents.")) return;
   const doc = findWorksheetDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).type("html").send("<h1>Worksheet not found.</h1>");
+  if (!doc) return res.status(404).json({ success: false, message: "Worksheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
+  if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
+    return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
+  }
 
+  const worksheetReference = doc.worksheet.worksheet_reference || doc.worksheet.id;
+  const activity = doc.worksheet.activity_description || doc.worksheet.activity;
+  const hours = doc.worksheet.hours_logged ?? doc.worksheet.hours;
+  const workDate = doc.worksheet.date_logged || doc.worksheet.work_date;
   const content = `
     <div class="details-grid">
-      <div><span class="detail-label">Worksheet Ref:</span> ${esc(doc.worksheet.worksheet_reference)}</div>
+      <div><span class="detail-label">Worksheet Ref:</span> ${esc(worksheetReference)}</div>
       <div><span class="detail-label">Job Card Ref:</span> ${esc(doc.job?.dispatch_reference)}</div>
       <div><span class="detail-label">Technician:</span> ${esc(doc.technician?.name)}</div>
-      <div><span class="detail-label">Date:</span> ${esc(doc.worksheet.date_logged)}</div>
+      <div><span class="detail-label">Date:</span> ${esc(workDate)}</div>
       <div><span class="detail-label">Status:</span> ${esc(doc.worksheet.status)}</div>
       <div><span class="detail-label">Client:</span> ${esc(doc.client?.name)}</div>
     </div>
     <div style="margin-bottom: 20px;">
       <div class="detail-label">Work Completed:</div>
-      <p>${esc(doc.worksheet.activity_description)}</p>
+      <p>${esc(activity)}</p>
     </div>
     <div class="details-grid">
-      <div><span class="detail-label">Hours Logged:</span> ${esc(doc.worksheet.hours_logged)}</div>
+      <div><span class="detail-label">Hours Logged:</span> ${esc(hours)}</div>
       <div><span class="detail-label">Approved By:</span> ${esc(doc.approved_by_user?.name || "Pending")}</div>
     </div>
     <div class="signoff-area">
@@ -337,23 +388,24 @@ export const getWorksheetPdf = (req, res) => {
       </div>
     </div>
   `;
-  res.type("html").send(generatePdfHtml("Field Worksheet " + esc(doc.worksheet.worksheet_reference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
+  res.type("html").send(generatePdfHtml("Field Worksheet " + esc(worksheetReference), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
 };
 
 export const getInvoicePdf = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.CLIENT_VIEWER], "Role cannot view invoice documents.")) return;
   const doc = findInvoiceDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).type("html").send("<h1>Invoice not found.</h1>");
+  if (!doc) return res.status(404).json({ success: false, message: "Invoice not found." });
   if (!assertInvoiceAccess(req, res, doc)) return;
 
   // Invoice guards
   if (!doc.po || doc.po.status !== "verified" || !String(doc.po.po_reference || "").trim()) {
-    return res.status(409).type("html").send("<h1>Invoice blocked: no verified PO reference on file.</h1>");
+    return res.status(409).json({ success: false, message: "Invoice document blocked: no verified PO reference on file." });
   }
   if (doc.po.requires_amendment) {
-    return res.status(409).type("html").send("<h1>Invoice blocked: PO amendment is required.</h1>");
+    return res.status(409).json({ success: false, message: "Invoice document blocked: PO amendment is required." });
   }
   if (doc.worksheets.length === 0) {
-    return res.status(409).type("html").send("<h1>Invoice blocked: supervisor-approved worksheet is required.</h1>");
+    return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved worksheet is required." });
   }
 
   const content = `
@@ -391,13 +443,15 @@ export const getInvoicePdf = (req, res) => {
     <div style="margin-top: 20px; font-size: 14px;">
       <strong>Payment Terms:</strong> Strictly 30 days from invoice date.
     </div>
+    ${String(doc.invoice.status || "").toLowerCase() === "voided" ? '<div style="margin-top: 16px; font-weight: bold; color: #b42318;">VOIDED</div>' : ""}
   `;
   res.type("html").send(generatePdfHtml("Invoice " + esc(doc.invoice.invoice_number), BRAND_NAME, BRAND_LEGAL, BRAND_PRIMARY, BRAND_SLATE, content));
 };
 
 export const getPoDocumentPdf = (req, res) => {
+  if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER], "Role cannot view PO documents.")) return;
   const doc = findPoDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).type("html").send("<h1>Purchase Order not found.</h1>");
+  if (!doc) return res.status(404).json({ success: false, message: "Purchase order not found." });
   if (!assertPoAccess(req, res, doc)) return;
 
   const content = `
