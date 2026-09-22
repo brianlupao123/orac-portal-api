@@ -34,6 +34,9 @@ export const permissions = {
   convertServiceRequest: [roles.SALES, roles.OPERATIONS],
   manageCatalog: [roles.ADMIN, roles.MANAGEMENT],
   manageCompanyProfile: [roles.ADMIN, roles.MANAGEMENT],
+  viewContracts: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.CLIENT_VIEWER],
+  manageContracts: [roles.ADMIN, roles.MANAGEMENT],
+  manageMaintenanceSchedules: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   submitClientPo: [roles.CLIENT_VIEWER],
   manageInventory: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS]
 };

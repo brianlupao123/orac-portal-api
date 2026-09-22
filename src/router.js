@@ -37,6 +37,10 @@ import {
   createServiceRequest, listOwnServiceRequests, listServiceRequestTriageQueue,
   triageServiceRequest, convertServiceRequestToLead
 } from "./controllers/serviceRequestsController.js";
+import {
+  listContracts, createContract, updateContract,
+  listMaintenanceSchedules, createMaintenanceSchedule, updateMaintenanceSchedule
+} from "./controllers/contractsController.js";
 
 const router = express.Router();
 
@@ -169,6 +173,17 @@ router.get("/service-requests/mine", listOwnServiceRequests);
 router.get("/service-requests/triage", listServiceRequestTriageQueue);
 router.post("/service-requests/:id/triage", validate(TriageServiceRequestSchema), triageServiceRequest);
 router.post("/service-requests/:id/convert-lead", convertServiceRequestToLead);
+
+// Contracts & preventative maintenance (pilot). Explicit routes only. These
+// records are deliberately NOT in the generic `collections` list below, so the
+// generic GET/deactivate routes can never expose or archive them. The controller
+// checks the role, validates the body, and scopes Client Viewer reads itself.
+router.get("/contracts", listContracts);
+router.post("/contracts", createContract);
+router.patch("/contracts/:id", updateContract);
+router.get("/maintenance-schedules", listMaintenanceSchedules);
+router.post("/maintenance-schedules", createMaintenanceSchedule);
+router.patch("/maintenance-schedules/:id", updateMaintenanceSchedule);
 
 // Generic GET endpoints for collections
 const collections = [
