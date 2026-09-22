@@ -278,3 +278,68 @@ export const TriageServiceRequestSchema = z.strictObject({
   decision: z.enum(TRIAGE_DECISION_NAMES, { message: "Decision must be acknowledge, accept or decline" }),
   note: z.string().trim().max(1000, "Note cannot exceed 1000 characters").optional()
 });
+
+// Contracts and preventative maintenance (pilot)
+//
+// Every object is strict: a caller may not send id, contract_number,
+// created_by_user_id, created_at or updated_at, and gets a 400 naming the
+// unknown key instead of having it silently dropped.
+
+export function isRealIsoDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+const IsoDateSchema = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use the date format YYYY-MM-DD")
+  .refine(isRealIsoDate, "Enter a real calendar date");
+
+const ContractTitleSchema = z.string().trim().min(1, "Contract title is required").max(160, "Contract title cannot exceed 160 characters");
+const ContractValueSchema = z.number().min(0, "Contract value cannot be negative").max(1_000_000_000_000, "Contract value is too large").nullable();
+const MaintenanceNotesSchema = z.string().trim().max(500, "Notes cannot exceed 500 characters");
+
+export const CONTRACT_STATUSES = ["Draft", "Active", "Expired", "Cancelled"];
+export const MAINTENANCE_FREQUENCIES = ["Weekly", "Monthly", "Quarterly", "Biannual", "Annual"];
+
+// A new contract starts as Draft or Active. Expired and Cancelled are reached
+// only by updating an existing contract.
+export const CreateContractSchema = z.object({
+  client_id: z.string().trim().min(1, "Client is required"),
+  title: ContractTitleSchema,
+  start_date: IsoDateSchema,
+  end_date: IsoDateSchema,
+  total_value: ContractValueSchema.optional(),
+  status: z.enum(["Draft", "Active"]).optional()
+}).strict();
+
+// client_id is intentionally absent: a contract cannot be moved to another client.
+export const UpdateContractSchema = z.object({
+  title: ContractTitleSchema.optional(),
+  start_date: IsoDateSchema.optional(),
+  end_date: IsoDateSchema.optional(),
+  total_value: ContractValueSchema.optional(),
+  status: z.enum(CONTRACT_STATUSES).optional()
+}).strict().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one contract field is required"
+);
+
+export const CreateMaintenanceScheduleSchema = z.object({
+  contract_id: z.string().trim().min(1, "Contract is required"),
+  equipment_tag_id: z.string().trim().min(1, "Equipment tag cannot be empty").nullable().optional(),
+  frequency: z.enum(MAINTENANCE_FREQUENCIES),
+  next_due_date: IsoDateSchema,
+  notes: MaintenanceNotesSchema.optional()
+}).strict();
+
+// contract_id is intentionally absent: a schedule cannot move to another contract.
+export const UpdateMaintenanceScheduleSchema = z.object({
+  equipment_tag_id: z.string().trim().min(1, "Equipment tag cannot be empty").nullable().optional(),
+  frequency: z.enum(MAINTENANCE_FREQUENCIES).optional(),
+  next_due_date: IsoDateSchema.optional(),
+  notes: MaintenanceNotesSchema.optional()
+}).strict().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one schedule field is required"
+);

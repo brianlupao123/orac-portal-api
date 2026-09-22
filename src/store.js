@@ -124,6 +124,8 @@ function seedData() {
       { id: "si_fasteners", catalog_item_id: null, item_code: "FAST-M16-SS", item_name: "M16 Stainless Fastener Kit", unit_of_measure: "set", quantity_on_hand: 60, reorder_level: 25, unit_cost: 12, supplier_id: "sup_ceramics", location: "Store A - Shelf 4" }
     ],
     stock_movements: [],
+    contracts: [],
+    maintenance_schedules: [],
     audit_logs: [
       { id: "audit_seed", actor_id: "u_admin", entity_type: "system", entity_id: "seed", action: "SYSTEM_SEEDED", old_values: null, new_values: null, created_at: now() }
     ],
