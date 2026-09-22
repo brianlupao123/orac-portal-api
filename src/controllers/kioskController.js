@@ -30,7 +30,7 @@ export function getKioskRoster(req, res) {
 
   const technicians = req.db.users
     .filter((user) => user.is_active && user.role === "Technician" && rosterIds(req.db, dispatch).has(user.id))
-    .map(({ id, name, email }) => ({ id, name, email }));
+    .map(({ id, name, email, trade }) => ({ id, name, email, trade: trade || null }));
 
   res.json({ success: true, data: { dispatch: { id: dispatch.id, dispatch_number: dispatch.dispatch_number, status: dispatch.status }, technicians } });
 }
@@ -54,10 +54,12 @@ export function submitKioskTimesheets(req, res) {
   }
 
   const created = req.body.entries.map((entry) => {
+    const technician = req.db.users.find((user) => user.id === entry.technician_id);
     const timesheet = {
       id: req.store.id("ts"),
       dispatch_card_id: dispatch.id,
       technician_id: entry.technician_id,
+      technician_trade: technician?.trade || null,
       user_id: entry.technician_id,
       recorded_by_user_id: actor.id,
       work_date: req.body.work_date,
