@@ -133,7 +133,9 @@ function seedData() {
     // NEW — Phase 6: "Request Access" queue (see accessRequestsController.js).
     access_requests: [],
     // Client Service Requests: Client Viewer -> Sales/Operations triage -> lead.
-    service_requests: []
+    service_requests: [],
+    // Internal Work Requests: controlled staff-to-staff requests (never client-facing).
+    internal_work_requests: []
   };
 }
 

@@ -13,7 +13,8 @@ import {
   CreateSupplierSchema, UpdateSupplierSchema,
   CreateStockItemSchema, UpdateStockItemSchema,
   StockMovementSchema,
-  CreateServiceRequestSchema, TriageServiceRequestSchema
+  CreateServiceRequestSchema, TriageServiceRequestSchema,
+  CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
@@ -37,6 +38,11 @@ import {
   createServiceRequest, listOwnServiceRequests, listServiceRequestTriageQueue,
   triageServiceRequest, convertServiceRequestToLead
 } from "./controllers/serviceRequestsController.js";
+import {
+  getInternalWorkRequestOptions, createInternalWorkRequest, listInternalWorkRequestOutbox,
+  listInternalWorkRequestInbox, getInternalWorkRequest, acknowledgeInternalWorkRequest,
+  transitionInternalWorkRequest
+} from "./controllers/internalWorkRequestsController.js";
 import {
   listContracts, createContract, updateContract,
   listMaintenanceSchedules, createMaintenanceSchedule, updateMaintenanceSchedule
@@ -173,6 +179,19 @@ router.get("/service-requests/mine", listOwnServiceRequests);
 router.get("/service-requests/triage", listServiceRequestTriageQueue);
 router.post("/service-requests/:id/triage", validate(TriageServiceRequestSchema), triageServiceRequest);
 router.post("/service-requests/:id/convert-lead", convertServiceRequestToLead);
+
+// Internal Work Requests: controlled staff-to-staff requests. Explicit routes
+// only; NOT in the generic `collections` list below, so the generic GET/deactivate
+// routes can never expose or archive them. Scope (own outbox, role inbox,
+// participant-only detail) is enforced inside the controller from the session.
+// Fixed paths are registered before `/:id` so they are never read as an id.
+router.get("/internal-work-requests/options", getInternalWorkRequestOptions);
+router.get("/internal-work-requests/outbox", listInternalWorkRequestOutbox);
+router.get("/internal-work-requests/inbox", listInternalWorkRequestInbox);
+router.get("/internal-work-requests/:id", getInternalWorkRequest);
+router.post("/internal-work-requests", validate(CreateInternalWorkRequestSchema), createInternalWorkRequest);
+router.post("/internal-work-requests/:id/acknowledge", acknowledgeInternalWorkRequest);
+router.post("/internal-work-requests/:id/transition", validate(TransitionInternalWorkRequestSchema), transitionInternalWorkRequest);
 
 // Contracts & preventative maintenance (pilot). Explicit routes only. These
 // records are deliberately NOT in the generic `collections` list below, so the

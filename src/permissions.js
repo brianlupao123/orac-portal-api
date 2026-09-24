@@ -38,7 +38,17 @@ export const permissions = {
   manageContracts: [roles.ADMIN, roles.MANAGEMENT],
   manageMaintenanceSchedules: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   submitClientPo: [roles.CLIENT_VIEWER],
-  manageInventory: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS]
+  manageInventory: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  // Internal Work Requests (staff to staff). Client Viewer holds none of these.
+  // These lists only gate the endpoints; which sender may send which request
+  // type to which recipient role is the pairing policy in
+  // internalWorkRequestRules.js (a test keeps the two in step).
+  createInternalWorkRequest: [roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  viewInternalWorkRequestOutbox: [roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  viewInternalWorkRequestInbox: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
+  workInternalWorkRequest: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
+  // Read-only, by id. Never grants any mutation.
+  auditInternalWorkRequests: [roles.ADMIN]
 };
 
 export function hasPermission(actor, permission) {
