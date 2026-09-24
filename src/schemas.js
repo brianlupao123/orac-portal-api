@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { roles } from "./permissions.js";
 import { SERVICE_REQUEST_URGENCIES, TRIAGE_DECISION_NAMES } from "./serviceRequestRules.js";
+import {
+  INTERNAL_WORK_REQUEST_LIMITS, INTERNAL_WORK_REQUEST_PRIORITIES, INTERNAL_WORK_REQUEST_TRANSITION_ACTIONS,
+  INTERNAL_WORK_REQUEST_TYPE_CODES, RELATED_ENTITY_TYPE_CODES
+} from "./internalWorkRequestRules.js";
 import { TECHNICIAN_TRADES } from "./trades.js";
 
 export const QuoteLineSchema = z.object({
@@ -280,6 +284,26 @@ export const CreateServiceRequestSchema = z.strictObject({
 export const TriageServiceRequestSchema = z.strictObject({
   decision: z.enum(TRIAGE_DECISION_NAMES, { message: "Decision must be acknowledge, accept or decline" }),
   note: z.string().trim().max(1000, "Note cannot exceed 1000 characters").optional()
+});
+
+// ── Internal Work Requests ─────────────────────────────────────────────────
+// Strict: sender, role, client, status, assignee, history and timestamps are
+// never accepted from the caller. Pairing and related-record checks need the
+// session and the database, so the controller performs them.
+
+export const CreateInternalWorkRequestSchema = z.strictObject({
+  request_type: z.enum(INTERNAL_WORK_REQUEST_TYPE_CODES, { message: "Request type is not recognised" }),
+  subject: z.string().trim().min(1, "Subject is required").max(INTERNAL_WORK_REQUEST_LIMITS.subject, "Subject is too long"),
+  description: z.string().trim().min(1, "Description is required").max(INTERNAL_WORK_REQUEST_LIMITS.description, "Description is too long"),
+  priority: z.enum(INTERNAL_WORK_REQUEST_PRIORITIES, { message: "Priority is not recognised" }).optional(),
+  recipient_role: z.enum(Object.values(roles), { message: "Recipient role is not recognised" }).optional(),
+  related_entity_type: z.enum(RELATED_ENTITY_TYPE_CODES, { message: "Related record type is not recognised" }).nullable().optional(),
+  related_entity_id: z.string().trim().min(1).max(INTERNAL_WORK_REQUEST_LIMITS.relatedId).nullable().optional()
+});
+
+export const TransitionInternalWorkRequestSchema = z.strictObject({
+  action: z.enum(INTERNAL_WORK_REQUEST_TRANSITION_ACTIONS, { message: "Action must be start, complete, reject or cancel" }),
+  note: z.string().trim().max(INTERNAL_WORK_REQUEST_LIMITS.note, "Note is too long").optional()
 });
 
 // Contracts and preventative maintenance (pilot)
