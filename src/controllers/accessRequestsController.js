@@ -46,16 +46,19 @@ export const createAccessRequest = (req, res) => {
     });
   }
 
+  // This public endpoint must not reveal whether an email already has an
+  // account or a pending request.
+  const genericAcceptedResponse = { success: true, data: { status: "Pending" } };
   const existingUser = req.db.users.find((u) => u.email.toLowerCase() === email);
   if (existingUser) {
-    return res.status(409).json({ success: false, message: "An account with this email already exists." });
+    return res.json(genericAcceptedResponse);
   }
 
   const existingPending = req.db.access_requests.find(
     (r) => r.email.toLowerCase() === email && r.status === "Pending"
   );
   if (existingPending) {
-    return res.status(409).json({ success: false, message: "A request for this email is already pending review." });
+    return res.json(genericAcceptedResponse);
   }
 
   const request = {
@@ -73,7 +76,7 @@ export const createAccessRequest = (req, res) => {
   req.db.access_requests.push(request);
   req.store.audit(req.db, null, "access_request", request.id, "ACCESS_REQUEST_CREATED", null, request);
 
-  res.json({ success: true, data: { id: request.id, status: request.status } });
+  res.json(genericAcceptedResponse);
 };
 
 export const approveAccessRequest = (req, res) => {
@@ -112,9 +115,15 @@ export const approveAccessRequest = (req, res) => {
   user.reset_token = token;
   user.reset_token_expires_at = expiresAt;
 
-  const frontendBase = process.env.FRONTEND_BASE_URL || "";
-  const setPasswordLink = `${frontendBase}/reset-password?email=${encodeURIComponent(user.email)}&token=${token}`;
-  console.log(`[ACCESS APPROVED] ${user.email} (${finalRole}): ${setPasswordLink} (expires in 30 min)`);
+  // FIX: this previously console.log'd the full set-password link, token
+  // included, directly contradicting this codebase's own stated rule (see
+  // authController.js's Forgot/Reset Password comment): "Tokens and reset
+  // links must never be logged, returned, or placed in audit records." No
+  // owner-approved delivery adapter exists yet, so — consistent with how
+  // requestPasswordReset already behaves — the token is generated and
+  // stored on the user record (so the reset flow works once a secure
+  // delivery path exists) but is not logged or returned here. The audit
+  // entries below already omit it correctly.
 
   request.status = "Approved";
   request.reviewed_by = actor.id;
@@ -123,8 +132,8 @@ export const approveAccessRequest = (req, res) => {
   req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_APPROVED", before, request);
   req.store.audit(req.db, actor, "user", user.id, "ACCESS_REQUEST_USER_CREATED", null, { id: user.id, email: user.email, role: user.role });
 
-  const { password_hash, reset_token, ...safeUser } = user;
-  res.json({ success: true, data: { user: safeUser, set_password_link_logged: true } });
+  const { password_hash, reset_token, reset_token_expires_at, ...safeUser } = user;
+  res.json({ success: true, data: { user: safeUser, set_password_link_logged: false } });
 };
 
 export const rejectAccessRequest = (req, res) => {

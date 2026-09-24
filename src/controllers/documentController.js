@@ -37,6 +37,17 @@ function assertClientAccess(req, res, client) {
   return true;
 }
 
+// Supervisor scope. Mirrors dispatchController.isAssignedToDispatch and
+// coreController.scopeOperationalData: a Supervisor is in scope only when named on the
+// dispatch or on a linked worksheet. Ownership that cannot be established fails closed.
+function supervisorInScope(db, actor, job, worksheet) {
+  if (worksheet?.supervisor_id === actor.id) return true;
+  if (!job) return false;
+  return job.assigned_supervisor_id === actor.id ||
+    job.supervisor_id === actor.id ||
+    (db.field_worksheets || []).some((item) => item.dispatch_card_id === job.id && item.supervisor_id === actor.id);
+}
+
 function assertQuoteAccess(req, res, doc) {
   const actor = getActor(req);
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER];
@@ -55,7 +66,7 @@ function assertDispatchAccess(req, res, doc) {
     return false;
   }
   if (!assertClientAccess(req, res, doc.client)) return false;
-  if (actor.role === roles.SUPERVISOR && doc.job.assigned_supervisor_id && doc.job.assigned_supervisor_id !== actor.id) {
+  if (actor.role === roles.SUPERVISOR && !supervisorInScope(req.db, actor, doc.job, null)) {
     deny(res, "Supervisor can only view assigned job cards.");
     return false;
   }
@@ -77,7 +88,7 @@ function assertWorksheetAccess(req, res, doc) {
     return false;
   }
   if (!assertClientAccess(req, res, doc.client)) return false;
-  if (actor.role === roles.SUPERVISOR && doc.job?.assigned_supervisor_id && doc.job.assigned_supervisor_id !== actor.id) {
+  if (actor.role === roles.SUPERVISOR && !supervisorInScope(req.db, actor, doc.job, doc.worksheet)) {
     deny(res, "Supervisor can only view worksheets for assigned jobs.");
     return false;
   }
@@ -415,10 +426,10 @@ export const getInvoicePdf = (req, res) => {
   const content = `
     <div class="details-grid">
       <div><span class="detail-label">Invoice Number:</span> ${esc(doc.invoice.invoice_number)}</div>
-      <div><span class="detail-label">Invoice Date:</span> ${esc(doc.invoice.created_at)}</div>
+      <div><span class="detail-label">Invoice Date:</span> ${esc(doc.invoice.created_at || doc.invoice.generated_at)}</div>
       <div><span class="detail-label">Client:</span> ${esc(doc.client?.name)}</div>
       <div><span class="detail-label">PO Reference:</span> ${esc(doc.po.po_reference)}</div>
-      <div><span class="detail-label">Job Reference:</span> ${esc(doc.job?.dispatch_reference)}</div>
+      <div><span class="detail-label">Job Reference:</span> ${esc(doc.job?.dispatch_reference || doc.job?.dispatch_number || doc.job?.id)}</div>
     </div>
     <table>
       <thead>
