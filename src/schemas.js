@@ -20,6 +20,12 @@ export const CreateQuoteSchema = z.object({
   lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required")
 });
 
+export const UpdateQuoteSchema = z.object({
+  description: z.string().optional(),
+  equipment_tag_id: z.string().nullable().optional(),
+  lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required").optional()
+});
+
 export const TransitionQuoteSchema = z.object({
   target_state: z.string().min(1, "Target state is required"),
   started_before_po: z.boolean().optional(),
@@ -68,6 +74,14 @@ export const CreateWorksheetSchema = z.object({
   challenges: z.string().optional(),
   evidence_files: z.array(z.string()).optional(),
   submit: z.boolean().optional()
+});
+
+export const UpdateWorksheetSchema = z.object({
+  activity: z.string().min(1, "Activity is required").optional(),
+  hours: z.number().positive("Hours must be greater than zero").optional(),
+  tools_used: z.string().optional(),
+  outcomes: z.string().optional(),
+  challenges: z.string().optional()
 });
 
 export const ReviewWorksheetSchema = z.object({

@@ -125,6 +125,7 @@ function createInvoice(db, store, quote, actor) {
   const timesheets = db.timesheets.filter((item) => item.dispatch_card_id === job.id);
   const materials = db.material_usage.filter((item) => item.dispatch_card_id === job.id);
   const laborTotal = timesheets.reduce((sum, item) => sum + item.hours_logged * item.hourly_rate, 0);
+  const laborHours = timesheets.reduce((sum, item) => sum + item.hours_logged, 0);
   const materialTotal = materials.reduce((sum, item) => sum + item.total_cost, 0);
   const total = laborTotal + materialTotal || quote.total_amount;
 
@@ -140,16 +141,21 @@ function createInvoice(db, store, quote, actor) {
   };
 
   db.invoices.push(invoice);
-  db.invoice_lines.push({
-    id: store.id("il"),
-    invoice_id: invoice.id,
-    description: "Field service labour",
-    quantity: timesheets.reduce((sum, item) => sum + item.hours_logged, 0) || 1,
-    unit_price: timesheets.length ? laborTotal / timesheets.reduce((sum, item) => sum + item.hours_logged, 0) : total,
-    line_total: laborTotal || total,
-    gl_account_code: "SALES-SERVICE",
-    cost_center: "FIELD"
-  });
+  // A labour line is written unless the invoice is materials-only. Without this
+  // guard a materials-only invoice put the whole total on the labour line and
+  // then added the materials line again, so the lines summed to twice the total.
+  if (laborTotal > 0 || materialTotal <= 0) {
+    db.invoice_lines.push({
+      id: store.id("il"),
+      invoice_id: invoice.id,
+      description: "Field service labour",
+      quantity: laborHours || 1,
+      unit_price: laborTotal > 0 && laborHours > 0 ? laborTotal / laborHours : total,
+      line_total: laborTotal || total,
+      gl_account_code: "SALES-SERVICE",
+      cost_center: "FIELD"
+    });
+  }
 
   if (materialTotal > 0) {
     db.invoice_lines.push({

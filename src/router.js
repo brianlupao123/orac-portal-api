@@ -2,9 +2,9 @@ import express from "express";
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
-  LoginSchema, CreateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
+  LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
   AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema,
-  ReviewWorksheetSchema, ApproveAmendmentSchema, CreateLeadSchema,
+  ReviewWorksheetSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
   AdminCreateMineSiteSchema, AdminUpdateMineSiteSchema, AdminCreatePlantSchema, AdminUpdatePlantSchema,
   AdminCreatePlantSectionSchema, AdminUpdatePlantSectionSchema, AdminCreateEquipmentTagSchema, AdminUpdateEquipmentTagSchema,
@@ -137,7 +137,7 @@ router.post("/access-requests/:id/reject", rejectAccessRequest);
 
 // Quotes
 router.post("/quotes", validate(CreateQuoteSchema), createQuote);
-router.patch("/quotes/:id", updateQuote);
+router.patch("/quotes/:id", validate(UpdateQuoteSchema), updateQuote);
 router.post("/quotes/:id/cancel", cancelQuote);
 router.post("/quotes/:id/transition", validate(TransitionQuoteSchema), transition);
 router.post("/quotes/:id/po", validate(VerifyPoSchema), capturePo);
@@ -150,7 +150,7 @@ router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatch
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
-router.patch("/field_worksheets/:id", updateWorksheet);
+router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
 
 // Purchase Orders

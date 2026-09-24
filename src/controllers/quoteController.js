@@ -136,9 +136,11 @@ export const capturePo = (req, res) => {
       po_amount: body.po_amount,
       status: "verified",
       verified_by: actor.id,
-      verified_at: new Date().toISOString(),
-      requires_amendment: false
+      verified_at: new Date().toISOString()
     });
+    // Re-verifying an existing PO must not clear the amendment flag by fiat:
+    // re-derive it from logged work against the (possibly changed) PO amount.
+    req.store.recalculateVariance(req.db, po.id);
   }
   req.store.audit(req.db, actor, "purchase_order", po.id, "PO_VERIFIED", before, po);
   

@@ -1,6 +1,9 @@
 function csvEscape(value) {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  let text = String(value ?? "");
+  // Neutralise spreadsheet formulas in text cells (client names, PO references
+  // and descriptions are user-entered). Real numbers are left untouched.
+  if (typeof value !== "number" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function exportInvoicesCsv(db) {
@@ -37,7 +40,7 @@ export function exportInvoicesCsv(db) {
     for (const line of lines) {
       rows.push([
         invoice.invoice_number,
-        invoice.generated_at?.slice(0, 10) || "",
+        (invoice.generated_at || invoice.created_at)?.slice(0, 10) || "",
         client?.id || "",
         client?.name || "",
         po?.po_reference || "",
