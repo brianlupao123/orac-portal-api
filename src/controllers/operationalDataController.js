@@ -156,7 +156,14 @@ export function getOperationalAnalytics(req, res) {
   const data = {
     range: { from: req.query.from, to: req.query.to },
     dispatches: { total: dispatches.length, by_status: Object.groupBy(dispatches, (item) => item.status || "Unknown") },
-    worksheets: { total: worksheets.length, approved: worksheets.filter((item) => item.status === "Supervisor_Approved").length, pending_review: worksheets.filter((item) => item.status === "Submitted").length }
+    worksheets: {
+      total: worksheets.length,
+      approved: worksheets.filter((item) => item.status === "Supervisor_Approved").length,
+      // Superset for backward compatibility; Chat B split this into two stages.
+      pending_review: worksheets.filter((item) => ["Submitted", "Client_Acknowledged"].includes(item.status)).length,
+      pending_client_acknowledgement: worksheets.filter((item) => item.status === "Submitted").length,
+      pending_supervisor_review: worksheets.filter((item) => item.status === "Client_Acknowledged").length
+    }
   };
   if ([roles.ADMIN, roles.MANAGEMENT, roles.FINANCE].includes(actor.role)) data.invoice_ready = computeInvoiceReadyReport(req.db).length;
   return res.json({ success: true, data });

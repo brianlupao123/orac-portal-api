@@ -28,8 +28,9 @@ function createRequest(actor, {
   const worksheet = {
     id: "worksheet-1",
     dispatch_card_id: "dispatch-1",
-    status: "Submitted",
-    submitted_by: submittedBy
+    status: "Client_Acknowledged",
+    submitted_by: submittedBy,
+    client_acknowledgement: { signer_name: "Site Rep", signer_role: "Site Supervisor", acknowledged_at: "2026-09-13T10:00:00.000Z" }
   };
   const auditEntries = [];
   if (legacySubmittedBy) {
@@ -76,7 +77,7 @@ test("PO verifier cannot approve the worksheet for the same dispatch", () => {
   reviewWorksheet(req, res);
 
   assert.equal(res.statusCode, 403);
-  assert.equal(req.worksheet.status, "Submitted");
+  assert.equal(req.worksheet.status, "Client_Acknowledged");
   assert.equal(req.auditEntries.length, 0);
   assert.match(res.body.message, /independent reviewer/i);
 });
@@ -114,7 +115,7 @@ test("worksheet submitter cannot approve their own submission", () => {
   reviewWorksheet(req, res);
 
   assert.equal(res.statusCode, 403);
-  assert.equal(req.worksheet.status, "Submitted");
+  assert.equal(req.worksheet.status, "Client_Acknowledged");
   assert.match(res.body.message, /submitted this worksheet/i);
 });
 
@@ -137,8 +138,21 @@ test("worksheet approval fails closed when legacy submission ownership cannot be
   reviewWorksheet(req, res);
 
   assert.equal(res.statusCode, 409);
-  assert.equal(req.worksheet.status, "Submitted");
+  assert.equal(req.worksheet.status, "Client_Acknowledged");
   assert.match(res.body.message, /ownership cannot be verified/i);
+});
+
+test("a merely-Submitted worksheet (not yet client-acknowledged) cannot be reviewed", () => {
+  const supervisor = { id: "supervisor-1", role: "Supervisor", is_active: true };
+  const req = createRequest(supervisor);
+  req.worksheet.status = "Submitted";
+  req.db.field_worksheets[0].status = "Submitted";
+  const res = createResponse();
+
+  reviewWorksheet(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(req.worksheet.status, "Submitted");
 });
 
 test("new worksheet submissions persist the submitting actor", () => {

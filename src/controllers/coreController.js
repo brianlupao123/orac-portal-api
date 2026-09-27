@@ -198,7 +198,12 @@ export function buildScopedSummary(db, actor) {
     dispatches: dispatchData.length,
     invoices: invoicesData.length,
     worksheets: worksheetsData.length,
-    pending_review: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
+    // Superset for backward compatibility (see computeWorksheetReport in
+    // reports.js): Chat B split this single stage into client
+    // acknowledgement then Supervisor review.
+    pending_review: worksheetsData.filter((worksheet) => ["Submitted", "Client_Acknowledged"].includes(worksheet.status)).length,
+    pending_client_acknowledgement: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
+    pending_supervisor_review: worksheetsData.filter((worksheet) => worksheet.status === "Client_Acknowledged").length,
     returned_for_correction: worksheetsData.filter((worksheet) => worksheet.status === "Returned_For_Correction").length,
     pending_po: quotesData.filter((quote) => quote.status === "Approved_Pending_PO").length,
     blocked_amendments: purchaseOrdersData.filter((po) => po.requires_amendment).length,
