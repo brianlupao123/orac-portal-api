@@ -64,6 +64,37 @@ export const addMaterialUsage = (req, res) => {
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
+
+  // Stock impact is server-determined, never a caller-supplied toggle. If the
+  // usage names a catalog_item_id that resolves to a tracked stock_item, the
+  // deduction is mandatory and atomic with the usage record: either both are
+  // written or neither is. (Chat D fix — the previous `deduct_stock` boolean
+  // let a caller record material usage against a tracked item while choosing
+  // not to move stock, so the ledger silently drifted from the truth.)
+  let stockItem = null;
+  if (body.catalog_item_id && req.db.stock_items) {
+    stockItem = req.db.stock_items.find((s) => s.catalog_item_id === body.catalog_item_id) || null;
+  }
+
+  if (stockItem) {
+    const qty = -Math.abs(Number(body.quantity_used));
+    const projected = stockItem.quantity_on_hand + qty;
+    if (projected < 0) {
+      if (!body.override_negative) {
+        return res.status(409).json({
+          success: false,
+          message: `Insufficient stock for ${stockItem.item_code} (on hand: ${stockItem.quantity_on_hand} ${stockItem.unit_of_measure}). Pass override_negative:true with Admin or Operations role to force.`
+        });
+      }
+      if (![roles.ADMIN, roles.OPERATIONS].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          message: `Only Admin or Operations may override negative-stock for ${stockItem.item_code}.`
+        });
+      }
+    }
+  }
+
   const usage = {
     id: req.store.id("mu"),
     dispatch_card_id: dispatchId,
@@ -73,46 +104,86 @@ export const addMaterialUsage = (req, res) => {
     unit_cost: body.unit_cost,
     total_cost: body.quantity_used * body.unit_cost
   };
-  
+
   req.db.material_usage.push(usage);
   req.store.recalculateVariance(req.db, job.purchase_order_id);
   req.store.audit(req.db, actor, "material_usage", usage.id, "MATERIAL_USAGE_ADDED", null, usage);
 
-  // Optional stock deduction (Phase 07). Only fires when caller passes deduct_stock:true
-  // AND a catalog_item_id that resolves to a tracked stock_item. Non-breaking for existing worksheets.
-  if (body.deduct_stock && body.catalog_item_id) {
-    const stockItem = req.db.stock_items ? req.db.stock_items.find((s) => s.catalog_item_id === body.catalog_item_id) : null;
-    if (stockItem) {
-      const qty = -Math.abs(Number(body.quantity_used));
-      const projected = stockItem.quantity_on_hand + qty;
-      if (projected < 0 && !body.override_negative) {
-        return res.json({ success: true, data: usage, stock_warning: `Insufficient stock for ${stockItem.item_code} (on hand: ${stockItem.quantity_on_hand}). Pass override_negative:true to force.` });
-      }
-      if (projected < 0 && !["Admin", "Operations"].includes(actor.role)) {
-        return res.json({ success: true, data: usage, stock_warning: `Stock deduction skipped: only Admin or Operations may override negative-stock for ${stockItem.item_code}.` });
-      }
-      const beforeStock = { ...stockItem };
-      stockItem.quantity_on_hand = stockItem.quantity_on_hand + qty;
-      const movement = {
-        id: req.store.id("smv"),
-        stock_item_id: stockItem.id,
-        movement_type: "out",
-        quantity: qty,
-        quantity_after: stockItem.quantity_on_hand,
-        reason: `Worksheet material usage — dispatch ${job.dispatch_number}`,
-        reference_id: usage.id,
-        override_negative: body.override_negative || false,
-        actor_id: actor.id,
-        created_at: new Date().toISOString()
-      };
-      if (!req.db.stock_movements) req.db.stock_movements = [];
-      req.db.stock_movements.push(movement);
-      req.store.audit(req.db, actor, "stock_movement", movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", beforeStock, { ...stockItem, movement });
-      return res.json({ success: true, data: usage, stock_deducted: { item: stockItem.item_code, quantity: qty, remaining: stockItem.quantity_on_hand } });
-    }
+  if (!stockItem) {
+    return res.json({ success: true, data: usage });
   }
 
-  res.json({ success: true, data: usage });
+  const qty = -Math.abs(Number(body.quantity_used));
+  const beforeStock = { ...stockItem };
+  stockItem.quantity_on_hand = stockItem.quantity_on_hand + qty;
+  const movement = {
+    id: req.store.id("smv"),
+    stock_item_id: stockItem.id,
+    movement_type: "out",
+    quantity: qty,
+    quantity_after: stockItem.quantity_on_hand,
+    reason: `Worksheet material usage — dispatch ${job.dispatch_number}`,
+    reference_id: usage.id,
+    override_negative: body.override_negative || false,
+    actor_id: actor.id,
+    created_at: new Date().toISOString()
+  };
+  if (!req.db.stock_movements) req.db.stock_movements = [];
+  req.db.stock_movements.push(movement);
+  req.store.audit(req.db, actor, "stock_movement", movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", beforeStock, { ...stockItem, movement });
+
+  return res.json({
+    success: true,
+    data: usage,
+    stock_deducted: {
+      item: stockItem.item_code,
+      quantity: qty,
+      remaining: stockItem.quantity_on_hand,
+      is_low_stock: stockItem.quantity_on_hand <= (stockItem.reorder_level ?? 0)
+    }
+  });
+};
+
+// Read-only, dispatch-scoped material availability. Field roles do not get a
+// general stock_items/catalog listing (see collectionGuards in
+// coreController.js — that is a deliberate separation-of-duties boundary,
+// not a bug, and is out of Chat D's scope to widen). This endpoint instead
+// answers "what material is linked to THIS dispatch, and is it low/out of
+// stock" using only tracked items already used on a dispatch the actor is
+// assigned to, trimmed to the fields a field role needs to see what blocks
+// completion (no unit_cost, no supplier data).
+export const getDispatchMaterialStatus = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "addMaterials");
+
+  const dispatchId = req.params.id;
+  const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+
+  const usageForDispatch = (req.db.material_usage || []).filter((entry) => entry.dispatch_card_id === dispatchId);
+  const catalogItemIds = [...new Set(usageForDispatch.map((entry) => entry.catalog_item_id).filter(Boolean))];
+
+  const items = catalogItemIds
+    .map((catalogItemId) => {
+      const stockItem = (req.db.stock_items || []).find((s) => s.catalog_item_id === catalogItemId);
+      if (!stockItem) return null;
+      const usedQuantity = usageForDispatch
+        .filter((entry) => entry.catalog_item_id === catalogItemId)
+        .reduce((sum, entry) => sum + Number(entry.quantity_used || 0), 0);
+      return {
+        catalog_item_id: catalogItemId,
+        item_code: stockItem.item_code,
+        item_name: stockItem.item_name,
+        unit_of_measure: stockItem.unit_of_measure,
+        quantity_on_hand: stockItem.quantity_on_hand,
+        is_low_stock: stockItem.quantity_on_hand <= (stockItem.reorder_level ?? 0),
+        used_on_this_dispatch: usedQuantity
+      };
+    })
+    .filter(Boolean);
+
+  res.json({ success: true, data: items });
 };
 
 export const createWorksheet = (req, res) => {
