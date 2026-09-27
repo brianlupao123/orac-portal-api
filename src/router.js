@@ -3,7 +3,7 @@ import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
   LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
-  AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema,
+  AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema, AssignRosterSchema,
   ReviewWorksheetSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
   AdminCreateMineSiteSchema, AdminUpdateMineSiteSchema, AdminCreatePlantSchema, AdminUpdatePlantSchema,
@@ -24,7 +24,7 @@ import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancel
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
-  getDispatchMaterialStatus
+  getDispatchMaterialStatus, assignRosterTechnician
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
 import {
@@ -156,6 +156,7 @@ router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatch
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
+router.post("/dispatch_cards/:id/roster", validate(AssignRosterSchema), assignRosterTechnician);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);

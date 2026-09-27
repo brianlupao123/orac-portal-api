@@ -111,6 +111,7 @@ function createDispatch(db, store, quote, payload, actor) {
       started_before_po: Boolean(payload.started_before_po),
       urgent_reason: payload.urgent_reason || "",
       assigned_supervisor_id: payload.assigned_supervisor_id || actor.id,
+      assigned_technician_ids: [],
       created_at: new Date().toISOString()
     };
     db.dispatch_cards.push(job);

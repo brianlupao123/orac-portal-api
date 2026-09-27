@@ -43,7 +43,12 @@ export const AddTimesheetSchema = z.object({
   hours_logged: z.number().positive("Hours logged must be positive"),
   hourly_rate: z.number().min(0, "Hourly rate cannot be negative"),
   work_date: z.string().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  // Required when a Technician logs their own billable time — see the
+  // addTimesheet controller comment on why. Optional at the schema level so
+  // a non-Technician actor's own request is not rejected before the
+  // controller can apply the narrower, role-specific rule.
+  source_worksheet_id: z.string().optional()
 });
 
 export const KioskTimesheetBatchSchema = z.object({
@@ -54,6 +59,10 @@ export const KioskTimesheetBatchSchema = z.object({
     hourly_rate: z.number().min(0, "Hourly rate cannot be negative"),
     notes: z.string().max(500, "Notes cannot exceed 500 characters").optional()
   })).min(1, "At least one time entry is required").max(50, "A kiosk batch cannot exceed 50 entries")
+});
+
+export const AssignRosterSchema = z.object({
+  technician_id: z.string().min(1, "technician_id is required")
 });
 
 export const AddMaterialSchema = z.object({

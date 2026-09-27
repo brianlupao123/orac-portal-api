@@ -16,6 +16,7 @@ function getDispatch(req, res) {
 function rosterIds(db, dispatch) {
   const ids = new Set();
   if (dispatch.assigned_technician_id) ids.add(dispatch.assigned_technician_id);
+  for (const id of dispatch.assigned_technician_ids || []) ids.add(id);
   for (const worksheet of db.field_worksheets || []) {
     if (worksheet.dispatch_card_id === dispatch.id && worksheet.technician_id) ids.add(worksheet.technician_id);
   }

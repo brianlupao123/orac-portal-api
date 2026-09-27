@@ -102,6 +102,7 @@ function isTechnicianAssignedToDispatch(dispatch, actor, db) {
   return dispatch.assigned_technician_id === actor.id ||
     dispatch.technician_id === actor.id ||
     dispatch.assigned_to === actor.id ||
+    (dispatch.assigned_technician_ids || []).includes(actor.id) ||
     db.field_worksheets.some((worksheet) =>
       worksheet.dispatch_card_id === dispatch.id && worksheet.technician_id === actor.id
     );

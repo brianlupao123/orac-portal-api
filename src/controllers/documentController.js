@@ -72,7 +72,8 @@ function assertDispatchAccess(req, res, doc) {
   }
   if (actor.role === roles.TECHNICIAN) {
     const assignedWorksheet = req.db.field_worksheets.some((worksheet) => worksheet.dispatch_card_id === doc.job.id && worksheet.technician_id === actor.id);
-    if (!assignedWorksheet && doc.job.assigned_technician_id !== actor.id) {
+    const onRoster = (doc.job.assigned_technician_ids || []).includes(actor.id);
+    if (!assignedWorksheet && !onRoster && doc.job.assigned_technician_id !== actor.id) {
       deny(res, "Technician can only view assigned job cards.");
       return false;
     }
