@@ -89,6 +89,23 @@ export const ReviewWorksheetSchema = z.object({
   comment: z.string().optional()
 });
 
+// Chat B — client acknowledgement. Phone/tablet touch input is acceptable;
+// what makes this evidence (not just a canvas doodle) is that it is stored
+// server-side with a signer identity, an explicit acknowledgement, a
+// timestamp and an immutable reference, all set only by this endpoint.
+export const ClientAcknowledgeWorksheetSchema = z.object({
+  signer_name: z.string().trim().min(1, "Signer name is required"),
+  signer_role: z.string().trim().min(1, "Signer declared role is required"),
+  acknowledgement: z.literal(true, { errorMap: () => ({ message: "Explicit acknowledgement is required" }) })
+});
+
+// Chat B — corrections after client acknowledgement or supervisor approval
+// must go through a new, reasoned, linked revision rather than editing
+// signed data in place.
+export const ReviseWorksheetSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required to revise an acknowledged or approved worksheet")
+});
+
 export const ApproveAmendmentSchema = z.object({
   new_amount: z.number().positive("New amount must be positive"),
   reason: z.string().optional()

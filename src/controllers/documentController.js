@@ -279,7 +279,10 @@ export const getPoDocument = (req, res) => {
 
 const FALLBACK_COMPANY = { name: "Orac Systems", legalName: "Handon Enterprises (Pvt) Ltd" };
 
-function companyFromProfile(company_profile) {
+// Exported so other controllers producing controlled PDFs (e.g. the
+// Chat B Timesheet period pack) can reuse the same company header instead
+// of duplicating the fallback logic.
+export function companyFromProfile(company_profile) {
   return {
     name: company_profile?.company_name || FALLBACK_COMPANY.name,
     legalName: company_profile?.legal_name || FALLBACK_COMPANY.legalName,

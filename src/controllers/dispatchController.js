@@ -302,8 +302,11 @@ export const reviewWorksheet = (req, res) => {
   if (!assignedDispatch) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, assignedDispatch, req.db, res)) return;
   
-  if (worksheet.status !== "Submitted") {
-    return res.status(400).json({ success: false, message: `Worksheet review requires Submitted status, not ${worksheet.status}.` });
+  // Chat B: an independent ORAC Supervisor reviews only after the client
+  // representative has acknowledged the work. Submitted-but-not-yet-
+  // acknowledged worksheets are not eligible for Supervisor review.
+  if (worksheet.status !== "Client_Acknowledged") {
+    return res.status(400).json({ success: false, message: `Worksheet review requires Client_Acknowledged status, not ${worksheet.status}.` });
   }
 
   const { decision, comment } = req.body;

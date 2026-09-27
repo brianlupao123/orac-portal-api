@@ -14,7 +14,8 @@ import {
   CreateStockItemSchema, UpdateStockItemSchema,
   StockMovementSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
-  CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema
+  CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
+  ClientAcknowledgeWorksheetSchema, ReviseWorksheetSchema
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
@@ -26,6 +27,10 @@ import {
   getDispatchMaterialStatus
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
+import {
+  listOwnClientTimesheets, acknowledgeWorksheet, reviseWorksheet,
+  getTimesheetPeriodPack, getTimesheetPeriodPackPdf, getTimesheetPeriodSummary
+} from "./controllers/timesheetAcknowledgementController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
@@ -154,6 +159,12 @@ router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), c
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
+router.get("/field_worksheets/mine/client", listOwnClientTimesheets);
+router.post("/field_worksheets/:id/client-acknowledge", validate(ClientAcknowledgeWorksheetSchema), acknowledgeWorksheet);
+router.post("/field_worksheets/:id/revise", validate(ReviseWorksheetSchema), reviseWorksheet);
+router.get("/reports/timesheets/period-pack", getTimesheetPeriodPack);
+router.get("/documents/timesheets/period-pack.pdf", getTimesheetPeriodPackPdf);
+router.get("/reports/timesheets/period-summary", getTimesheetPeriodSummary);
 
 // Purchase Orders
 router.post("/purchase_orders/:id/amendments", validate(ApproveAmendmentSchema), approveAmendment);

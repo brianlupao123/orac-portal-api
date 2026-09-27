@@ -21,6 +21,16 @@ export const permissions = {
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   reviewWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  // Chat B — Digital Timesheets and client acknowledgement.
+  // Only the client's own representative may acknowledge that client's work.
+  acknowledgeWorksheet: [roles.CLIENT_VIEWER],
+  viewOwnClientTimesheets: [roles.CLIENT_VIEWER],
+  // A correction after acknowledgement/approval reuses the same actor set as
+  // editing a draft worksheet; scoping to "own worksheet" for a Technician is
+  // enforced inside the controller, same as updateWorksheet/submitWorksheet.
+  reviseWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
+  downloadTimesheetPeriodPack: [roles.ADMIN, roles.OPERATIONS],
+  viewTimesheetPeriodSummary: [roles.ADMIN, roles.OPERATIONS, roles.MANAGEMENT],
   approveAmendment: [roles.ADMIN, roles.FINANCE],
   invoice: [roles.ADMIN, roles.FINANCE],
   exportPastel: [roles.ADMIN, roles.FINANCE],

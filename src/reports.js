@@ -52,9 +52,18 @@ export function computeDispatchReport(db) {
 }
 
 export function computeWorksheetReport(db) {
+  // Chat B added a Client_Acknowledged step between Submitted and
+  // Supervisor_Approved. `pending_review` stays a superset (Submitted OR
+  // Client_Acknowledged) for backward compatibility with existing callers;
+  // the two new fields give the precise breakdown by stage.
+  const awaitingClientAcknowledgement = db.field_worksheets.filter((w) => w.status === "Submitted");
+  const awaitingSupervisorReview = db.field_worksheets.filter((w) => w.status === "Client_Acknowledged");
   return {
-    pending_review: db.field_worksheets
-      .filter((w) => w.status === "Submitted")
+    pending_review: [...awaitingClientAcknowledgement, ...awaitingSupervisorReview]
+      .map((w) => ({ id: w.id, dispatch_card_id: w.dispatch_card_id, work_date: w.work_date, hours: w.hours })),
+    pending_client_acknowledgement: awaitingClientAcknowledgement
+      .map((w) => ({ id: w.id, dispatch_card_id: w.dispatch_card_id, work_date: w.work_date, hours: w.hours })),
+    pending_supervisor_review: awaitingSupervisorReview
       .map((w) => ({ id: w.id, dispatch_card_id: w.dispatch_card_id, work_date: w.work_date, hours: w.hours })),
     returned_for_correction: db.field_worksheets
       .filter((w) => w.status === "Returned_For_Correction")
