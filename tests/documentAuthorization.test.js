@@ -176,8 +176,20 @@ test("PDF output contains text rather than executable HTML (stored XSS regressio
     const r = run(docs[handlerName], fixture(), "admin", handlerName === "getQuotePdf" ? "q1" : "d1");
     assert.equal(r.statusCode, 200);
     const body = r.body.toString("latin1");
+    // The controlled-document renderer now sanitizes free-text fields by
+    // stripping any embedded markup outright (sanitizeForPdfText in
+    // pdfGenerator.js), rather than HTML-escaping it into visible "&lt;"/
+    // "&gt;" text as the previous plain-text renderer did. That escaped-
+    // entity display was itself an instance of the same literal-artifact
+    // defect this packet fixes elsewhere (the raw "&rarr;" separator in the
+    // reported quotation PDF), so the stripped-clean result below is the
+    // intended behaviour, not a regression. The security guarantee - no
+    // raw or escaped markup reaches the PDF body - is unchanged and is
+    // asserted in full below.
     assert.equal(body.includes("<img src=x"), false, `${handlerName} body: raw markup must not appear`);
-    assert.match(body, /Site &lt;img src=x onerror=alert\\\(1\\\)&gt;/);
+    assert.equal(body.includes("&lt;"), false, `${handlerName} body: markup must be stripped, not HTML-escaped into visible text`);
+    assert.equal(body.includes("&gt;"), false, `${handlerName} body: markup must be stripped, not HTML-escaped into visible text`);
+    assert.match(body, /Site > Plant > Section/, `${handlerName} body: sanitized hierarchy text should still read cleanly`);
   }
 });
 

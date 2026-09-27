@@ -93,8 +93,12 @@ test("invoice PDF shows invoice date and job reference for workflow-created invo
   getInvoicePdf({ user: { id: "u_fin" }, params: { id: inv.id }, db: ctx.db }, res);
   assert.ok(buf, JSON.stringify(res.body));
   const text = buf.toString("binary");
-  assert.match(text, /Invoice Date: \d{4}-\d{2}-\d{2}/);
-  assert.match(text, /Job Reference: JOB-0001/);
+  // The controlled PDF uses labelled table cells, so labels and values are
+  // separate PDF text blocks. Assert the required evidence, not old layout.
+  assert.match(text, /Invoice Date/);
+  assert.match(text, /\d{4}-\d{2}-\d{2}, \d{2}:\d{2} UTC/);
+  assert.match(text, /Job Reference/);
+  assert.match(text, /JOB-0001/);
 });
 
 test("re-verifying a PO for less than logged work keeps the amendment block", () => {
