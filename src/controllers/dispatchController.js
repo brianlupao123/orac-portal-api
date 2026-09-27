@@ -11,6 +11,7 @@ function isAssignedToDispatch(actor, dispatch, db) {
     return dispatch.assigned_technician_id === actor.id ||
       dispatch.technician_id === actor.id ||
       dispatch.assigned_to === actor.id ||
+      (dispatch.assigned_technician_ids || []).includes(actor.id) ||
       linkedWorksheets.some((worksheet) => worksheet.technician_id === actor.id);
   }
   if (actor.role === roles.SUPERVISOR) {
@@ -20,6 +21,43 @@ function isAssignedToDispatch(actor, dispatch, db) {
   }
   return false;
 }
+
+// Roster assignment (Chat D continuation). Source-proven gap: nothing in the
+// runtime code path ever wrote assigned_technician_id/assigned_technician_ids
+// — it was only ever populated in curated demo data. Every real technician
+// only gained dispatch access retroactively, once an Admin/Operations user
+// created a worksheet naming them, which is also the only way the kiosk
+// roster (kioskController.rosterIds) could ever see them. There was no way
+// for Operations to roster a technician to a dispatch before any worksheet
+// existed. This endpoint is the single, explicit, server-controlled place
+// that does that; it does not change who may create/submit/approve a
+// worksheet, and it does not touch stock, invoicing, or client
+// acknowledgement.
+export const assignRosterTechnician = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "dispatch");
+
+  const dispatchId = req.params.id;
+  const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+
+  const technicianId = req.body.technician_id;
+  const technician = req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN);
+  if (!technician) return res.status(400).json({ success: false, message: "A valid, active Technician is required." });
+  if (!technician.is_active) return res.status(400).json({ success: false, message: "Cannot roster an inactive Technician." });
+
+  if (!Array.isArray(job.assigned_technician_ids)) job.assigned_technician_ids = [];
+  if (job.assigned_technician_ids.includes(technicianId)) {
+    return res.json({ success: true, data: job, message: "Technician is already on this dispatch's roster." });
+  }
+
+  const before = { ...job, assigned_technician_ids: [...job.assigned_technician_ids] };
+  job.assigned_technician_ids.push(technicianId);
+  req.store.audit(req.db, actor, "dispatch_card", job.id, "ROSTER_TECHNICIAN_ASSIGNED", before, job);
+
+  res.json({ success: true, data: job });
+};
 
 function requireAssignedDispatch(actor, dispatch, db, res) {
   if (isAssignedToDispatch(actor, dispatch, db)) return true;
@@ -37,10 +75,49 @@ export const addTimesheet = (req, res) => {
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
+
+  // Timesheet-evidence traceability (Chat D continuation). Source-proven gap:
+  // this endpoint feeds db.timesheets, which is what createInvoice's
+  // laborTotal actually bills (see stateMachine.js) — but nothing here ever
+  // checked that a Technician's billed hours corresponded to the
+  // Technician -> Supervisor field_worksheet evidence chain that the rest of
+  // this system already builds and enforces (createWorksheet ->
+  // submitWorksheet -> reviewWorksheet). A Technician logging their own time
+  // must reference a Supervisor-approved worksheet for this same dispatch;
+  // billable hours can no longer exist with zero trace back to reviewed
+  // field evidence. This does not change the rate/amount formula, and it
+  // does not invent a client-acknowledgement mechanism — see
+  // CONTINUATION_NOTE.md for why non-Technician roles and the separate
+  // kiosk batch path are deliberately left as owner decisions rather than
+  // guessed at here.
+  if (actor.role === roles.TECHNICIAN) {
+    const worksheetId = body.source_worksheet_id;
+    if (!worksheetId) {
+      return res.status(400).json({
+        success: false,
+        message: "A Technician's timesheet entry must reference a Supervisor-approved worksheet (source_worksheet_id)."
+      });
+    }
+    const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
+    if (!worksheet || worksheet.dispatch_card_id !== dispatchId || worksheet.technician_id !== actor.id) {
+      return res.status(400).json({
+        success: false,
+        message: "source_worksheet_id must reference the Technician's own worksheet on this dispatch."
+      });
+    }
+    if (worksheet.status !== "Supervisor_Approved") {
+      return res.status(409).json({
+        success: false,
+        message: `Timesheet entry blocked: worksheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
+      });
+    }
+  }
+
   const entry = {
     id: req.store.id("ts"),
     dispatch_card_id: dispatchId,
     user_id: actor.id,
+    source_worksheet_id: body.source_worksheet_id || null,
     work_date: body.work_date || new Date().toISOString().slice(0, 10),
     hours_logged: body.hours_logged,
     hourly_rate: body.hourly_rate,
@@ -197,7 +274,7 @@ export const createWorksheet = (req, res) => {
 
   const body = req.body;
   const technicianId = [roles.ADMIN, roles.OPERATIONS].includes(actor.role)
-    ? (body.technician_id || job.assigned_technician_id)
+    ? (body.technician_id || job.assigned_technician_id || (job.assigned_technician_ids || [])[0])
     : actor.id;
   const technician = req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN);
   if (!technician) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
