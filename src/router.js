@@ -22,7 +22,8 @@ import { createAccessRequest, approveAccessRequest, rejectAccessRequest } from "
 import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
-  submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet
+  submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
+  getDispatchMaterialStatus
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
@@ -148,6 +149,7 @@ router.post("/dispatch_cards/:id/timesheets", validate(AddTimesheetSchema), addT
 router.get("/kiosk/dispatch_cards/:id/roster", getKioskRoster);
 router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatchSchema), submitKioskTimesheets);
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
+router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
