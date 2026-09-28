@@ -12,7 +12,7 @@ import {
   ClientSubmitPoSchema,
   CreateSupplierSchema, UpdateSupplierSchema,
   CreateStockItemSchema, UpdateStockItemSchema,
-  StockMovementSchema,
+  StockMovementSchema, DirectSaleStockIssueSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
   CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
   ClientAcknowledgeWorksheetSchema, ReviseWorksheetSchema
@@ -35,7 +35,7 @@ import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, 
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
-import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, getLowStockReport } from "./controllers/inventoryController.js";
+import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, flagAiResponse } from "./controllers/aiController.js";
 import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
@@ -178,6 +178,14 @@ router.get("/inventory/stock_items", getStockItems);
 router.post("/inventory/stock_items", validate(CreateStockItemSchema), createStockItem);
 router.patch("/inventory/stock_items/:id", validate(UpdateStockItemSchema), updateStockItem);
 router.post("/inventory/movements", validate(StockMovementSchema), recordStockMovement);
+// Chat C's authorised direct-sale stock-issue contract (see
+// CHAT_C_DIRECT_SALE_STOCK_ISSUE_CONTRACT.md). Goes through the same
+// applyStockChange() as every other write here — no second deduction path.
+router.post("/inventory/movements/direct-sale", validate(DirectSaleStockIssueSchema), issueDirectSaleStock);
+// Read-only ledger views. No PATCH/DELETE exists for either — a movement,
+// once written, is never edited or removed (see inventoryController.js).
+router.get("/inventory/movements", getStockMovements);
+router.get("/inventory/stock_items/:id/movements", getStockItemMovements);
 router.get("/inventory/reports/low-stock", getLowStockReport);
 
 // Notifications (Phase 08)

@@ -1,4 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
+import { applyStockChange } from "../inventoryLedger.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -153,25 +154,6 @@ export const addMaterialUsage = (req, res) => {
     stockItem = req.db.stock_items.find((s) => s.catalog_item_id === body.catalog_item_id) || null;
   }
 
-  if (stockItem) {
-    const qty = -Math.abs(Number(body.quantity_used));
-    const projected = stockItem.quantity_on_hand + qty;
-    if (projected < 0) {
-      if (!body.override_negative) {
-        return res.status(409).json({
-          success: false,
-          message: `Insufficient stock for ${stockItem.item_code} (on hand: ${stockItem.quantity_on_hand} ${stockItem.unit_of_measure}). Pass override_negative:true with Admin or Operations role to force.`
-        });
-      }
-      if (![roles.ADMIN, roles.OPERATIONS].includes(actor.role)) {
-        return res.status(403).json({
-          success: false,
-          message: `Only Admin or Operations may override negative-stock for ${stockItem.item_code}.`
-        });
-      }
-    }
-  }
-
   const usage = {
     id: req.store.id("mu"),
     dispatch_card_id: dispatchId,
@@ -182,41 +164,45 @@ export const addMaterialUsage = (req, res) => {
     total_cost: body.quantity_used * body.unit_cost
   };
 
+  // Every stock exit uses the shared ledger. Keep Chat D's fail-closed
+  // behavior: neither material usage nor stock is recorded when this rejects.
+  let stockResult = null;
+  if (stockItem) {
+    stockResult = applyStockChange({
+      store: req.store,
+      db: req.db,
+      stockItem,
+      movementType: "out",
+      requestedQuantity: body.quantity_used,
+      reason: `Worksheet material usage - dispatch ${job.dispatch_number}`,
+      referenceId: usage.id,
+      referenceType: "material_usage",
+      overrideNegative: body.override_negative,
+      actor
+    });
+    if (!stockResult.ok) {
+      return res.status(stockResult.status).json({ success: false, message: stockResult.message });
+    }
+  }
+
   req.db.material_usage.push(usage);
   req.store.recalculateVariance(req.db, job.purchase_order_id);
   req.store.audit(req.db, actor, "material_usage", usage.id, "MATERIAL_USAGE_ADDED", null, usage);
 
-  if (!stockItem) {
+  if (!stockResult) {
     return res.json({ success: true, data: usage });
   }
 
-  const qty = -Math.abs(Number(body.quantity_used));
-  const beforeStock = { ...stockItem };
-  stockItem.quantity_on_hand = stockItem.quantity_on_hand + qty;
-  const movement = {
-    id: req.store.id("smv"),
-    stock_item_id: stockItem.id,
-    movement_type: "out",
-    quantity: qty,
-    quantity_after: stockItem.quantity_on_hand,
-    reason: `Worksheet material usage — dispatch ${job.dispatch_number}`,
-    reference_id: usage.id,
-    override_negative: body.override_negative || false,
-    actor_id: actor.id,
-    created_at: new Date().toISOString()
-  };
-  if (!req.db.stock_movements) req.db.stock_movements = [];
-  req.db.stock_movements.push(movement);
-  req.store.audit(req.db, actor, "stock_movement", movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", beforeStock, { ...stockItem, movement });
+  req.store.audit(req.db, actor, "stock_movement", stockResult.movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", stockResult.before, { ...stockResult.stockItem, movement: stockResult.movement });
 
   return res.json({
     success: true,
     data: usage,
     stock_deducted: {
-      item: stockItem.item_code,
-      quantity: qty,
-      remaining: stockItem.quantity_on_hand,
-      is_low_stock: stockItem.quantity_on_hand <= (stockItem.reorder_level ?? 0)
+      item: stockResult.stockItem.item_code,
+      quantity: stockResult.movement.quantity,
+      remaining: stockResult.stockItem.quantity_on_hand,
+      is_low_stock: stockResult.stockItem.quantity_on_hand <= (stockResult.stockItem.reorder_level ?? 0)
     }
   });
 };

@@ -305,6 +305,31 @@ export const StockMovementSchema = z.object({
   quantity: z.number().refine((v) => v !== 0, "Quantity cannot be zero"),
   reason: z.string().min(1, "Reason is required"),
   reference_id: z.string().optional(),
+  // Optional and additive: identifies what kind of record reference_id points
+  // at so the ledger can resolve a readable label (see inventoryLedger.js).
+  // Omitting it is still valid — older callers and manual entries with no
+  // linked record are unaffected. "direct_sale" is reserved for the
+  // dedicated /inventory/movements/direct-sale endpoint, not this one.
+  reference_type: z.enum(["dispatch_card", "purchase_order", "supplier", "material_usage", "return", "scrap"]).optional(),
+  // Only meaningful for a "return" reference today; stored either way so a
+  // future reference_type can use it without a schema change.
+  client_id: z.string().optional(),
+  override_negative: z.boolean().optional()
+});
+
+// Chat C's authorised direct-sale stock issue contract. See
+// CHAT_C_DIRECT_SALE_STOCK_ISSUE_CONTRACT.md for the full description of who
+// calls this and when. This schema deliberately has no price/tax/invoice
+// fields — this endpoint issues stock, it does not record a sale.
+export const DirectSaleStockIssueSchema = z.object({
+  stock_item_id: z.string().min(1, "Stock item is required"),
+  quantity: z.number().positive("Quantity must be a positive number"),
+  reason: z.string().min(1, "Reason is required"),
+  client_id: z.string().min(1, "Client is required for a direct-sale issue"),
+  // The id of whatever record Chat C's commercial flow uses to represent the
+  // approved direct sale (an order, invoice, or receipt id). This ledger
+  // does not validate that record exists — it only stores and displays it.
+  sale_reference_id: z.string().min(1, "A sale reference id is required"),
   override_negative: z.boolean().optional()
 });
 
