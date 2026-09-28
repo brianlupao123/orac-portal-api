@@ -1,5 +1,6 @@
 import { requirePermission } from "../permissions.js";
 import { transitionQuote } from "../stateMachine.js";
+import { validateEquipmentTagForClient } from "../services/entityHierarchy.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -12,6 +13,11 @@ export const createQuote = (req, res) => {
   const body = req.body;
   const client = req.db.clients.find((item) => item.id === body.client_id);
   if (!client) return res.status(400).json({ success: false, message: "Client is required." });
+
+  // A new quote may only link an active equipment tag that belongs to this
+  // client (same rule client service requests and maintenance schedules use).
+  const tagCheck = validateEquipmentTagForClient(req.db, { tagId: body.equipment_tag_id, clientId: client.id });
+  if (!tagCheck.ok) return res.status(tagCheck.status).json({ success: false, message: tagCheck.message });
 
   const lines = body.lines.map((line, index) => {
     return {
@@ -54,6 +60,19 @@ export const updateQuote = (req, res) => {
 
   const before = { ...quote };
   const body = req.body;
+
+  // Validate BEFORE mutating anything, so a rejected update leaves the quote
+  // exactly as it was. Only validate when the link actually changes: re-saving
+  // a Draft that already carries a tag must not fail just because that tag (or
+  // a parent) was disabled since; clearing the link is always allowed.
+  if (body.equipment_tag_id !== undefined) {
+    const nextTagId = body.equipment_tag_id || null;
+    if (nextTagId && nextTagId !== quote.equipment_tag_id) {
+      const tagCheck = validateEquipmentTagForClient(req.db, { tagId: nextTagId, clientId: quote.client_id });
+      if (!tagCheck.ok) return res.status(tagCheck.status).json({ success: false, message: tagCheck.message });
+    }
+  }
+
   if (body.description) quote.description = body.description;
   if (body.equipment_tag_id !== undefined) quote.equipment_tag_id = body.equipment_tag_id || null;
 
