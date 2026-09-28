@@ -9,6 +9,7 @@ import {
   enrichPlantSection,
   enrichEquipmentTag
 } from "../services/entityHierarchy.js";
+import { decorateMovementForDisplay } from "../inventoryLedger.js";
 
 export function getActor(req) {
   // GET endpoints might be called by an authenticated user
@@ -114,6 +115,9 @@ const hierarchyEnrichers = {
 function collectionResponseData(collectionName, data, db) {
   if (collectionName === "users" || collectionName === "audit_logs") {
     return redactSensitiveFields(data);
+  }
+  if (collectionName === "stock_movements") {
+    return data.map((movement) => decorateMovementForDisplay(db, movement));
   }
   const enrich = hierarchyEnrichers[collectionName];
   if (enrich) {
