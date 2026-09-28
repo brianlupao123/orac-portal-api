@@ -24,7 +24,7 @@ import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancel
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
-  getDispatchMaterialStatus, assignRosterTechnician
+  getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
 import {
@@ -156,6 +156,7 @@ router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatch
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
+router.get("/dispatch_cards/:id/roster", getDispatchRoster);
 router.post("/dispatch_cards/:id/roster", validate(AssignRosterSchema), assignRosterTechnician);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);

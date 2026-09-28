@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assignRosterTechnician, createWorksheet, getDispatchMaterialStatus } from "../src/controllers/dispatchController.js";
+import { assignRosterTechnician, createWorksheet, getDispatchMaterialStatus, getDispatchRoster } from "../src/controllers/dispatchController.js";
 import { scopeOperationalData } from "../src/controllers/coreController.js";
 import { getKioskRoster } from "../src/controllers/kioskController.js";
 
@@ -18,9 +18,11 @@ function baseDb() {
       { id: "tech-1", role: "Technician", is_active: true, name: "Tech One", email: "t1@example.com" },
       { id: "tech-2", role: "Technician", is_active: true, name: "Tech Two", email: "t2@example.com" },
       { id: "tech-inactive", role: "Technician", is_active: false, name: "Retired Tech", email: "old@example.com" },
-      { id: "ops-1", role: "Operations", is_active: true }
+      { id: "ops-1", role: "Operations", is_active: true },
+      { id: "sup-1", role: "Supervisor", is_active: true },
+      { id: "sup-2", role: "Supervisor", is_active: true }
     ],
-    dispatch_cards: [{ id: "dispatch-1", dispatch_number: "DC-001", assigned_technician_ids: [] }],
+    dispatch_cards: [{ id: "dispatch-1", dispatch_number: "DC-001", assigned_technician_ids: [], assigned_supervisor_id: "sup-1" }],
     field_worksheets: [],
     material_usage: [],
     stock_items: [],
@@ -120,4 +122,46 @@ test("dispatch material status stays gated by assignment even for a technician r
   const resDenied = response();
   getDispatchMaterialStatus(req(db, {}, "tech-2"), resDenied);
   assert.equal(resDenied.statusCode, 403);
+});
+
+test("a Supervisor assigned to the dispatch can roster a Technician onto it", () => {
+  const db = baseDb();
+  const res = response();
+  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "sup-1"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(db.dispatch_cards[0].assigned_technician_ids, ["tech-1"]);
+});
+
+test("a Supervisor NOT assigned to the dispatch cannot roster anyone onto it", () => {
+  const db = baseDb();
+  const res = response();
+  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "sup-2"), res);
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(db.dispatch_cards[0].assigned_technician_ids, []);
+});
+
+test("roster read lists only active Technicians with id/name/trade — no email or phone", () => {
+  const db = baseDb();
+  db.users[0].trade = "Fitter";
+  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "ops-1"), response());
+  const res = response();
+  getDispatchRoster(req(db, {}, "ops-1"), res);
+  assert.equal(res.statusCode, 200);
+  const ids = res.body.data.technicians.map((t) => t.id).sort();
+  assert.deepEqual(ids, ["tech-1", "tech-2"], "inactive technicians must not be offered");
+  const one = res.body.data.technicians.find((t) => t.id === "tech-1");
+  assert.equal(one.on_roster, true);
+  assert.equal(one.email, undefined);
+});
+
+test("a Technician cannot read the roster picker", () => {
+  const db = baseDb();
+  assert.throws(() => getDispatchRoster(req(db, {}, "tech-1"), response()), { status: 403 });
+});
+
+test("a Supervisor not assigned to the dispatch cannot read its roster picker", () => {
+  const db = baseDb();
+  const res = response();
+  getDispatchRoster(req(db, {}, "sup-2"), res);
+  assert.equal(res.statusCode, 403);
 });

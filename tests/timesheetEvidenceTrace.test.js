@@ -18,6 +18,7 @@ function baseDb(worksheetStatus = "Supervisor_Approved") {
     id: "ws-1",
     dispatch_card_id: "dispatch-1",
     technician_id: "tech-1",
+    hours: 8,
     status: worksheetStatus
   };
   return {
@@ -71,4 +72,25 @@ test("a Technician can log billable time once it references their own Supervisor
   assert.equal(res.statusCode, 200);
   assert.equal(db.timesheets.length, 1);
   assert.equal(db.timesheets[0].source_worksheet_id, "ws-1");
+});
+
+test("billable hours cannot exceed the hours the Supervisor approved on the worksheet", () => {
+  const db = baseDb();
+  db.field_worksheets[0].hours = 2;
+  const res = response();
+  addTimesheet(req(db, { hours_logged: 8, hourly_rate: 45, source_worksheet_id: "ws-1" }), res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(db.timesheets.length, 0);
+});
+
+test("approved hours are a cumulative cap across entries that cite the same worksheet", () => {
+  const db = baseDb();
+  db.field_worksheets[0].hours = 8;
+  const first = response();
+  addTimesheet(req(db, { hours_logged: 5, hourly_rate: 45, source_worksheet_id: "ws-1" }), first);
+  assert.equal(first.statusCode, 200);
+  const second = response();
+  addTimesheet(req(db, { hours_logged: 4, hourly_rate: 45, source_worksheet_id: "ws-1" }), second);
+  assert.equal(second.statusCode, 409);
+  assert.equal(db.timesheets.length, 1);
 });
