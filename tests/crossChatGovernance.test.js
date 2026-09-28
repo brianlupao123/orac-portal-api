@@ -93,7 +93,7 @@ test("timesheet, material and kiosk entries are refused once the dispatch is inv
 test("a voided invoice, or no invoice, does not freeze the dispatch", () => {
   for (const invoices of [inv("voided"), []]) {
     const c = ctx({ invoices }); const r = res();
-    addTimesheet(reqFor("tech", c, { id: "d1" }, { hours_logged: 2, hourly_rate: 10 }), r);
+    addTimesheet(reqFor("ops", c, { id: "d1" }, { hours_logged: 2, hourly_rate: 10 }), r);
     assert.equal(r.statusCode, 200);
     assert.equal(c.db.timesheets.length, 1);
   }

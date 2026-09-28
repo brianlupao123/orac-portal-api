@@ -452,10 +452,10 @@ test("quantity_on_hand is mutated in exactly one place in backend source (applyS
     const p = join(dir, f);
     return statSync(p).isDirectory() ? walk(p) : p.endsWith(".js") ? [p] : [];
   });
-  const srcDir = new URL("../src", import.meta.url).pathname;
+  const srcDir = join(process.cwd(), "src");
   const offenders = walk(srcDir).filter((f) => /quantity_on_hand\s*[-+]?=[^=]/.test(readFileSync(f, "utf8")) && !f.endsWith("inventoryLedger.js"));
   // Seed/demo files build initial data objects; controllers must not mutate balance.
-  const controllerOffenders = offenders.filter((f) => f.includes("/controllers/") && !f.endsWith("inventoryController.js"));
+  const controllerOffenders = offenders.filter((f) => /[\\/]controllers[\\/]/.test(f) && !f.endsWith("inventoryController.js"));
   assert.deepEqual(controllerOffenders, []);
 });
 
