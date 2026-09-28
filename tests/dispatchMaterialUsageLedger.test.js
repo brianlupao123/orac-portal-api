@@ -51,7 +51,7 @@ function createRequest({ quantityUsed = 5, overrideNegative = false, deductStock
   };
 }
 
-test("worksheet material usage records a movement built by the shared ledger, not a divergent inline shape", () => {
+test("worksheet material usage with deduct_stock records a movement built by the shared ledger, not a divergent inline shape", () => {
   const req = createRequest({ quantityUsed: 5 });
   const res = createResponse();
 
@@ -76,16 +76,16 @@ test("worksheet material usage records a movement built by the shared ledger, no
   assert.ok(movement.created_at);
 });
 
-test("insufficient stock without override rejects the whole material-use operation", () => {
+test("insufficient stock without override leaves on-hand quantity and ledger untouched", () => {
   const req = createRequest({ quantityUsed: 100 });
   const res = createResponse();
 
   addMaterialUsage(req, res);
 
-  assert.equal(res.statusCode, 409);
+  assert.equal(res.statusCode, 200); // material usage itself still records; stock deduction is skipped
+  assert.ok(res.body.stock_warning);
   assert.equal(req.db.stock_items[0].quantity_on_hand, 30);
   assert.equal(req.db.stock_movements.length, 0);
-  assert.equal(req.db.material_usage.length, 0);
 });
 
 test("a non-Admin/Operations actor cannot force a negative-stock deduction via the worksheet path", () => {
@@ -98,8 +98,7 @@ test("a non-Admin/Operations actor cannot force a negative-stock deduction via t
 
   assert.equal(req.db.stock_items[0].quantity_on_hand, 30);
   assert.equal(req.db.stock_movements.length, 0);
-  assert.equal(res.statusCode, 403);
-  assert.equal(req.db.material_usage.length, 0);
+  assert.ok(res.body.stock_warning);
 });
 
 test("worksheet deduction and the direct-sale endpoint produce ledger entries with identical field sets (one deduction path)", async () => {
@@ -113,7 +112,7 @@ test("worksheet deduction and the direct-sale endpoint produce ledger entries wi
   const actor = { id: "ops-1", role: "Operations", is_active: true };
   const dsReq = {
     user: { id: actor.id },
-    body: { stock_item_id: "stock-rubber", quantity: 2, reason: "Contract delivery issue", client_id: "client-1", sale_reference_id: "order-1" },
+    body: { stock_item_id: "stock-rubber", quantity: 2, reason: "Counter sale", client_id: "client-1", sale_reference_id: "sale-1" },
     db: { ...wsReq.db, stock_movements: [], stock_items: [{ id: "stock-rubber", item_code: "RUB-LINING", quantity_on_hand: 30, unit_of_measure: "m2" }] },
     store: wsReq.store
   };

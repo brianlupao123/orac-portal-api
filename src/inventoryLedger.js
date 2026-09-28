@@ -122,7 +122,6 @@ export function buildMovementRecord({
   reason,
   referenceId,
   referenceType,
-  referenceLabel,
   clientId,
   overrideNegative,
   actor
@@ -148,7 +147,7 @@ export function buildMovementRecord({
     // resolve their own client through the real chain, and duplicating it
     // here would risk the two disagreeing after the fact.
     client_id: clientId || null,
-    reference_label: referenceLabel || describeStockReference(db, referenceType, referenceId, clientId),
+    reference_label: describeStockReference(db, referenceType, referenceId, clientId),
     override_negative: Boolean(overrideNegative),
     actor_id: actor.id,
     created_at: new Date().toISOString()
@@ -177,7 +176,6 @@ export function applyStockChange({
   reason,
   referenceId,
   referenceType,
-  referenceLabel,
   clientId,
   overrideNegative,
   actor
@@ -226,7 +224,6 @@ export function applyStockChange({
     reason,
     referenceId,
     referenceType,
-    referenceLabel,
     clientId,
     overrideNegative,
     actor
