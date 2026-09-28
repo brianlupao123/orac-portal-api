@@ -1,4 +1,4 @@
-import { requirePermission } from "../permissions.js";
+import { requirePermission, roles } from "../permissions.js";
 import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 
@@ -92,6 +92,24 @@ export const approveAccessRequest = (req, res) => {
   // The Admin decides the real role here — req.body.role, not
   // request.requested_role. They're allowed to differ.
   const finalRole = req.body.role || request.requested_role;
+
+  // GAP FIX (Chat E): same rule as adminController.createUser/updateUser —
+  // approving into Client Viewer with no client_id, or a client_id that
+  // doesn't match a real client, produces a silently broken account (the
+  // client-scope middleware fails closed and shows that user nothing).
+  // Checked before the request is mutated or the user is created.
+  if (finalRole === roles.CLIENT_VIEWER) {
+    const clientId = req.body.client_id || null;
+    const client = clientId && (req.db.clients || []).find((c) => c.id === clientId);
+    if (!client) {
+      return res.status(400).json({
+        success: false,
+        message: clientId
+          ? "client_id does not match an existing client."
+          : "client_id is required when approving into Client Viewer."
+      });
+    }
+  }
 
   const before = { ...request };
 

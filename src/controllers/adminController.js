@@ -1,4 +1,4 @@
-import { requirePermission } from "../permissions.js";
+import { requirePermission, roles } from "../permissions.js";
 import bcrypt from "bcrypt";
 import {
   validateParentAssignment,
@@ -24,11 +24,28 @@ function safeUser(user) {
   return publicUser;
 }
 
+// GAP FIX (Chat E): a Client Viewer with no client_id, or a client_id that
+// does not match any real client, is not a security problem (clientScope.js
+// already fails closed — such a user sees nothing) but it is a silently
+// broken account: nobody would know until that person logs in and finds an
+// empty portal. This checks the *final* role/client_id state a write would
+// produce and rejects it up front instead. It never widens access — it only
+// narrows which writes succeed.
+function clientLinkProblem(db, role, clientId) {
+  if (role !== roles.CLIENT_VIEWER) return null;
+  if (!clientId) return "client_id is required when role is Client Viewer.";
+  const client = (db.clients || []).find((c) => c.id === clientId);
+  if (!client) return "client_id does not match an existing client.";
+  return null;
+}
+
 // ── Users (Admin-only: role changes are gated entirely by manageUsers) ──
 export const createUser = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageUsers");
   const body = req.body;
+  const linkProblem = clientLinkProblem(req.db, body.role, body.client_id || null);
+  if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
   const user = {
     id: req.store.id("u"),
     name: body.name,
@@ -50,6 +67,13 @@ export const updateUser = (req, res) => {
   requirePermission(actor, "manageUsers");
   const target = req.db.users.find((u) => u.id === req.params.id);
   if (!target) return res.status(404).json({ success: false, message: "User not found." });
+  // Validate the FINAL state (existing fields + this request's changes)
+  // before mutating anything, the same discipline contractsController.js
+  // uses: a rejected request must leave no partial change.
+  const finalRole = req.body.role !== undefined ? req.body.role : target.role;
+  const finalClientId = req.body.client_id !== undefined ? req.body.client_id : target.client_id;
+  const linkProblem = clientLinkProblem(req.db, finalRole, finalClientId || null);
+  if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
   const before = safeUser(target);
   ["name", "email", "role", "is_active", "client_id", "trade"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];

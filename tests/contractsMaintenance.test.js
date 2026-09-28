@@ -285,6 +285,47 @@ test("a tag that does not belong to the contract's client is never revealed", ()
   assert.equal(viewer.res.body.data[0].equipment_tag_code, null);
 });
 
+// GAP FIX (Chat E): created_by_user_id is an internal ORAC staff id and must
+// never reach a Client Viewer. It has no equivalent problem for internal
+// roles, who are expected to see it (audit/traceability), so both directions
+// are checked below.
+test("Client Viewer's contract list never includes created_by_user_id", () => {
+  const db = createDb();
+  addContract(db, { client_id: "client-a", created_by_user_id: "admin-1" });
+  const viewer = call(listContracts, { role: roles.CLIENT_VIEWER, db });
+  assert.equal(viewer.res.body.data.length, 1);
+  assert.equal("created_by_user_id" in viewer.res.body.data[0], false);
+});
+
+test("Client Viewer's maintenance schedule list never includes created_by_user_id", () => {
+  const db = createDb();
+  const contract = addContract(db, { client_id: "client-a" });
+  addSchedule(db, contract, { created_by_user_id: "admin-1" });
+  const viewer = call(listMaintenanceSchedules, { role: roles.CLIENT_VIEWER, db });
+  assert.equal(viewer.res.body.data.length, 1);
+  assert.equal("created_by_user_id" in viewer.res.body.data[0], false);
+});
+
+test("internal roles still receive created_by_user_id (fix is Client-Viewer-only, not a general strip)", () => {
+  const db = createDb();
+  const contract = addContract(db, { client_id: "client-a", created_by_user_id: "admin-1" });
+  addSchedule(db, contract, { created_by_user_id: "admin-1" });
+
+  for (const role of [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS]) {
+    const contracts = call(listContracts, { role, db });
+    assert.equal(contracts.res.body.data[0].created_by_user_id, "admin-1", `${role} should still see contract creator`);
+    const schedules = call(listMaintenanceSchedules, { role, db });
+    assert.equal(schedules.res.body.data[0].created_by_user_id, "admin-1", `${role} should still see schedule creator`);
+  }
+});
+
+test("stripping created_by_user_id from a response never mutates the stored record", () => {
+  const db = createDb();
+  addContract(db, { client_id: "client-a", created_by_user_id: "admin-1" });
+  call(listContracts, { role: roles.CLIENT_VIEWER, db });
+  assert.equal(db.contracts[0].created_by_user_id, "admin-1", "the stored record must be untouched");
+});
+
 // ------------------------------------------------------- contract validation
 
 test("creating a contract stores server-owned fields and defaults", () => {

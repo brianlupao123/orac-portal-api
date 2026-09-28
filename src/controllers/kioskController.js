@@ -1,4 +1,5 @@
 import { requirePermission } from "../permissions.js";
+import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
 
 function getActor(req) {
   return req.db.users.find((user) => user.id === req.user.id);
@@ -41,6 +42,7 @@ export function submitKioskTimesheets(req, res) {
   requirePermission(actor, "submitKioskTimesheets");
   const dispatch = getDispatch(req, res);
   if (!dispatch) return;
+  if (dispatchHasActiveInvoice(req.db, dispatch)) return res.status(409).json({ success: false, message: INVOICED_DISPATCH_MESSAGE });
 
   const allowedTechnicians = rosterIds(req.db, dispatch);
   const submitted = new Set();
