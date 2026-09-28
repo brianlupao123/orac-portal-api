@@ -163,3 +163,79 @@ test("blocks invoice without supervisor-approved worksheet", () => {
     /supervisor-approved worksheet is required/
   );
 });
+
+test("blocks a Sales user from approving the quote they personally sent", () => {
+  const { db, store } = makeDb();
+  const sales = db.users.find((user) => user.role === "Sales");
+
+  transitionQuote(db, store, "q1", "Sent", {}, sales);
+  assert.equal(db.quotes.find((q) => q.id === "q1").sent_by, sales.id);
+
+  assert.throws(
+    () => transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, sales),
+    /Sales cannot approve a quote they personally sent/
+  );
+});
+
+test("allows a different Sales colleague to approve a quote they did not send", () => {
+  const { db, store } = makeDb();
+  const sales = db.users.find((user) => user.role === "Sales");
+  const otherSales = { id: "u_sales2", role: "Sales", is_active: true };
+  db.users.push(otherSales);
+
+  transitionQuote(db, store, "q1", "Sent", {}, sales);
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, otherSales);
+
+  assert.equal(result.quote.status, "Approved_Pending_PO");
+});
+
+test("does not block Admin or Operations from approving a quote they sent", () => {
+  const { db, store } = makeDb();
+  const admin = db.users.find((user) => user.role === "Admin");
+
+  transitionQuote(db, store, "q1", "Sent", {}, admin);
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+
+  assert.equal(result.quote.status, "Approved_Pending_PO");
+});
+
+test("ignores a forged sent_by in the transition payload; sent_by always comes from the real actor", () => {
+  const { db, store } = makeDb();
+  const sales = db.users.find((user) => user.role === "Sales");
+  const otherSales = { id: "u_sales2", role: "Sales", is_active: true };
+  db.users.push(otherSales);
+
+  // sales sends the quote, but forges the payload to try to attribute the
+  // send to otherSales, hoping to approve it themself afterwards.
+  transitionQuote(db, store, "q1", "Sent", { sent_by: otherSales.id }, sales);
+  assert.equal(db.quotes.find((q) => q.id === "q1").sent_by, sales.id, "sent_by must come from the authenticated actor, never the payload");
+
+  assert.throws(
+    () => transitionQuote(db, store, "q1", "Approved_Pending_PO", { sent_by: otherSales.id }, sales),
+    /Sales cannot approve a quote they personally sent/,
+    "a forged sent_by in the approval payload must not defeat the self-approval block"
+  );
+});
+
+test("allows Operations to approve a quote Sales sent, independent of the self-approval rule", () => {
+  const { db, store } = makeDb();
+  db.users.push({ id: "u_ops", role: "Operations", is_active: true });
+  const sales = db.users.find((user) => user.role === "Sales");
+  const ops = db.users.find((user) => user.id === "u_ops");
+
+  transitionQuote(db, store, "q1", "Sent", {}, sales);
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, ops);
+
+  assert.equal(result.quote.status, "Approved_Pending_PO");
+});
+
+test("legacy quote with no recorded sent_by can still be approved by the Sales user who sent it under the old flow", () => {
+  const { db, store } = makeDb();
+  const sales = db.users.find((user) => user.role === "Sales");
+  // Simulate a quote that reached Sent before this patch existed: no sent_by field at all.
+  const quote = db.quotes.find((q) => q.id === "q1");
+  quote.status = "Sent";
+
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, sales);
+  assert.equal(result.quote.status, "Approved_Pending_PO");
+});

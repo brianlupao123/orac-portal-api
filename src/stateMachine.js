@@ -39,6 +39,9 @@ function validateTransition(db, quote, targetState, payload, actor) {
 
   if (targetState === "Approved_Pending_PO") {
     requirePermission(actor, "approveQuote");
+    if (actor.role === "Sales" && quote.sent_by && quote.sent_by === actor.id) {
+      throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague, Operations, or Admin must approve it."), { status: 403 });
+    }
   }
 
   if (targetState === "PO_Verified") {
@@ -183,6 +186,7 @@ export function transitionQuote(db, store, quoteId, targetState, payload, actor)
   const before = { ...quote };
   quote.status = targetState;
   quote.updated_at = new Date().toISOString();
+  if (targetState === "Sent") quote.sent_by = actor.id;
 
   let created = null;
   if (targetState === "Field_Dispatch") created = createDispatch(db, store, quote, payload, actor);
