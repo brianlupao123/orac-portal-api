@@ -1,5 +1,13 @@
 import { requirePermission } from "../permissions.js";
 import bcrypt from "bcrypt";
+import {
+  validateParentAssignment,
+  enrichClient,
+  enrichMineSite,
+  enrichPlant,
+  enrichPlantSection,
+  enrichEquipmentTag
+} from "../services/entityHierarchy.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -52,7 +60,7 @@ export const updateUser = (req, res) => {
   res.json({ success: true, data: safeUser(target) });
 };
 
-// ── Clients ──
+// ── Clients (top of the master-data hierarchy; no parent of their own) ──
 export const createClient = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageClients");
@@ -62,11 +70,12 @@ export const createClient = (req, res) => {
     name: body.name,
     client_type: body.client_type,
     contact_person: body.contact_person || "",
-    email: body.email || ""
+    email: body.email || "",
+    is_active: true
   };
   req.db.clients.push(client);
   req.store.audit(req.db, actor, "client", client.id, "ADMIN_CLIENT_CREATED", null, client);
-  res.json({ success: true, data: client });
+  res.json({ success: true, data: enrichClient(req.db, client) });
 };
 
 export const updateClient = (req, res) => {
@@ -79,18 +88,22 @@ export const updateClient = (req, res) => {
     if (req.body[k] !== undefined) item[k] = req.body[k];
   });
   req.store.audit(req.db, actor, "client", item.id, "ADMIN_CLIENT_UPDATED", before, item);
-  res.json({ success: true, data: item });
+  res.json({ success: true, data: enrichClient(req.db, item) });
 };
 
-// ── Mine Sites ──
+// ── Mine Sites (parent: Client) ──
 export const createMineSite = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageAssets");
   const body = req.body;
-  const mineSite = { id: req.store.id("ms"), client_id: body.client_id, name: body.name, location: body.location || "" };
+
+  const parentCheck = validateParentAssignment(req.db, { collection: "mine_sites", parentId: body.client_id });
+  if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+
+  const mineSite = { id: req.store.id("ms"), client_id: body.client_id, name: body.name, location: body.location || "", is_active: true };
   req.db.mine_sites.push(mineSite);
   req.store.audit(req.db, actor, "mine_site", mineSite.id, "ADMIN_MINE_SITE_CREATED", null, mineSite);
-  res.json({ success: true, data: mineSite });
+  res.json({ success: true, data: enrichMineSite(req.db, mineSite) });
 };
 
 export const updateMineSite = (req, res) => {
@@ -98,23 +111,37 @@ export const updateMineSite = (req, res) => {
   requirePermission(actor, "manageAssets");
   const item = req.db.mine_sites.find((m) => m.id === req.params.id);
   if (!item) return res.status(404).json({ success: false, message: "Mine site not found." });
+
+  if (req.body.client_id !== undefined) {
+    const parentCheck = validateParentAssignment(req.db, {
+      collection: "mine_sites",
+      parentId: req.body.client_id,
+      previousParentId: item.client_id
+    });
+    if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+  }
+
   const before = { ...item };
   ["client_id", "name", "location"].forEach((k) => {
     if (req.body[k] !== undefined) item[k] = req.body[k];
   });
   req.store.audit(req.db, actor, "mine_site", item.id, "ADMIN_MINE_SITE_UPDATED", before, item);
-  res.json({ success: true, data: item });
+  res.json({ success: true, data: enrichMineSite(req.db, item) });
 };
 
-// ── Plants ──
+// ── Plants (parent: Mine Site) ──
 export const createPlant = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageAssets");
   const body = req.body;
-  const plant = { id: req.store.id("pl"), mine_site_id: body.mine_site_id, name: body.name, plant_code: body.plant_code };
+
+  const parentCheck = validateParentAssignment(req.db, { collection: "plants", parentId: body.mine_site_id });
+  if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+
+  const plant = { id: req.store.id("pl"), mine_site_id: body.mine_site_id, name: body.name, plant_code: body.plant_code, is_active: true };
   req.db.plants.push(plant);
   req.store.audit(req.db, actor, "plant", plant.id, "ADMIN_PLANT_CREATED", null, plant);
-  res.json({ success: true, data: plant });
+  res.json({ success: true, data: enrichPlant(req.db, plant) });
 };
 
 export const updatePlant = (req, res) => {
@@ -122,23 +149,37 @@ export const updatePlant = (req, res) => {
   requirePermission(actor, "manageAssets");
   const item = req.db.plants.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ success: false, message: "Plant not found." });
+
+  if (req.body.mine_site_id !== undefined) {
+    const parentCheck = validateParentAssignment(req.db, {
+      collection: "plants",
+      parentId: req.body.mine_site_id,
+      previousParentId: item.mine_site_id
+    });
+    if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+  }
+
   const before = { ...item };
   ["mine_site_id", "name", "plant_code"].forEach((k) => {
     if (req.body[k] !== undefined) item[k] = req.body[k];
   });
   req.store.audit(req.db, actor, "plant", item.id, "ADMIN_PLANT_UPDATED", before, item);
-  res.json({ success: true, data: item });
+  res.json({ success: true, data: enrichPlant(req.db, item) });
 };
 
-// ── Plant Sections ──
+// ── Plant Sections (parent: Plant) ──
 export const createPlantSection = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageAssets");
   const body = req.body;
-  const section = { id: req.store.id("ps"), plant_id: body.plant_id, name: body.name, section_code: body.section_code };
+
+  const parentCheck = validateParentAssignment(req.db, { collection: "plant_sections", parentId: body.plant_id });
+  if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+
+  const section = { id: req.store.id("ps"), plant_id: body.plant_id, name: body.name, section_code: body.section_code, is_active: true };
   req.db.plant_sections.push(section);
   req.store.audit(req.db, actor, "plant_section", section.id, "ADMIN_PLANT_SECTION_CREATED", null, section);
-  res.json({ success: true, data: section });
+  res.json({ success: true, data: enrichPlantSection(req.db, section) });
 };
 
 export const updatePlantSection = (req, res) => {
@@ -146,30 +187,45 @@ export const updatePlantSection = (req, res) => {
   requirePermission(actor, "manageAssets");
   const item = req.db.plant_sections.find((s) => s.id === req.params.id);
   if (!item) return res.status(404).json({ success: false, message: "Plant section not found." });
+
+  if (req.body.plant_id !== undefined) {
+    const parentCheck = validateParentAssignment(req.db, {
+      collection: "plant_sections",
+      parentId: req.body.plant_id,
+      previousParentId: item.plant_id
+    });
+    if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+  }
+
   const before = { ...item };
   ["plant_id", "name", "section_code"].forEach((k) => {
     if (req.body[k] !== undefined) item[k] = req.body[k];
   });
   req.store.audit(req.db, actor, "plant_section", item.id, "ADMIN_PLANT_SECTION_UPDATED", before, item);
-  res.json({ success: true, data: item });
+  res.json({ success: true, data: enrichPlantSection(req.db, item) });
 };
 
-// ── Equipment Tags ──
+// ── Equipment Tags (parent: Plant Section) ──
 export const createEquipmentTag = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageAssets");
   const body = req.body;
+
+  const parentCheck = validateParentAssignment(req.db, { collection: "equipment_tags", parentId: body.plant_section_id });
+  if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+
   const equipment = {
     id: req.store.id("eq"),
     plant_section_id: body.plant_section_id,
     tag_code: body.tag_code,
     equipment_name: body.equipment_name,
     criticality: body.criticality || "medium",
-    status: body.status || "active"
+    status: body.status || "active",
+    is_active: true
   };
   req.db.equipment_tags.push(equipment);
   req.store.audit(req.db, actor, "equipment_tag", equipment.id, "ADMIN_EQUIPMENT_TAG_CREATED", null, equipment);
-  res.json({ success: true, data: equipment });
+  res.json({ success: true, data: enrichEquipmentTag(req.db, equipment) });
 };
 
 export const updateEquipmentTag = (req, res) => {
@@ -177,12 +233,22 @@ export const updateEquipmentTag = (req, res) => {
   requirePermission(actor, "manageAssets");
   const item = req.db.equipment_tags.find((e) => e.id === req.params.id);
   if (!item) return res.status(404).json({ success: false, message: "Equipment tag not found." });
+
+  if (req.body.plant_section_id !== undefined) {
+    const parentCheck = validateParentAssignment(req.db, {
+      collection: "equipment_tags",
+      parentId: req.body.plant_section_id,
+      previousParentId: item.plant_section_id
+    });
+    if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+  }
+
   const before = { ...item };
   ["plant_section_id", "tag_code", "equipment_name", "criticality", "status"].forEach((k) => {
     if (req.body[k] !== undefined) item[k] = req.body[k];
   });
   req.store.audit(req.db, actor, "equipment_tag", item.id, "ADMIN_EQUIPMENT_TAG_UPDATED", before, item);
-  res.json({ success: true, data: item });
+  res.json({ success: true, data: enrichEquipmentTag(req.db, item) });
 };
 
 // ── Catalog Items (negative-price guard enforced twice: schema + here) ──

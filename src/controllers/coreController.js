@@ -2,6 +2,13 @@ import { exportInvoicesCsv } from "../exporter.js";
 import { hasPermission, requirePermission } from "../permissions.js";
 import { roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
+import {
+  enrichClient,
+  enrichMineSite,
+  enrichPlant,
+  enrichPlantSection,
+  enrichEquipmentTag
+} from "../services/entityHierarchy.js";
 
 export function getActor(req) {
   // GET endpoints might be called by an authenticated user
@@ -91,9 +98,26 @@ function redactSensitiveFields(value) {
   );
 }
 
-function collectionResponseData(collectionName, data) {
+// Master-data collections in the Client -> Mine Site -> Plant -> Plant
+// Section -> Equipment Tag hierarchy get their readable-name/breadcrumb
+// enrichment applied here, once, for every consumer of `/${collection}`
+// (the Admin entities screen, and anywhere else that lists this data)
+// instead of each screen re-deriving parent names from raw foreign keys.
+const hierarchyEnrichers = {
+  clients: enrichClient,
+  mine_sites: enrichMineSite,
+  plants: enrichPlant,
+  plant_sections: enrichPlantSection,
+  equipment_tags: enrichEquipmentTag
+};
+
+function collectionResponseData(collectionName, data, db) {
   if (collectionName === "users" || collectionName === "audit_logs") {
     return redactSensitiveFields(data);
+  }
+  const enrich = hierarchyEnrichers[collectionName];
+  if (enrich) {
+    return data.map((item) => enrich(db, item));
   }
   return data;
 }
@@ -267,7 +291,7 @@ export const getCollection = (collectionName) => {
       data = scopeByClient(data, actor, (item) => resolveClientId(item, req.db));
     }
     data = scopeOperationalData(data, collectionName, actor, req.db);
-    res.json({ success: true, data: collectionResponseData(collectionName, data) });
+    res.json({ success: true, data: collectionResponseData(collectionName, data, req.db) });
   };
 };
 

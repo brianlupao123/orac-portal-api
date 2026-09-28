@@ -174,6 +174,21 @@ export function normalizeDb(db) {
     db.company_profile = seeded.company_profile;
   }
 
+  // Backfill is_active on master-data records seeded before this field
+  // existed (plain store.js seedData() never set it, unlike
+  // curatedDemoData.js). Without this, AdminEntitiesTab.jsx's
+  // `row.is_active ? "Active" : "Inactive"` badge renders every one of
+  // these perfectly-active records as "Inactive". Missing is_active has
+  // always meant "active" everywhere else in the app (see isRecordActive()
+  // in services/entityHierarchy.js); this just makes that explicit on disk
+  // too, and only ever changes `undefined` — an explicit `false` is a real
+  // archived record and is left alone.
+  for (const collectionName of ["clients", "mine_sites", "plants", "plant_sections", "equipment_tags"]) {
+    for (const record of db[collectionName] || []) {
+      if (record.is_active === undefined) record.is_active = true;
+    }
+  }
+
   return db;
 }
 
