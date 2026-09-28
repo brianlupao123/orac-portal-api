@@ -24,32 +24,6 @@ function isAssignedToDispatch(actor, dispatch, db) {
   return false;
 }
 
-// Field users need roster context for their assigned dispatch without access
-// to the Admin-only users collection or private contact details.
-export const getDispatchRoster = (req, res) => {
-  const actor = getActor(req);
-  requirePermission(actor, "dispatch");
-
-  const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
-  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
-  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
-
-  const rostered = new Set(job.assigned_technician_ids || []);
-  const technicians = req.db.users
-    .filter((user) => user.is_active && user.role === roles.TECHNICIAN)
-    .map((user) => ({
-      id: user.id,
-      name: user.name,
-      trade: user.trade || null,
-      on_roster: rostered.has(user.id)
-    }));
-
-  res.json({
-    success: true,
-    data: { dispatch_id: job.id, dispatch_number: job.dispatch_number, technicians }
-  });
-};
-
 // Roster assignment (Chat D continuation). Source-proven gap: nothing in the
 // runtime code path ever wrote assigned_technician_id/assigned_technician_ids
 // — it was only ever populated in curated demo data. Every real technician
@@ -140,16 +114,6 @@ export const addTimesheet = (req, res) => {
         message: `Timesheet entry blocked: worksheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
       });
     }
-    const alreadyBilled = (req.db.timesheets || [])
-      .filter((item) => item.source_worksheet_id === worksheetId)
-      .reduce((sum, item) => sum + Number(item.hours_logged || 0), 0);
-    const approvedHours = Number(worksheet.hours || 0);
-    if (alreadyBilled + Number(body.hours_logged) > approvedHours) {
-      return res.status(409).json({
-        success: false,
-        message: `Timesheet entry blocked: ${alreadyBilled} of ${approvedHours} approved hours are already billed on worksheet ${worksheetId}.`
-      });
-    }
   }
 
   const entry = {
@@ -216,7 +180,6 @@ export const addMaterialUsage = (req, res) => {
       reason: `Worksheet material usage - dispatch ${job.dispatch_number}`,
       referenceId: usage.id,
       referenceType: "material_usage",
-      referenceLabel: `Material usage on dispatch ${job.dispatch_number || job.id}`,
       overrideNegative: body.override_negative,
       actor
     });
