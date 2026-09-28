@@ -143,7 +143,10 @@ export const AdminCreateUserSchema = z.object({
   is_active: z.boolean().optional(),
   client_id: z.string().optional(),
   trade: z.enum(TECHNICIAN_TRADES).nullable().optional()
-});
+}).refine(
+  (data) => data.role !== roles.CLIENT_VIEWER || Boolean(data.client_id),
+  { message: "client_id is required when role is Client Viewer.", path: ["client_id"] }
+);
 
 export const AdminUpdateUserSchema = z.object({
   name: z.string().min(1).optional(),
@@ -154,6 +157,12 @@ export const AdminUpdateUserSchema = z.object({
   client_id: z.string().optional(),
   trade: z.enum(TECHNICIAN_TRADES).nullable().optional()
 });
+// NOTE (Chat E gap fix): the equivalent "Client Viewer requires client_id"
+// rule for updates is enforced in adminController.updateUser instead of
+// here, because this is a partial-update schema — at schema-validation time
+// we cannot see the user's pre-existing role/client_id, only whichever
+// fields this particular request happens to touch. The controller checks
+// the combined *final* state (existing + incoming changes) before writing.
 
 export const AdminCreateClientSchema = z.object({
   name: z.string().min(1, "Name is required"),

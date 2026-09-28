@@ -254,7 +254,10 @@ export const exportPastel = (req, res) => {
 };
 
 export const createLead = (req, res) => {
-  const actor = getActor(req); // Lead is typically public, so we might not have a strong actor context. We fallback to first user.
+  // GAP FIX (Chat E, audit trail): this route is public. Falling back to
+  // users[0] attributed anonymous web-form leads to a real staff account in
+  // the audit log. Unauthenticated submissions are now recorded as "system".
+  const actor = req.user ? getActor(req) : null;
 
   const body = req.body;
   const lead = {

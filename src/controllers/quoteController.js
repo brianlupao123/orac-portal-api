@@ -134,6 +134,25 @@ export const capturePo = (req, res) => {
   
   let po = req.db.purchase_orders.find((item) => item.quotation_id === quoteId);
   const before = po ? { ...po } : null;
+
+  // GAP FIX (Chat E, PO controls): PO evidence is frozen once an invoice has
+  // been generated from it, and a cancelled quote takes no PO.
+  if (["Invoiced", "Cancelled"].includes(quote.status)) {
+    return res.status(409).json({ success: false, message: `PO details cannot be captured for a ${quote.status} quote.` });
+  }
+  // GAP FIX (Chat E, PO controls): verifyPo includes Operations, but
+  // approveAmendment is Admin/Finance with a maker-checker rule. Changing the
+  // amount of an already-verified PO here would raise it (and clear the
+  // amendment block) without that approval, so the amount is only changeable
+  // through POST /purchase_orders/:id/amendments once verified. Pending
+  // urgent-dispatch stubs are unaffected (their first verification sets the
+  // real amount, as before).
+  if (po && po.status === "verified" && Number(body.po_amount) !== Number(po.po_amount)) {
+    return res.status(409).json({
+      success: false,
+      message: "A verified PO amount can only be changed through an approved PO amendment."
+    });
+  }
   
   if (!po) {
     po = {
@@ -175,6 +194,19 @@ export const submitClientPo = (req, res) => {
   if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
   if (!actor.client_id || quote.client_id !== actor.client_id) {
     return res.status(403).json({ success: false, message: "Client Viewer cannot submit a PO for another client's quote." });
+  }
+
+  // GAP FIX (Chat E): same rule serviceRequestsController already applies -
+  // a deactivated client account cannot take commercial actions.
+  const owningClient = (req.db.clients || []).find((item) => item.id === quote.client_id);
+  if (owningClient && owningClient.is_active === false) {
+    return res.status(403).json({ success: false, message: "Your client account is not active." });
+  }
+
+  // GAP FIX (Chat E): a client cannot attach a PO to a quote that is still an
+  // unissued Draft, or to one that is cancelled or already invoiced.
+  if (["Draft", "Cancelled", "Invoiced"].includes(quote.status)) {
+    return res.status(409).json({ success: false, message: `A PO cannot be submitted for a ${quote.status} quote.` });
   }
 
   const body = req.body;

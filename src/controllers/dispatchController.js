@@ -1,4 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
+import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
 import { applyStockChange } from "../inventoryLedger.js";
 
 function getActor(req) {
@@ -74,6 +75,7 @@ export const addTimesheet = (req, res) => {
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (dispatchHasActiveInvoice(req.db, job)) return res.status(409).json({ success: false, message: INVOICED_DISPATCH_MESSAGE });
 
   const body = req.body;
 
@@ -140,6 +142,7 @@ export const addMaterialUsage = (req, res) => {
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (dispatchHasActiveInvoice(req.db, job)) return res.status(409).json({ success: false, message: INVOICED_DISPATCH_MESSAGE });
 
   const body = req.body;
 
@@ -425,6 +428,17 @@ export const approveAmendment = (req, res) => {
   const poId = req.params.id;
   const po = req.db.purchase_orders.find((item) => item.id === poId);
   if (!po) return res.status(404).json({ success: false, message: "Purchase order not found." });
+
+  // GAP FIX (Chat E, separation of duties): same maker-checker rule already
+  // applied to worksheet approval (see reviewWorksheet). The user who verified
+  // the PO amount must not also approve an increase to that same amount.
+  // Admin is not exempt: the rule is about the individual, not the role.
+  if (po.verified_by && po.verified_by === actor.id) {
+    return res.status(403).json({
+      success: false,
+      message: "The user who verified this purchase order cannot approve its amendment. Assign an independent approver."
+    });
+  }
 
   const newAmount = req.body.new_amount;
   if (newAmount <= po.po_amount) {

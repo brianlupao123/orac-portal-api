@@ -1,5 +1,5 @@
 import { hasPermission } from "../permissions.js";
-import { scopeByClient } from "../middleware/clientScope.js";
+import { scopeByClient, isClientViewer } from "../middleware/clientScope.js";
 import {
   CreateContractSchema,
   UpdateContractSchema,
@@ -113,15 +113,31 @@ function scheduleDateProblem(nextDueDate, contract) {
   return null;
 }
 
+// GAP FIX (Chat E): created_by_user_id is an internal ORAC staff identifier.
+// It is used server-side for audit purposes only and must never reach a
+// client-scoped viewer. Every other field (including total_value) is left
+// untouched here — whether a client should see their own contract value is
+// a business decision, not a security fix, and is logged as an owner
+// decision rather than guessed (see CHAT_E_VALIDATION_REPORT.md).
+function presentContract(actor, contract) {
+  if (!isClientViewer(actor)) return contract;
+  const { created_by_user_id, ...rest } = contract;
+  return rest;
+}
+
 // Derived, read-only, never persisted: lets a Client Viewer see the tag code
 // without needing read access to the internal equipment_tags collection.
-function presentSchedule(db, schedule) {
+// Also strips created_by_user_id for the same reason as presentContract above.
+function presentSchedule(db, schedule, actor = null) {
   const contract = (db.contracts || []).find((item) => item.id === schedule.contract_id);
   const tag = schedule.equipment_tag_id
     ? (db.equipment_tags || []).find((item) => item.id === schedule.equipment_tag_id)
     : null;
   const tagVisible = tag && contract && equipmentTagClientId(db, tag) === contract.client_id;
-  return { ...schedule, equipment_tag_code: tagVisible ? tag.tag_code : null };
+  const presented = { ...schedule, equipment_tag_code: tagVisible ? tag.tag_code : null };
+  if (!isClientViewer(actor)) return presented;
+  const { created_by_user_id, ...rest } = presented;
+  return rest;
 }
 
 // ---------------------------------------------------------------- contracts
@@ -131,10 +147,12 @@ export function listContracts(req, res) {
   if (!hasPermission(actor, "viewContracts")) return denied(res, actor, "view contracts");
 
   const visible = scopeByClient(req.db.contracts || [], actor, (contract) => contract.client_id);
-  const data = [...visible].sort((a, b) =>
-    String(b.created_at || "").localeCompare(String(a.created_at || "")) ||
-    String(b.contract_number || "").localeCompare(String(a.contract_number || ""), undefined, { numeric: true })
-  );
+  const data = [...visible]
+    .sort((a, b) =>
+      String(b.created_at || "").localeCompare(String(a.created_at || "")) ||
+      String(b.contract_number || "").localeCompare(String(a.contract_number || ""), undefined, { numeric: true })
+    )
+    .map((contract) => presentContract(actor, contract));
   return res.json({ success: true, data });
 }
 
@@ -228,7 +246,7 @@ export function listMaintenanceSchedules(req, res) {
       String(a.next_due_date || "").localeCompare(String(b.next_due_date || "")) ||
       String(a.id).localeCompare(String(b.id))
     )
-    .map((schedule) => presentSchedule(req.db, schedule));
+    .map((schedule) => presentSchedule(req.db, schedule, actor));
   return res.json({ success: true, data });
 }
 
