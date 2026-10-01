@@ -1,0 +1,211 @@
+{
+  "meta": {
+    "name": "ORAC-IOS monthly fixture (reconciled)",
+    "version": "2026-09-25-r2",
+    "anchorMonth": "2026-08",
+    "asOfDate": "2026-08-31",
+    "asOfTimestamp": "2026-08-31T23:59:59+02:00",
+    "timezone": "Africa/Harare",
+    "timezoneOffset": "+02:00",
+    "timezoneNote": "Africa/Harare uses a fixed UTC+2 offset with no daylight-saving change; the offset is constant for the whole fixture month.",
+    "workingDays": [
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-07",
+      "2026-08-10",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14",
+      "2026-08-17",
+      "2026-08-18",
+      "2026-08-19",
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-24",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
+      "2026-08-31"
+    ],
+    "workingDaysNote": "Monday 2026-08-31 is a working day and the as-of date; it is included in the working-day span, correcting the earlier 3-28 August range.",
+    "hoursPerDay": 8,
+    "currency": "UNIT",
+    "currencyNote": "UNIT is a specification placeholder pending confirmation that the application's currency formatting supports a non-real-currency test code (see FIXTURE_SPECIFICATION_REVISED.md).",
+    "taxTreatment": "before-tax-test-value",
+    "taxNote": "All amounts are explicitly before-tax test values. Absence of tax in this fixture is a test-data simplification, not a claim of tax exemption.",
+    "clockInjectionNote": "The as-of clock is injected only into the isolated UAT runtime. Production and any shared environment must use their real system clock.",
+    "peopleNote": "All 20 actors are distinct fictional people, one account each. No two accounts in this fixture represent the same person, so this fixture cannot by itself demonstrate the one-person/two-role compensating control discussed for Sales+Finance combinations; that remains a real-staffing question for the owner.",
+    "intermediateSpecNote": "This file is a structured intermediate specification for planning and verification. It is NOT an importable ORAC database dump and does not assume any particular table or API schema beyond what the reconciliation review confirmed."
+  },
+  "stockBalances": {
+    "STK-001": {
+      "onHand": 7,
+      "outstandingReserved": 0,
+      "available": 7,
+      "unit": "sheet"
+    },
+    "STK-002": {
+      "onHand": 80,
+      "outstandingReserved": 0,
+      "available": 80,
+      "unit": "each"
+    },
+    "STK-003": {
+      "onHand": 15,
+      "outstandingReserved": 0,
+      "available": 15,
+      "unit": "set"
+    }
+  },
+  "stockMovementSummary": {
+    "byItem": {
+      "STK-002": {
+        "unit": "each",
+        "receiptsQty": 0,
+        "issuesQty": 20,
+        "returnsQty": 0,
+        "reservationsRaisedQty": 20
+      },
+      "STK-001": {
+        "unit": "sheet",
+        "receiptsQty": 10,
+        "issuesQty": 40,
+        "returnsQty": 1,
+        "reservationsRaisedQty": 40
+      }
+    },
+    "note": "Quantities are reported per item and unit, never summed across items with different units."
+  },
+  "quoteSummary": {
+    "countIssued": 7,
+    "countAccepted": 5,
+    "countDeclined": 1,
+    "countExpired": 1,
+    "totalIssuedValue": 9516,
+    "totalAcceptedValue": 7596,
+    "totalDeclinedValue": 1200,
+    "totalExpiredValue": 720,
+    "winRateByCount": 0.7143,
+    "winRateByValue": 0.7982
+  },
+  "purchaseOrderSummary": {
+    "count": 5,
+    "totalOriginalValue": 7596,
+    "totalCurrentValue": 7788.0,
+    "amendmentCount": 1,
+    "amendmentDelta": 192.0
+  },
+  "timesheetSummary": {
+    "recordCount": 8,
+    "totalDaysWorked": 29,
+    "totalHoursWorked": 232,
+    "returnedThenApprovedCount": 1,
+    "byDispatch": {
+      "D-001": {
+        "daysWorked": 10,
+        "hoursWorked": 80
+      },
+      "D-002": {
+        "daysWorked": 10,
+        "hoursWorked": 80
+      },
+      "D-003": {
+        "daysWorked": 0,
+        "hoursWorked": 0
+      },
+      "D-004": {
+        "daysWorked": 5,
+        "hoursWorked": 40
+      },
+      "D-005": {
+        "daysWorked": 4,
+        "hoursWorked": 32
+      }
+    }
+  },
+  "overrunD002": {
+    "quotedDays": 8,
+    "actualDays": 10,
+    "overrunDays": 2,
+    "overrunValue": 192.0
+  },
+  "invoiceSummary": {
+    "count": 5,
+    "authorisedTotal": 3706.0,
+    "exportedTotal": 3706.0,
+    "heldOrDraftTotal": 3972.0,
+    "disputedPendingAmount": 72.0,
+    "grandTotal": 7678.0,
+    "labourTotal": 3088,
+    "materialTotal": 4590.0,
+    "byStatus": {
+      "Authorised": [
+        "INV-001",
+        "INV-002",
+        "INV-003",
+        "INV-004"
+      ],
+      "Draft-Held": [
+        "INV-005"
+      ]
+    },
+    "disputedInvoiceIds": [
+      "INV-004"
+    ],
+    "reconciliation": {
+      "workedLabourPlusMaterials": 7678.0,
+      "invoiceGrandTotal": 7678.0,
+      "matches": true
+    }
+  },
+  "accessRequestSummary": {
+    "count": 3,
+    "approved": 1,
+    "pending": 1,
+    "rejected": 1
+  },
+  "iwrSummary": {
+    "count": 12,
+    "closedExisting": 8,
+    "openExisting": 4,
+    "byCompatibility": {
+      "likely_compatible_unconfirmed_type_name": [
+        "IWR-001"
+      ],
+      "requires_verification": [
+        "IWR-002",
+        "IWR-006",
+        "IWR-011"
+      ],
+      "requires_implementation": [
+        "IWR-003",
+        "IWR-008"
+      ],
+      "compatible_fallback_link": [
+        "IWR-004",
+        "IWR-009",
+        "IWR-012"
+      ],
+      "compatible": [
+        "IWR-005"
+      ],
+      "corrected_link": [
+        "IWR-007",
+        "IWR-010"
+      ]
+    }
+  },
+  "outstandingActionsAtAsOf": [
+    "INV-005 Draft-Held pending EV-03 client-signed evidence acceptance.",
+    "INV-004 has a pending, unresolved client dispute of UNIT 72.00 (one Rigger Assistant day); void/reissue not executed.",
+    "AR-002 access request still Pending.",
+    "IWR-008 open (Acknowledged, not further progressed) regarding EV-03/D-004.",
+    "IWR-011 open (In Progress) regarding expiring Q-007.",
+    "IWR-012 open (Submitted, unacknowledged, overdue) regarding stock receipt evidence M-04.",
+    "STK-001 on-hand (7) is below its reorder level (8)."
+  ]
+}
