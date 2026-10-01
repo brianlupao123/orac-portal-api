@@ -1,3 +1,4 @@
+import { countedTimesheets } from "./timesheetReview.js";
 function csvEscape(value) {
   let text = String(value ?? "");
   // Neutralise spreadsheet formulas in text cells (client names, PO references
@@ -30,8 +31,7 @@ export function exportInvoicesCsv(db) {
     const job = db.dispatch_cards.find((item) => item.id === invoice.dispatch_card_id);
     const equipment = db.equipment_tags.find((item) => item.id === job?.equipment_tag_id);
     const lines = db.invoice_lines.filter((item) => item.invoice_id === invoice.id);
-    const laborHours = db.timesheets
-      .filter((item) => item.dispatch_card_id === job?.id)
+    const laborHours = countedTimesheets(db, job?.id)
       .reduce((sum, item) => sum + Number(item.hours_logged || 0), 0);
     const materialCost = db.material_usage
       .filter((item) => item.dispatch_card_id === job?.id)

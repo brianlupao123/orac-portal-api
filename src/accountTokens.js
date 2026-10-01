@@ -40,6 +40,6 @@ export function clearResetToken(user) {
 
 // The only shape of a user record that may leave the API to a browser.
 export function toPublicUser(user) {
-  const { password_hash, password, reset_token, reset_token_expires_at, ...publicUser } = user;
+  const { password_hash, password, reset_token, reset_token_hash, reset_token_expires_at, ...publicUser } = user;
   return publicUser;
 }

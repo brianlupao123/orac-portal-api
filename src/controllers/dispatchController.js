@@ -1,12 +1,13 @@
 import { requirePermission, roles } from "../permissions.js";
 import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
-import { applyStockChange } from "../inventoryLedger.js";
+import { applyStockChange, readIdempotencyKey, requestFingerprint, findIdempotentRecord, publicMovement } from "../inventoryLedger.js";
+import { dispatchSupervisors, reviewBlockedReason } from "../timesheetReview.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
 
-function isAssignedToDispatch(actor, dispatch, db) {
+export function isAssignedToDispatch(actor, dispatch, db) {
   if ([roles.ADMIN, roles.OPERATIONS].includes(actor.role)) return true;
   const linkedWorksheets = (db.field_worksheets || []).filter((worksheet) => worksheet.dispatch_card_id === dispatch.id);
   if (actor.role === roles.TECHNICIAN) {
@@ -61,6 +62,30 @@ export const assignRosterTechnician = (req, res) => {
   res.json({ success: true, data: job });
 };
 
+export const assignDispatchSupervisor = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "assignDispatchSupervisor");
+
+  const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (dispatchHasActiveInvoice(req.db, job)) {
+    return res.status(409).json({ success: false, message: INVOICED_DISPATCH_MESSAGE });
+  }
+
+  const supervisor = req.db.users.find((user) => user.id === req.body.supervisor_id && user.role === roles.SUPERVISOR);
+  if (!supervisor) return res.status(400).json({ success: false, message: "A valid Supervisor is required." });
+  if (supervisor.is_active === false) return res.status(400).json({ success: false, message: "Cannot assign an inactive Supervisor." });
+  if (job.assigned_supervisor_id === supervisor.id) {
+    return res.json({ success: true, data: job, message: "This Supervisor is already assigned to the dispatch." });
+  }
+
+  const before = { ...job };
+  job.assigned_supervisor_id = supervisor.id;
+  req.store.audit(req.db, actor, "dispatch_card", job.id, "DISPATCH_SUPERVISOR_ASSIGNED", before, job);
+  res.json({ success: true, data: job });
+};
+
 export const getDispatchRoster = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "dispatch");
@@ -68,10 +93,25 @@ export const getDispatchRoster = (req, res) => {
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
   const onRoster = new Set([...(job.assigned_technician_ids || []), job.assigned_technician_id].filter(Boolean));
+  for (const worksheet of req.db.field_worksheets || []) {
+    if (worksheet.dispatch_card_id === job.id && worksheet.technician_id) onRoster.add(worksheet.technician_id);
+  }
   const technicians = req.db.users
     .filter((user) => user.role === roles.TECHNICIAN && user.is_active)
     .map(({ id, name, trade }) => ({ id, name, trade: trade || null, on_roster: onRoster.has(id) }));
-  res.json({ success: true, data: { dispatch: { id: job.id, dispatch_number: job.dispatch_number }, technicians } });
+  const assignedSupervisorIds = new Set(dispatchSupervisors(req.db, job).map((user) => user.id));
+  const supervisors = [roles.ADMIN, roles.OPERATIONS].includes(actor.role)
+    ? req.db.users.filter((user) => user.role === roles.SUPERVISOR && user.is_active !== false)
+      .map((user) => ({ id: user.id, name: user.name || null, assigned: assignedSupervisorIds.has(user.id) }))
+    : undefined;
+  res.json({
+    success: true,
+    data: {
+      dispatch: { id: job.id, dispatch_number: job.dispatch_number || null, review_blocked_reason: reviewBlockedReason(req.db, job) },
+      technicians,
+      ...(supervisors ? { supervisors } : {})
+    }
+  });
 };
 
 function requireAssignedDispatch(actor, dispatch, db, res) {
@@ -127,6 +167,15 @@ export const addTimesheet = (req, res) => {
         message: `Timesheet entry blocked: worksheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
       });
     }
+    const alreadyLogged = (req.db.timesheets || [])
+      .filter((item) => item.source_worksheet_id === worksheetId)
+      .reduce((sum, item) => sum + Number(item.hours_logged || 0), 0);
+    if (alreadyLogged + Number(body.hours_logged) > Number(worksheet.hours || 0)) {
+      return res.status(409).json({
+        success: false,
+        message: `Timesheet entry blocked: ${alreadyLogged + Number(body.hours_logged)} hours would exceed the ${Number(worksheet.hours || 0)} hours the Supervisor approved on worksheet ${worksheetId}.`
+      });
+    }
   }
 
   const entry = {
@@ -170,6 +219,42 @@ export const addMaterialUsage = (req, res) => {
     stockItem = req.db.stock_items.find((s) => s.catalog_item_id === body.catalog_item_id) || null;
   }
 
+  // Duplicate-submission protection (double click, retry after a timeout). Same
+  // user + same key + same payload returns the usage already recorded and does
+  // NOT deduct again; same key with a different payload is refused.
+  const keyResult = readIdempotencyKey(req);
+  if (keyResult.error) return res.status(400).json({ success: false, message: keyResult.error });
+  const fingerprint = requestFingerprint({
+    dispatch_card_id: dispatchId,
+    catalog_item_id: body.catalog_item_id || null,
+    description: body.description,
+    quantity_used: Number(body.quantity_used),
+    unit_cost: Number(body.unit_cost),
+    unit_of_measure: body.unit_of_measure || null,
+    override_negative: Boolean(body.override_negative)
+  });
+  const prior = findIdempotentRecord(req.db.material_usage, actor.id, keyResult.key, fingerprint, "created_by");
+  if (prior.kind === "conflict") {
+    return res.status(409).json({ success: false, message: "This idempotency key was already used for different material usage." });
+  }
+  if (prior.kind === "replay") {
+    const { idempotency_fingerprint, ...replayed } = prior.record;
+    const priorMovement = (req.db.stock_movements || []).find((m) => m.reference_type === "material_usage" && m.reference_id === prior.record.id);
+    return res.json({
+      success: true,
+      idempotent_replay: true,
+      data: replayed,
+      ...(priorMovement && stockItem ? { stock_deducted: { item: stockItem.item_code, quantity: priorMovement.quantity, remaining: stockItem.quantity_on_hand, is_low_stock: stockItem.quantity_on_hand <= (stockItem.reorder_level ?? 0) } } : {})
+    });
+  }
+
+  // Unit safety: when the caller states a unit for a tracked item it must be the
+  // item's own unit. Quantities are never converted or silently reinterpreted.
+  if (stockItem && body.unit_of_measure
+      && String(body.unit_of_measure).trim().toLowerCase() !== String(stockItem.unit_of_measure).trim().toLowerCase()) {
+    return res.status(409).json({ success: false, message: `Unit mismatch: this item is stocked in ${stockItem.unit_of_measure}, not ${body.unit_of_measure}. Quantities are never converted automatically.` });
+  }
+
   const usage = {
     id: req.store.id("mu"),
     dispatch_card_id: dispatchId,
@@ -177,13 +262,22 @@ export const addMaterialUsage = (req, res) => {
     description: body.description,
     quantity_used: body.quantity_used,
     unit_cost: body.unit_cost,
-    total_cost: body.quantity_used * body.unit_cost
+    total_cost: body.quantity_used * body.unit_cost,
+    created_by: actor.id,
+    idempotency_key: keyResult.key,
+    idempotency_fingerprint: keyResult.key ? fingerprint : null
   };
 
   // Every stock exit uses the shared ledger. Keep Chat D's fail-closed
   // behavior: neither material usage nor stock is recorded when this rejects.
+  //
+  // The usage record is registered BEFORE the movement is built so the ledger's
+  // reference label can resolve it ("Material usage on dispatch JOB-x") instead
+  // of reading "(not found)"; it is removed again if the deduction is refused,
+  // so the all-or-nothing guarantee is unchanged (handlers are synchronous).
   let stockResult = null;
   if (stockItem) {
+    req.db.material_usage.push(usage);
     stockResult = applyStockChange({
       store: req.store,
       db: req.db,
@@ -194,26 +288,32 @@ export const addMaterialUsage = (req, res) => {
       referenceId: usage.id,
       referenceType: "material_usage",
       overrideNegative: body.override_negative,
+      idempotencyKey: keyResult.key,
+      idempotencyFingerprint: keyResult.key ? fingerprint : null,
       actor
     });
     if (!stockResult.ok) {
+      req.db.material_usage.splice(req.db.material_usage.indexOf(usage), 1);
       return res.status(stockResult.status).json({ success: false, message: stockResult.message });
     }
+  } else {
+    req.db.material_usage.push(usage);
   }
 
-  req.db.material_usage.push(usage);
   req.store.recalculateVariance(req.db, job.purchase_order_id);
-  req.store.audit(req.db, actor, "material_usage", usage.id, "MATERIAL_USAGE_ADDED", null, usage);
+  // The payload fingerprint is internal bookkeeping: never audited, never returned.
+  const { idempotency_fingerprint: _omitFingerprint, ...usageForResponse } = usage;
+  req.store.audit(req.db, actor, "material_usage", usage.id, "MATERIAL_USAGE_ADDED", null, usageForResponse);
 
   if (!stockResult) {
-    return res.json({ success: true, data: usage });
+    return res.json({ success: true, data: usageForResponse });
   }
 
-  req.store.audit(req.db, actor, "stock_movement", stockResult.movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", stockResult.before, { ...stockResult.stockItem, movement: stockResult.movement });
+  req.store.audit(req.db, actor, "stock_movement", stockResult.movement.id, "STOCK_DEDUCTED_VIA_WORKSHEET", stockResult.before, { ...stockResult.stockItem, movement: publicMovement(stockResult.movement) });
 
   return res.json({
     success: true,
-    data: usage,
+    data: usageForResponse,
     stock_deducted: {
       item: stockResult.stockItem.item_code,
       quantity: stockResult.movement.quantity,

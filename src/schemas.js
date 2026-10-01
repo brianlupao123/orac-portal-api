@@ -53,12 +53,33 @@ export const AddTimesheetSchema = z.object({
 
 export const KioskTimesheetBatchSchema = z.object({
   work_date: z.string().min(1, "Work date is required"),
+  // Client-generated reference for one submission, so a retry after a dropped
+  // connection is recognised instead of creating duplicate entries.
+  batch_key: z.string().min(8, "Submission reference is too short").max(100, "Submission reference is too long").optional(),
   entries: z.array(z.object({
     technician_id: z.string().min(1, "Technician is required"),
     hours_logged: z.number().positive("Hours logged must be positive").max(24, "Hours logged cannot exceed 24"),
     hourly_rate: z.number().min(0, "Hourly rate cannot be negative"),
+    // Evidence only: what the crew reported. Not a rate and not read by billing.
+    hours_breakdown: z.object({
+      normal: z.number().min(0).max(24),
+      ot_1_5: z.number().min(0).max(24),
+      ot_2_0: z.number().min(0).max(24)
+    }).optional(),
+    shift: z.string().max(40, "Shift label cannot exceed 40 characters").optional(),
     notes: z.string().max(500, "Notes cannot exceed 500 characters").optional()
   })).min(1, "At least one time entry is required").max(50, "A kiosk batch cannot exceed 50 entries")
+});
+
+// Kiosk Timesheet review. The "reject requires a comment" rule is enforced in
+// the controller so its message always reaches the user.
+export const ReviewKioskTimesheetSchema = z.object({
+  decision: z.enum(["approve", "reject"], { errorMap: () => ({ message: "Decision must be approve or reject" }) }),
+  comment: z.string().max(500, "Comment cannot exceed 500 characters").optional()
+});
+
+export const AssignDispatchSupervisorSchema = z.object({
+  supervisor_id: z.string().min(1, "Supervisor is required")
 });
 
 export const AssignRosterSchema = z.object({
@@ -69,7 +90,12 @@ export const AddMaterialSchema = z.object({
   catalog_item_id: z.string().nullable().optional(),
   description: z.string().min(1, "Description is required"),
   quantity_used: z.number().positive("Quantity must be positive"),
-  unit_cost: z.number().min(0, "Unit cost cannot be negative")
+  unit_cost: z.number().min(0, "Unit cost cannot be negative"),
+  // Optional. When given for a tracked stock item it must equal the item's own
+  // unit; quantities are never converted.
+  unit_of_measure: z.string().min(1).optional(),
+  // Optional duplicate-submission key (also accepted as the Idempotency-Key header).
+  idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/, "Idempotency key must be 8-128 characters: letters, digits, . _ : -").optional()
 });
 
 export const CreateWorksheetSchema = z.object({
@@ -323,7 +349,11 @@ export const StockMovementSchema = z.object({
   // Only meaningful for a "return" reference today; stored either way so a
   // future reference_type can use it without a schema change.
   client_id: z.string().optional(),
-  override_negative: z.boolean().optional()
+  override_negative: z.boolean().optional(),
+  // Evidence for a supplier receipt: delivery note or supplier invoice number.
+  source_document_ref: z.string().trim().max(120).optional(),
+  // Optional duplicate-submission key (also accepted as the Idempotency-Key header).
+  idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/, "Idempotency key must be 8-128 characters: letters, digits, . _ : -").optional()
 });
 
 // Chat C's authorised direct-sale stock issue contract. See

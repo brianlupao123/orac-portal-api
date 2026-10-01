@@ -16,7 +16,8 @@ import {
 // Client Service Requests: Client Viewer request -> Sales/Operations triage ->
 // one explicit lead. Handlers only mutate req.db and call req.store.audit();
 // persistence is the store's job (one request, one write). Nothing here creates
-// a quote, PO, dispatch, invoice, email or notification.
+// a quote, PO, dispatch, invoice or email. Notifications come only from the committed
+// audit event (see notifications.js).
 
 // Same reload-per-request source of truth as auth.js: the account in req.db.
 const actorFor = (req) => req.db?.users?.find((user) => user.id === req.user?.id);

@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from "node:fs";
+import { approvedLabourValue } from "./timesheetReview.js";
 import { dirname } from "node:path";
 import { handleAuditForNotifications } from "./notifications.js";
 import bcrypt from "bcrypt";
@@ -280,7 +281,15 @@ export function createStore(filePath) {
         created_at: now()
       };
       db.audit_logs.push(entry);
-      handleAuditForNotifications(db, entry);
+      // Notifications are a side effect of a committed domain event. A failure
+      // while generating one must never fail or corrupt the business change that
+      // is being audited, so it is contained here. Only the error class is
+      // logged: messages can echo record content, and nothing here needs it.
+      try {
+        handleAuditForNotifications(db, entry);
+      } catch (error) {
+        console.error(`Notification generation skipped for ${entry.action}: ${error?.name || "Error"}`);
+      }
     },
 
     recalculateVariance(db, purchaseOrderId) {
@@ -290,9 +299,7 @@ export function createStore(filePath) {
 
       const jobs = db.dispatch_cards.filter((job) => job.purchase_order_id === po.id);
       const jobIds = new Set(jobs.map((job) => job.id));
-      const labor = db.timesheets
-        .filter((item) => jobIds.has(item.dispatch_card_id))
-        .reduce((sum, item) => sum + Number(item.hours_logged || 0) * Number(item.hourly_rate || 0), 0);
+      const labor = approvedLabourValue(db, jobIds);
       const materials = db.material_usage
         .filter((item) => jobIds.has(item.dispatch_card_id))
         .reduce((sum, item) => sum + Number(item.total_cost || 0), 0);

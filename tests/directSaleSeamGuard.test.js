@@ -64,10 +64,13 @@ test("recording a stock movement never creates or changes a quote, PO, dispatch 
   assert.equal(JSON.stringify({ q: db.quotes, po: db.purchase_orders, d: db.dispatch_cards, i: db.invoices }), before);
 });
 
-test("no sale, delivery or collection concept exists yet in permissions, router, schemas or collections", () => {
-  const banned = /sales?_order|stock_sale|direct_sale|delivery_note|collection_note|goods_issue|counter_sale/i;
+test("no active sale, delivery or collection workflow exists; the legacy direct-sale stock endpoint remains explicitly dormant", () => {
+  const banned = /sales?_order|stock_sale|delivery_note|collection_note|goods_issue|counter_sale/i;
   assert.equal(Object.keys(permissions).some((key) => banned.test(key)), false, "a sale permission appeared: update DIRECT_STOCK_SALE_JOINT_CONTRACT.md");
   for (const file of ["src/router.js", "src/schemas.js", "src/controllers/coreController.js"]) {
     assert.doesNotMatch(read(file), banned, `${file} gained a sale concept: implement it as the single joined workflow and update the contract`);
   }
+  const inventory = read("src/controllers/inventoryController.js");
+  assert.match(inventory, /process\.env\.ENABLE_DIRECT_SALE_STOCK_ISSUE !== "true"/);
+  assert.match(inventory, /not enabled/);
 });

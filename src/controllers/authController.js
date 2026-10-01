@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { verifyResetToken, clearResetToken, toPublicUser } from "../accountTokens.js";
+import { verifySetupToken, clearSetupToken } from "../setupTokens.js";
 
 // Compared against when the account does not exist or is inactive, so the work
 // done (and the response time) does not reveal whether an email has an account.
@@ -102,7 +103,7 @@ export const resetPassword = (req, res) => {
   }
 
   const user = findUserByEmail(req, email);
-  if (!user || !user.is_active || !verifyResetToken(user, token)) {
+  if (!user || !user.is_active || !(verifyResetToken(user, token) || verifySetupToken(user, token))) {
     return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
   }
 
@@ -111,6 +112,7 @@ export const resetPassword = (req, res) => {
   // Ends every session issued before this moment (checked in middleware/auth.js).
   user.password_changed_at = new Date().toISOString();
   clearResetToken(user);
+  clearSetupToken(user);
 
   req.store.audit(req.db, user, "user", user.id, "PASSWORD_RESET_COMPLETED", before, { id: user.id, email: user.email });
 

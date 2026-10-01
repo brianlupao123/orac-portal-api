@@ -1,6 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
-import { issueResetToken } from "../accountTokens.js";
-import bcrypt from "bcrypt";
+import { issueSetupToken } from "../setupTokens.js";
 
 // ── Why this exists instead of open self-signup ──────────────────────────
 // This system's entire permission model assumes roles are assigned by an
@@ -30,7 +29,7 @@ const REQUESTABLE_ROLES = [
 ];
 
 export const createAccessRequest = (req, res) => {
-  const body = req.body;
+  const body = req.body || {};
   const name = String(body.name || "").trim();
   const email = String(body.email || "").trim().toLowerCase();
   const requestedRole = body.requested_role;
@@ -38,6 +37,12 @@ export const createAccessRequest = (req, res) => {
 
   if (!name || !email) {
     return res.status(400).json({ success: false, message: "Name and email are required." });
+  }
+  if (name.length > 120 || email.length > 254 || reason.length > 1000 || !email.includes("@")) {
+    return res.status(400).json({
+      success: false,
+      message: "Name (120), email (254) or reason (1000 characters) is too long, or the email is not valid."
+    });
   }
   if (!REQUESTABLE_ROLES.includes(requestedRole)) {
     return res.status(400).json({
@@ -91,15 +96,25 @@ export const approveAccessRequest = (req, res) => {
 
   // The Admin decides the real role here — req.body.role, not
   // request.requested_role. They're allowed to differ.
-  const finalRole = req.body.role || request.requested_role;
+  const body = req.body || {};
+  const finalRole = body.role === undefined || body.role === null || body.role === ""
+    ? request.requested_role
+    : body.role;
+  if (typeof finalRole !== "string" || !Object.values(roles).includes(finalRole)) {
+    return res.status(400).json({
+      success: false,
+      message: `role must be one of: ${Object.values(roles).join(", ")}.`
+    });
+  }
 
   // GAP FIX (Chat E): same rule as adminController.createUser/updateUser —
   // approving into Client Viewer with no client_id, or a client_id that
   // doesn't match a real client, produces a silently broken account (the
   // client-scope middleware fails closed and shows that user nothing).
   // Checked before the request is mutated or the user is created.
+  let clientId = null;
   if (finalRole === roles.CLIENT_VIEWER) {
-    const clientId = req.body.client_id || null;
+    clientId = typeof body.client_id === "string" && body.client_id ? body.client_id : null;
     const client = clientId && (req.db.clients || []).find((c) => c.id === clientId);
     if (!client) {
       return res.status(400).json({
@@ -109,6 +124,12 @@ export const approveAccessRequest = (req, res) => {
           : "client_id is required when approving into Client Viewer."
       });
     }
+    if (client.is_active === false) {
+      return res.status(400).json({ success: false, message: "That client is inactive." });
+    }
+  }
+  if (req.db.users.some((u) => String(u.email || "").toLowerCase() === request.email.toLowerCase())) {
+    return res.status(409).json({ success: false, message: "An account with this email already exists." });
   }
 
   const before = { ...request };
@@ -119,38 +140,23 @@ export const approveAccessRequest = (req, res) => {
     email: request.email,
     role: finalRole,
     is_active: true,
-    client_id: req.body.client_id || null,
-    password_hash: null, // set via the reset-password flow below, not chosen here
+    client_id: clientId,
+    password_hash: null,
     created_at: new Date().toISOString()
   };
   req.db.users.push(user);
 
-  // Issue a reset token immediately so the new user can set their own
-  // password, reusing the exact same mechanism as "Forgot password"
-  // rather than inventing a second token system.
-  // Only a SHA-256 digest is stored (see accountTokens.js). The raw token is
-  // intentionally discarded here: no owner-approved delivery adapter exists yet.
-  issueResetToken(user);
-
-  // FIX: this previously console.log'd the full set-password link, token
-  // included, directly contradicting this codebase's own stated rule (see
-  // authController.js's Forgot/Reset Password comment): "Tokens and reset
-  // links must never be logged, returned, or placed in audit records." No
-  // owner-approved delivery adapter exists yet, so — consistent with how
-  // requestPasswordReset already behaves — the token is generated and
-  // stored on the user record (so the reset flow works once a secure
-  // delivery path exists) but is not logged or returned here. The audit
-  // entries below already omit it correctly.
-
   request.status = "Approved";
   request.reviewed_by = actor.id;
   request.reviewed_at = new Date().toISOString();
+  request.approved_role = finalRole;
+  request.created_user_id = user.id;
 
   req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_APPROVED", before, request);
   req.store.audit(req.db, actor, "user", user.id, "ACCESS_REQUEST_USER_CREATED", null, { id: user.id, email: user.email, role: user.role });
 
-  const { password_hash, reset_token, reset_token_expires_at, ...safeUser } = user;
-  res.json({ success: true, data: { user: safeUser, set_password_link_logged: false } });
+  const { password_hash, reset_token, reset_token_hash, reset_token_expires_at, ...safeUser } = user;
+  res.json({ success: true, data: { user: safeUser, setup_link_required: true } });
 };
 
 export const rejectAccessRequest = (req, res) => {
@@ -167,11 +173,50 @@ export const rejectAccessRequest = (req, res) => {
   request.status = "Rejected";
   request.reviewed_by = actor.id;
   request.reviewed_at = new Date().toISOString();
-  request.rejection_reason = String(req.body.reason || "").trim();
+  const reason = typeof (req.body || {}).reason === "string" ? req.body.reason.trim() : "";
+  request.rejection_reason = reason.slice(0, 500);
 
   req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_REJECTED", before, request);
 
   res.json({ success: true, data: request });
+};
+
+export const issueAccessRequestSetupLink = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "manageUsers");
+
+  const request = req.db.access_requests.find((r) => r.id === req.params.id);
+  if (!request) return res.status(404).json({ success: false, message: "Access request not found." });
+  if (request.status !== "Approved") {
+    return res.status(409).json({ success: false, message: "A setup link can only be issued for an approved request." });
+  }
+  const user = req.db.users.find((u) => u.id === request.created_user_id)
+    || req.db.users.find((u) => String(u.email || "").toLowerCase() === request.email.toLowerCase() && !u.password_hash);
+  if (!user) return res.status(404).json({ success: false, message: "The account for this request was not found." });
+  if (!user.is_active) return res.status(409).json({ success: false, message: "That account is inactive." });
+  if (user.password_hash) {
+    return res.status(409).json({ success: false, message: "This account has already set a password. A setup link cannot be reissued for it." });
+  }
+
+  const { token, expiresAt } = issueSetupToken(user);
+  request.setup_link_issue_count = (request.setup_link_issue_count || 0) + 1;
+  request.setup_link_last_issued_at = new Date().toISOString();
+  req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_SETUP_LINK_ISSUED", null, {
+    user_id: user.id,
+    expires_at: new Date(expiresAt).toISOString(),
+    issue_count: request.setup_link_issue_count
+  });
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    success: true,
+    data: {
+      email: user.email,
+      setup_path: `/reset-password#email=${encodeURIComponent(user.email)}&token=${token}`,
+      expires_at: new Date(expiresAt).toISOString(),
+      single_use: true
+    }
+  });
 };
 
 export { REQUESTABLE_ROLES };

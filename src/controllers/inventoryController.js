@@ -1,5 +1,8 @@
 import { requirePermission } from "../permissions.js";
-import { applyStockChange, buildMovementRecord, decorateMovementForDisplay } from "../inventoryLedger.js";
+import {
+  applyStockChange, buildMovementRecord, decorateMovementForDisplay, buildReconciliation,
+  validateManualMovement, readIdempotencyKey, requestFingerprint, findIdempotentRecord, publicMovement, newestFirst
+} from "../inventoryLedger.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -150,6 +153,33 @@ export const recordStockMovement = (req, res) => {
   const item = req.db.stock_items.find((s) => s.id === body.stock_item_id);
   if (!item) return res.status(404).json({ success: false, message: "Stock item not found." });
 
+  // Duplicate-submission protection. The same key from the same user with the
+  // same payload returns the original movement and changes nothing; the same
+  // key with a different payload is refused. Checked before anything mutates.
+  const keyResult = readIdempotencyKey(req);
+  if (keyResult.error) return res.status(400).json({ success: false, message: keyResult.error });
+  const fingerprint = requestFingerprint({
+    stock_item_id: body.stock_item_id,
+    movement_type: body.movement_type,
+    quantity: Number(body.quantity),
+    reason: body.reason,
+    reference_type: body.reference_type || null,
+    reference_id: body.reference_id || null,
+    source_document_ref: (body.source_document_ref || "").trim() || null,
+    client_id: body.client_id || null,
+    override_negative: Boolean(body.override_negative)
+  });
+  const prior = findIdempotentRecord(req.db.stock_movements, actor.id, keyResult.key, fingerprint);
+  if (prior.kind === "conflict") {
+    return res.status(409).json({ success: false, message: "This idempotency key was already used for a different stock movement." });
+  }
+  if (prior.kind === "replay") {
+    return res.json({ success: true, idempotent_replay: true, data: { movement: publicMovement(prior.record), stock_item: item } });
+  }
+
+  const shape = validateManualMovement({ db: req.db, stockItem: item, body });
+  if (!shape.ok) return res.status(shape.status).json({ success: false, message: shape.message });
+
   const result = applyStockChange({
     store: req.store,
     db: req.db,
@@ -161,13 +191,16 @@ export const recordStockMovement = (req, res) => {
     referenceType: body.reference_type,
     clientId: body.client_id,
     overrideNegative: body.override_negative,
+    sourceDocumentRef: (body.source_document_ref || "").trim() || null,
+    idempotencyKey: keyResult.key,
+    idempotencyFingerprint: keyResult.key ? fingerprint : null,
     actor
   });
 
   if (!result.ok) return res.status(result.status).json({ success: false, message: result.message });
 
-  req.store.audit(req.db, actor, "stock_movement", result.movement.id, "STOCK_MOVEMENT_RECORDED", result.before, { ...result.stockItem, movement: result.movement });
-  res.json({ success: true, data: { movement: result.movement, stock_item: result.stockItem } });
+  req.store.audit(req.db, actor, "stock_movement", result.movement.id, "STOCK_MOVEMENT_RECORDED", result.before, { ...result.stockItem, movement: publicMovement(result.movement) });
+  res.json({ success: true, data: { movement: publicMovement(result.movement), stock_item: result.stockItem } });
 };
 
 // ── Direct-Sale Stock Issue ───────────────────────────────────────────────────
@@ -236,7 +269,7 @@ export const getStockMovements = (req, res) => {
   if (req.query.client_id) {
     movements = movements.filter((m) => m.client_id === req.query.client_id);
   }
-  const sorted = [...movements].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const sorted = newestFirst(movements);
   res.json({
     success: true,
     data: sorted.map((m) => decorateMovementForDisplay(req.db, m)),
@@ -249,9 +282,7 @@ export const getStockItemMovements = (req, res) => {
   requirePermission(actor, "manageInventory");
   const item = req.db.stock_items.find((s) => s.id === req.params.id);
   if (!item) return res.status(404).json({ success: false, message: "Stock item not found." });
-  const movements = (req.db.stock_movements || [])
-    .filter((m) => m.stock_item_id === item.id)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  const movements = newestFirst((req.db.stock_movements || []).filter((m) => m.stock_item_id === item.id))
     .map((m) => decorateMovementForDisplay(req.db, m));
   res.json({ success: true, data: { stock_item: item, movements } });
 };
@@ -275,4 +306,18 @@ export const getLowStockReport = (req, res) => {
       };
     });
   res.json({ success: true, data: lowStock, count: lowStock.length });
+};
+
+// ── Reconciliation ───────────────────────────────────────────────────────────
+// Read-only. Compares each item's stored balance with what its ledger adds up
+// to and lists every rule-breaking movement. It repairs nothing.
+
+export const getInventoryReconciliation = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "manageInventory");
+  const stockItemId = req.query?.stock_item_id || null;
+  if (stockItemId && !(req.db.stock_items || []).some((s) => s.id === stockItemId)) {
+    return res.status(404).json({ success: false, message: "Stock item not found." });
+  }
+  res.json({ success: true, data: buildReconciliation(req.db, { stockItemId }) });
 };

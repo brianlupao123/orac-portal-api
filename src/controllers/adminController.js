@@ -18,6 +18,7 @@ function safeUser(user) {
     password_hash,
     password,
     reset_token,
+    reset_token_hash,
     reset_token_expires_at,
     ...publicUser
   } = user;

@@ -4,7 +4,7 @@ import { validate } from "./middleware/validate.js";
 import {
   LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
   AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema, AssignRosterSchema,
-  ReviewWorksheetSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
+  ReviewWorksheetSchema, ReviewKioskTimesheetSchema, AssignDispatchSupervisorSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
   AdminCreateMineSiteSchema, AdminUpdateMineSiteSchema, AdminCreatePlantSchema, AdminUpdatePlantSchema,
   AdminCreatePlantSectionSchema, AdminUpdatePlantSectionSchema, AdminCreateEquipmentTagSchema, AdminUpdateEquipmentTagSchema,
@@ -19,14 +19,15 @@ import {
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
-import { createAccessRequest, approveAccessRequest, rejectAccessRequest } from "./controllers/accessRequestsController.js";
+import { createAccessRequest, approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink } from "./controllers/accessRequestsController.js";
 import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
-  getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster
+  getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster, assignDispatchSupervisor
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
+import { listDispatchTimesheets, listKioskReviewQueue, reviewKioskTimesheet } from "./controllers/timesheetReviewController.js";
 import {
   listOwnClientTimesheets, acknowledgeWorksheet, reviseWorksheet,
   getTimesheetPeriodPack, getTimesheetPeriodPackPdf, getTimesheetPeriodSummary
@@ -35,7 +36,7 @@ import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, 
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
-import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport } from "./controllers/inventoryController.js";
+import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport, getInventoryReconciliation } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, flagAiResponse } from "./controllers/aiController.js";
 import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
@@ -141,6 +142,7 @@ router.patch("/admin/company_profile", validate(AdminCompanyProfileSchema), upda
 // controller via requirePermission(actor, "manageUsers")).
 router.post("/access-requests/:id/approve", approveAccessRequest);
 router.post("/access-requests/:id/reject", rejectAccessRequest);
+router.post("/access-requests/:id/setup-link", issueAccessRequestSetupLink);
 
 // Quotes
 router.post("/quotes", validate(CreateQuoteSchema), createQuote);
@@ -152,6 +154,9 @@ router.post("/quotes/:id/client-po", validate(ClientSubmitPoSchema), submitClien
 
 // Dispatches & Worksheets
 router.post("/dispatch_cards/:id/timesheets", validate(AddTimesheetSchema), addTimesheet);
+router.get("/dispatch_cards/:id/timesheets", listDispatchTimesheets);
+router.get("/timesheets/kiosk-review", listKioskReviewQueue);
+router.post("/timesheets/:id/review", validate(ReviewKioskTimesheetSchema), reviewKioskTimesheet);
 router.get("/kiosk/dispatch_cards/:id/roster", getKioskRoster);
 router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatchSchema), submitKioskTimesheets);
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
@@ -159,6 +164,7 @@ router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
 router.get("/dispatch_cards/:id/roster", getDispatchRoster);
 router.post("/dispatch_cards/:id/roster", validate(AssignRosterSchema), assignRosterTechnician);
+router.post("/dispatch_cards/:id/supervisor", validate(AssignDispatchSupervisorSchema), assignDispatchSupervisor);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
@@ -189,6 +195,7 @@ router.post("/inventory/movements/direct-sale", validate(DirectSaleStockIssueSch
 router.get("/inventory/movements", getStockMovements);
 router.get("/inventory/stock_items/:id/movements", getStockItemMovements);
 router.get("/inventory/reports/low-stock", getLowStockReport);
+router.get("/inventory/reconciliation", getInventoryReconciliation);
 
 // Notifications (Phase 08)
 router.get("/notifications", getNotifications);

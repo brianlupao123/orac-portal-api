@@ -463,6 +463,21 @@ export const getWorksheetPdf = (req, res) => {
       doc.worksheet.supervisor_comment
         ? { type: "paragraph", heading: "Supervisor Comment", text: doc.worksheet.supervisor_comment }
         : null,
+      // Digital client acknowledgement recorded by the system (authenticated
+      // Client Viewer, typed name and role, timestamp, evidence reference). It is
+      // printed as evidence and never replaces the ink signature boxes below.
+      doc.worksheet.client_acknowledgement
+        ? {
+            type: "keyvalue",
+            heading: "Client Acknowledgement (recorded digitally)",
+            items: [
+              { label: "Signed By", ...refValue(doc.worksheet.client_acknowledgement.signer_name, "Not") },
+              { label: "Signer Role", ...refValue(doc.worksheet.client_acknowledgement.signer_role, "Not") },
+              { label: "Acknowledged At", value: humanizeTimestamp(doc.worksheet.client_acknowledgement.acknowledged_at) || "Not recorded", placeholder: !doc.worksheet.client_acknowledgement.acknowledged_at },
+              { label: "Evidence Reference", ...refValue(doc.worksheet.client_acknowledgement.evidence_reference, "Not") }
+            ]
+          }
+        : null,
       { type: "signoff", boxes: [{ label: "Technician Signature" }, { label: "Client / Supervisor Signature" }] }
     ].filter(Boolean)
   };

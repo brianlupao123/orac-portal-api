@@ -82,10 +82,12 @@ test("insufficient stock without override leaves on-hand quantity and ledger unt
 
   addMaterialUsage(req, res);
 
-  assert.equal(res.statusCode, 200); // material usage itself still records; stock deduction is skipped
-  assert.ok(res.body.stock_warning);
+  // Chat D made the deduction mandatory and atomic: a refused deduction records
+  // neither the usage nor a movement (see materialUsageStock.test.js).
+  assert.equal(res.statusCode, 409);
   assert.equal(req.db.stock_items[0].quantity_on_hand, 30);
   assert.equal(req.db.stock_movements.length, 0);
+  assert.equal(req.db.material_usage.length, 0);
 });
 
 test("a non-Admin/Operations actor cannot force a negative-stock deduction via the worksheet path", () => {
@@ -96,9 +98,10 @@ test("a non-Admin/Operations actor cannot force a negative-stock deduction via t
 
   addMaterialUsage(req, res);
 
+  assert.equal(res.statusCode, 403);
   assert.equal(req.db.stock_items[0].quantity_on_hand, 30);
   assert.equal(req.db.stock_movements.length, 0);
-  assert.ok(res.body.stock_warning);
+  assert.equal(req.db.material_usage.length, 0);
 });
 
 test("worksheet deduction and the direct-sale endpoint produce ledger entries with identical field sets (one deduction path)", async () => {

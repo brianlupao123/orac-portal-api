@@ -17,6 +17,13 @@ export const permissions = {
   dispatch: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   addTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitKioskTimesheets: [roles.ADMIN, roles.OPERATIONS],
+  // Task 03: kiosk entries need Supervisor review. Only a Supervisor decides;
+  // Admin/Operations may read the queue to chase it (owner decision D-K1: Admin fallback).
+  reviewKioskTimesheet: [roles.SUPERVISOR],
+  // Assigning the Supervisor who reviews a dispatch's kiosk entries. Not a Supervisor self-service action.
+  assignDispatchSupervisor: [roles.ADMIN, roles.OPERATIONS],
+  viewKioskTimesheetReview: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  viewDispatchTimesheets: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   addMaterials: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
@@ -36,6 +43,10 @@ export const permissions = {
   exportPastel: [roles.ADMIN, roles.FINANCE],
   viewAudit: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   manageUsers: [roles.ADMIN],
+  // Who may open the access-request inbox and be notified of new requests.
+  // Pilot decision: Admin only. Deciding (approve/reject/issue a setup link) stays
+  // behind manageUsers whatever this list says.
+  viewAccessRequests: [roles.ADMIN],
   manageClients: [roles.ADMIN, roles.MANAGEMENT],
   manageAssets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   createServiceRequest: [roles.CLIENT_VIEWER],

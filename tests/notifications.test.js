@@ -74,17 +74,20 @@ test("LEAD_CREATED generates notification for Sales/Admin/Management", () => {
   assert.ok(!notif.target_roles.includes("Finance"));
 });
 
-test("WORKSHEET_SUBMITTED generates notification for Supervisor/Operations/Admin/Management", () => {
+test("WORKSHEET_SUBMITTED asks for client acknowledgement and tells Operations/Admin/Management it is waiting (not yet reviewable)", () => {
   const { db } = makeDb();
   const audit = makeAudit("WORKSHEET_SUBMITTED", "field_worksheet", "ws1", { id: "ws1" });
   handleAuditForNotifications(db, audit);
 
+  // No resolvable dispatch/client in this fixture, so only the staff notification exists (fails closed for clients).
   assert.equal(db.notifications.length, 1);
   const notif = db.notifications[0];
   assert.equal(notif.type, "worksheet");
-  assert.ok(notif.target_roles.includes("Supervisor"));
+  assert.match(notif.message, /waiting for client acknowledgement/i);
   assert.ok(notif.target_roles.includes("Operations"));
   assert.ok(notif.target_roles.includes("Admin"));
+  assert.ok(notif.target_roles.includes("Management"));
+  assert.ok(!notif.target_roles.includes("Supervisor"), "Supervisors are assignment-scoped; they are notified individually");
   assert.ok(!notif.target_roles.includes("Finance"));
 });
 
