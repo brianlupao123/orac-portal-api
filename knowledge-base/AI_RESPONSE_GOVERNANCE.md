@@ -18,12 +18,14 @@ Define how a future Orac-IOS assistant explains authorized dashboard data withou
 - `dashboard_briefing`
 - `attention_items`
 - `metric_explanation`
-- `workflow_guidance`
+- `workflow_guidance` (implemented in Task 04 as a deterministic, read-only catalog; still providerless)
 
 ## Required Response Labels
 
 Every response must show exactly one label:
 
+- `Workflow guidance` (proposed by Task 04, owner approval pending): answered from the versioned workflow catalog in `src/services/aiWorkflowKnowledge.js`, with the article id and version cited and any live number taken from the caller's scoped payload.
+- `Declined` (proposed by Task 04, owner approval pending): the request was outside role scope, asked for an action, asked about a specific record or another client or user, tried to change the assistant's rules, or asked for policy the owner has not approved. It confirms nothing about any record and changes nothing.
 - `Verified dashboard summary`: every metric matches the current scoped payload.
 - `Template fallback`: generated directly from verified payload because a provider answer failed validation or was unavailable.
 - `Unavailable`: no safe answer can be produced from the permitted source.

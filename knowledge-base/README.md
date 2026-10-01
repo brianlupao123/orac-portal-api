@@ -28,6 +28,7 @@ This directory is the future assistant's approved static knowledge source. It is
 | Automated and live acceptance evidence | `../ORAC_IOS_QA_ACCEPTANCE_PACKET.md`, `../ORAC_IOS_LIVE_UAT_LOG.md` | Evidence record, not policy guidance. |
 | AI scope, grounding, rollout gates | `../ORAC_IOS_GOVERNED_AI_ASSISTANT_PLAN.md` | Design source; no provider enabled. |
 | Quote to Pastel workflow | [QUOTE_TO_PASTEL_WORKFLOW_GUIDE.md](QUOTE_TO_PASTEL_WORKFLOW_GUIDE.md) | Draft; enforcement remains `../src/stateMachine.js` and `../src/store.js`. |
+| Assistant workflow catalog (Task 04) | `../src/services/aiWorkflowKnowledge.js` (catalog 1.0.0) | Code-derived from the enforcing source named in each article; owner approval pending. Not a substitute for the Markdown articles below. |
 | Role permission and escalation policy | [RBAC_AND_ESCALATION_GUIDE.md](RBAC_AND_ESCALATION_GUIDE.md) | Draft; enforcement remains `../src/permissions.js` and route/controller checks. |
 | Operations operating guide | [ROLE_MANUAL_OPERATIONS.md](ROLE_MANUAL_OPERATIONS.md) | Draft for Phase 1 rollout; owner approval pending. |
 | Finance operating guide | [ROLE_MANUAL_FINANCE.md](ROLE_MANUAL_FINANCE.md) | Draft for Phase 1 rollout; owner approval pending. |

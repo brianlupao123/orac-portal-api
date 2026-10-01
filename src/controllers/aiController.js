@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { getActor, buildScopedSummary } from "./coreController.js";
-import { metricsForRole, buildBriefing, buildAttentionItems, buildChatReply, explainMetric } from "../services/aiTemplates.js";
+import { metricsForRole, buildBriefing, buildAttentionItems, buildChatReply, explainMetric, workflowClaim } from "../services/aiTemplates.js";
+import { buildWorkflowReply, guidanceForArticle, unavailableGuide } from "../services/aiWorkflowAssistant.js";
+import { APPROVAL_STATE, CATALOG_VERSION, articlesForRole } from "../services/aiWorkflowKnowledge.js";
 import { roles } from "../permissions.js";
 
 const ENABLED_ROLES = new Set(Object.values(roles));
@@ -20,6 +22,13 @@ function audit(req, actor, requestId, intent, response) {
     response_mode: response.label,
     metric_keys: response.claims.map((item) => item.metric),
     evidence_targets: response.evidenceRefs.map((item) => item.targetId),
+    // Structured, non-sensitive outcome data only. The question text, the
+    // answer text and any record content are never stored.
+    outcome: response.outcome,
+    article_ids: (response.guidance ? [response.guidance.articleId] : []),
+    article_versions: (response.guidance ? [response.guidance.version] : []),
+    catalog_version: CATALOG_VERSION,
+    link_ids: response.links.map((item) => item.id),
     generated_at: response.generatedAt
   });
 }
@@ -41,11 +50,16 @@ function respond(req, res, actor, intent, build) {
   const requestId = randomUUID();
   let response;
   try {
+    const claims = build(buildScopedSummary(req.db, actor));
+    const meta = claims.meta || {};
     response = {
       requestId,
       intent,
-      label: "Verified dashboard summary",
-      claims: build(buildScopedSummary(req.db, actor)),
+      label: meta.label || "Verified dashboard summary",
+      outcome: meta.outcome || "answered",
+      claims,
+      guidance: meta.guidance || null,
+      links: Array.isArray(meta.links) ? meta.links : [],
       generatedAt: new Date().toISOString()
     };
     response.evidenceRefs = uniqueEvidenceRefs(response.claims);
@@ -55,14 +69,25 @@ function respond(req, res, actor, intent, build) {
       requestId,
       intent,
       label: "Unavailable",
+      outcome: "unavailable",
       claims: [],
       evidenceRefs: [],
-      message: "I could not verify that from your current dashboard evidence.",
+      guidance: null,
+      links: [],
+      message: "I could not verify that from your current ORAC evidence. Nothing was changed. Try again later, or open the screen for your role directly.",
       generatedAt: new Date().toISOString()
     };
   }
   audit(req, actor, requestId, intent, response);
   res.json({ success: true, data: response });
+}
+
+// Adapt a workflow result to the claims-array shape respond() already uses.
+function fromWorkflow(result) {
+  const claims = [...result.claims];
+  claims.message = result.message;
+  claims.meta = { label: result.label, outcome: result.outcome, guidance: result.guidance, links: result.links };
+  return claims;
 }
 
 export function getAiHealth(req, res) {
@@ -73,8 +98,14 @@ export function getAiHealth(req, res) {
     data: {
       phase: "0.5",
       enabled: true,
-      intents: ["dashboard_briefing", "attention_items", "metric_explanation", "dashboard_chat"],
-      metrics: metricsForRole(actor.role)
+      // Providerless and read-only: no model, no outbound calls, no mutations.
+      mode: "deterministic-read-only",
+      provider: null,
+      intents: ["dashboard_briefing", "attention_items", "metric_explanation", "dashboard_chat", "workflow_guidance"],
+      metrics: metricsForRole(actor.role),
+      catalog_version: CATALOG_VERSION,
+      approval: APPROVAL_STATE,
+      workflow_topics: articlesForRole(actor.role).map((article) => ({ id: article.id, title: article.title }))
     }
   });
 }
@@ -107,9 +138,27 @@ export function getChatResponse(req, res) {
   const lastContext = req.body?.lastContext && typeof req.body.lastContext === "object" ? {
     metric: typeof req.body.lastContext.metric === "string" ? req.body.lastContext.metric : "",
     targetId: typeof req.body.lastContext.targetId === "string" ? req.body.lastContext.targetId : "",
-    label: typeof req.body.lastContext.label === "string" ? req.body.lastContext.label : ""
+    label: typeof req.body.lastContext.label === "string" ? req.body.lastContext.label : "",
+    // Only an id; it is re-validated against the caller's role before use.
+    articleId: typeof req.body.lastContext.articleId === "string" ? req.body.lastContext.articleId.slice(0, 64) : ""
   } : null;
-  respond(req, res, actor, "dashboard_chat", (payload) => buildChatReply(payload, actor.role, question, { lastContext }));
+  respond(req, res, actor, "dashboard_chat", (payload) => {
+    // The actor comes from the authenticated session, never from the body.
+    const workflow = buildWorkflowReply({ actor, question, payload, lastContext, claimFactory: workflowClaim });
+    return workflow ? fromWorkflow(workflow) : buildChatReply(payload, actor.role, question, { lastContext });
+  });
+}
+
+// Quick-start guide by article id. The id is data, not authority: the guide is
+// returned only if the caller's own role has a part in that article.
+export function getWorkflowGuide(req, res) {
+  const actor = allowedActor(req, res);
+  if (!actor) return;
+  const articleId = typeof req.body?.article_id === "string" ? req.body.article_id.slice(0, 64) : "";
+  respond(req, res, actor, "workflow_guidance", (payload) => {
+    const reply = guidanceForArticle(actor, articleId, payload, workflowClaim) || unavailableGuide(actor);
+    return fromWorkflow(reply);
+  });
 }
 
 export function flagAiResponse(req, res) {
