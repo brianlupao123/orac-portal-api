@@ -61,6 +61,19 @@ export const assignRosterTechnician = (req, res) => {
   res.json({ success: true, data: job });
 };
 
+export const getDispatchRoster = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "dispatch");
+  const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  const onRoster = new Set([...(job.assigned_technician_ids || []), job.assigned_technician_id].filter(Boolean));
+  const technicians = req.db.users
+    .filter((user) => user.role === roles.TECHNICIAN && user.is_active)
+    .map(({ id, name, trade }) => ({ id, name, trade: trade || null, on_roster: onRoster.has(id) }));
+  res.json({ success: true, data: { dispatch: { id: job.id, dispatch_number: job.dispatch_number }, technicians } });
+};
+
 function requireAssignedDispatch(actor, dispatch, db, res) {
   if (isAssignedToDispatch(actor, dispatch, db)) return true;
   res.status(403).json({ success: false, message: "This role may work only on an assigned dispatch." });

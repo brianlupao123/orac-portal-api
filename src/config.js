@@ -36,7 +36,12 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "8h",
   storeDriver: process.env.STORE_DRIVER || "json",
   jsonDbPath: process.env.JSON_DB_PATH || "./data/db.json",
-  isProduction: (process.env.NODE_ENV || "development") === "production"
+  isProduction: (process.env.NODE_ENV || "development") === "production",
+  // Production always requires a password. Set ORAC_REQUIRE_PASSWORD=true on any
+  // other deployment that holds real or shared data (UAT, staging) so it does
+  // not inherit the local-development shortcut of signing in without one.
+  requirePassword:
+    (process.env.NODE_ENV || "development") === "production" || process.env.ORAC_REQUIRE_PASSWORD === "true"
 };
 
 export function validateRuntimeConfig() {

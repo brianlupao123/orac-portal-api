@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { handleAuditForNotifications } from "./notifications.js";
 import bcrypt from "bcrypt";
@@ -192,6 +192,20 @@ export function normalizeDb(db) {
   return db;
 }
 
+// Writes to a temporary file and renames it over the target so a crash or power
+// loss mid-write cannot leave a truncated data file.
+function writeJsonAtomically(filePath, text) {
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  writeFileSync(tempPath, text);
+  try {
+    renameSync(tempPath, filePath);
+  } catch {
+    // Some Windows setups refuse to replace a file another process has open.
+    try { unlinkSync(tempPath); } catch { /* best effort */ }
+    writeFileSync(filePath, text);
+  }
+}
+
 export function createStore(filePath) {
   const mutex = new Mutex();
   const inMemory = filePath === ":memory:";
@@ -222,10 +236,19 @@ export function createStore(filePath) {
         const db = normalizeDb(JSON.parse(raw));
         return { db, release };
       } catch (err) {
-        // File corrupted or unreadable — reseed
-        const db = seedData();
-        writeFileSync(filePath, JSON.stringify(db, null, 2));
-        return { db, release };
+        if (err?.code === "ENOENT") {
+          // The file was removed: there is nothing to lose, start from seed data.
+          const db = seedData();
+          writeFileSync(filePath, JSON.stringify(db, null, 2));
+          return { db, release };
+        }
+        // Unreadable or corrupt data must NEVER be replaced by seed data: that
+        // silently destroys the only copy. Free the mutex and fail loudly.
+        release();
+        throw Object.assign(
+          new Error("The local JSON data file could not be read or parsed. It has not been modified."),
+          { status: 503 }
+        );
       }
     },
 
@@ -233,7 +256,7 @@ export function createStore(filePath) {
     write(db, release) {
       try {
         if (!inMemory) {
-          writeFileSync(filePath, JSON.stringify(db, null, 2));
+          writeJsonAtomically(filePath, JSON.stringify(db, null, 2));
         }
       } finally {
         if (release) release();

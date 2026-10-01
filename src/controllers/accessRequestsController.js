@@ -1,5 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
-import crypto from "node:crypto";
+import { issueResetToken } from "../accountTokens.js";
 import bcrypt from "bcrypt";
 
 // ── Why this exists instead of open self-signup ──────────────────────────
@@ -128,10 +128,9 @@ export const approveAccessRequest = (req, res) => {
   // Issue a reset token immediately so the new user can set their own
   // password, reusing the exact same mechanism as "Forgot password"
   // rather than inventing a second token system.
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = Date.now() + 30 * 60 * 1000;
-  user.reset_token = token;
-  user.reset_token_expires_at = expiresAt;
+  // Only a SHA-256 digest is stored (see accountTokens.js). The raw token is
+  // intentionally discarded here: no owner-approved delivery adapter exists yet.
+  issueResetToken(user);
 
   // FIX: this previously console.log'd the full set-password link, token
   // included, directly contradicting this codebase's own stated rule (see
