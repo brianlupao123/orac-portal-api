@@ -93,7 +93,10 @@ test("timesheet, material and kiosk entries are refused once the dispatch is inv
 test("a voided invoice, or no invoice, does not freeze the dispatch", () => {
   for (const invoices of [inv("voided"), []]) {
     const c = ctx({ invoices }); const r = res();
-    addTimesheet(reqFor("tech", c, { id: "d1" }, { hours_logged: 2, hourly_rate: 10 }), r);
+    // A Technician entry must cite the Technician's own Supervisor-approved worksheet
+    // (newer evidence-chain rule), so the fixture provides one.
+    c.db.field_worksheets.push({ id: "w1", dispatch_card_id: "d1", technician_id: "tech", status: "Supervisor_Approved", hours: 2 });
+    addTimesheet(reqFor("tech", c, { id: "d1" }, { hours_logged: 2, hourly_rate: 10, source_worksheet_id: "w1" }), r);
     assert.equal(r.statusCode, 200);
     assert.equal(c.db.timesheets.length, 1);
   }

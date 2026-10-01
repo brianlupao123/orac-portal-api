@@ -2,16 +2,41 @@ import { requirePermission, roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
 import { generateControlledPdf, humanizeTimestamp } from "../pdfGenerator.js";
 import { companyFromProfile } from "./documentController.js";
+import { isKioskEntry, kioskReviewStatus, KIOSK_REVIEW_STATUS } from "../timesheetReview.js";
+
+// Plain-language status for printed packs. The JSON keeps the raw status (API
+// contract) and adds status_label. Client acknowledgement and internal
+// Supervisor approval are labelled as the separate things they are.
+export const WORKSHEET_STATUS_LABEL = Object.freeze({
+  Draft: "Draft",
+  Submitted: "Awaiting client acknowledgement",
+  Client_Acknowledged: "Client acknowledged, awaiting Supervisor approval",
+  Returned_For_Correction: "Returned for correction",
+  Supervisor_Approved: "Supervisor approved"
+});
+export function worksheetStatusLabel(status) {
+  return WORKSHEET_STATUS_LABEL[status] || String(status || "").replace(/_/g, " ");
+}
 
 const PERIOD_PACK_COLUMNS = [
   { label: "Date", weight: 1.2 },
   { label: "Dispatch", weight: 1.2 },
   { label: "Hours", weight: 0.8, align: "right" },
-  { label: "Status", weight: 1.4 },
-  { label: "Signed By", weight: 1.6 },
-  { label: "Signer Role", weight: 1.4 },
-  { label: "Signed At", weight: 1.6 }
+  { label: "Status", weight: 1.8 },
+  { label: "Client Signed By", weight: 1.6 },
+  { label: "Client Signer Role", weight: 1.4 },
+  { label: "Client Signed At", weight: 1.6 }
 ];
+
+const PERIOD_PACK_KIOSK_COLUMNS = [
+  { label: "Date", weight: 1.2 },
+  { label: "Dispatch", weight: 1.2 },
+  { label: "Hours", weight: 0.8, align: "right" },
+  { label: "Shift", weight: 1.2 },
+  { label: "Status", weight: 2.4 }
+];
+
+const KIOSK_PACK_STATUS = "Supervisor approved (not client-acknowledged)";
 
 // Chat B — Digital Timesheets and client acknowledgement.
 //
@@ -82,6 +107,7 @@ function worksheetSummary(db, worksheet) {
     work_date: worksheet.work_date,
     hours: worksheet.hours,
     status: worksheet.status,
+    status_label: worksheetStatusLabel(worksheet.status),
     revision_number: worksheet.revision_number || 1,
     revises_worksheet_id: worksheet.revises_worksheet_id || null,
     superseded_by: worksheet.superseded_by || null,
@@ -220,12 +246,21 @@ export function reviseWorksheet(req, res) {
 // failure still throws synchronously, matching every other permission
 // check in this codebase, instead of being caught below).
 function buildPeriodPack(req, actor) {
-  const { client_id: clientId, site, from, to } = req.query;
+  const { client_id: clientId, site, from, to, technician_id: technicianId, dispatch_id: dispatchId } = req.query;
+  const includeKiosk = String(req.query.include_kiosk || "").toLowerCase() === "true";
   if (!clientId) throw { status: 400, message: "client_id is required." };
   if (!from || !to) throw { status: 400, message: "A from and to work-date range is required." };
 
   const client = req.db.clients.find((item) => item.id === clientId);
   if (!client) throw { status: 404, message: "Client not found." };
+  // A dispatch filter must belong to this client, so a pack can never be used
+  // to reach another client's task. Same message whether it is missing or foreign.
+  if (dispatchId) {
+    const dispatch = req.db.dispatch_cards.find((item) => item.id === dispatchId);
+    if (!dispatch || resolveQuote(req.db, dispatch)?.client_id !== clientId) {
+      throw { status: 400, message: "That task (dispatch) does not belong to this client." };
+    }
+  }
 
   const included = req.db.field_worksheets.filter((worksheet) => {
     if (resolveWorksheetClientId(req.db, worksheet) !== clientId) return false;
@@ -233,8 +268,42 @@ function buildPeriodPack(req, actor) {
     if (worksheet.superseded_by) return false; // only the current revision ships in a pack
     if (worksheet.work_date < from || worksheet.work_date > to) return false;
     if (site && resolveWorksheetSite(req.db, worksheet).mineSite?.id !== site) return false;
+    if (technicianId && worksheet.technician_id !== technicianId) return false;
+    if (dispatchId && worksheet.dispatch_card_id !== dispatchId) return false;
     return true;
   });
+
+  // Optional, clearly separate: Supervisor-approved kiosk time. Pending and
+  // rejected kiosk rows never appear. Not client-acknowledged, so it is never
+  // merged into the acknowledged worksheet tables. No rate or cost is carried.
+  const kioskGrouped = {};
+  let kioskCount = 0;
+  if (includeKiosk) {
+    for (const entry of req.db.timesheets || []) {
+      if (!isKioskEntry(entry) || kioskReviewStatus(entry) !== KIOSK_REVIEW_STATUS.APPROVED) continue;
+      const row = { dispatch_card_id: entry.dispatch_card_id };
+      if (resolveWorksheetClientId(req.db, row) !== clientId) continue;
+      const tech = entry.technician_id || entry.user_id;
+      if (!entry.work_date || entry.work_date < from || entry.work_date > to) continue;
+      if (technicianId && tech !== technicianId) continue;
+      if (dispatchId && entry.dispatch_card_id !== dispatchId) continue;
+      const { dispatch, mineSite } = resolveWorksheetSite(req.db, row);
+      if (site && mineSite?.id !== site) continue;
+      if (!kioskGrouped[tech]) kioskGrouped[tech] = { technician_id: tech, technician_name: req.db.users.find((user) => user.id === tech)?.name || null, entries: [] };
+      kioskGrouped[tech].entries.push({
+        id: entry.id,
+        work_date: entry.work_date,
+        dispatch_card_id: entry.dispatch_card_id,
+        dispatch_number: dispatch?.dispatch_number || null,
+        hours: entry.hours_logged,
+        shift: entry.shift || null,
+        status: "Supervisor_Approved",
+        status_label: KIOSK_PACK_STATUS,
+        client_acknowledged: false
+      });
+      kioskCount += 1;
+    }
+  }
 
   const grouped = {};
   for (const worksheet of included) {
@@ -250,11 +319,18 @@ function buildPeriodPack(req, actor) {
   return {
     client: { id: client.id, name: client.name },
     site_filter: site || null,
+    technician_filter: technicianId || null,
+    dispatch_filter: dispatchId || null,
+    include_kiosk: includeKiosk,
     date_range: { from, to },
     generated_by: actor.id,
     generated_at: new Date().toISOString(),
     entry_count: included.length,
-    technicians: Object.values(grouped).sort((a, b) => String(a.technician_name).localeCompare(String(b.technician_name)))
+    technicians: Object.values(grouped).sort((a, b) => String(a.technician_name).localeCompare(String(b.technician_name))),
+    kiosk_entry_count: kioskCount,
+    kiosk_technicians: Object.values(kioskGrouped)
+      .map((group) => ({ ...group, entries: group.entries.sort((a, b) => String(a.work_date).localeCompare(String(b.work_date))) }))
+      .sort((a, b) => String(a.technician_name).localeCompare(String(b.technician_name)))
   };
 }
 
@@ -301,7 +377,7 @@ export function getTimesheetPeriodPackPdf(req, res) {
         entry.work_date,
         entry.dispatch_number || "",
         String(entry.hours ?? ""),
-        entry.status,
+        entry.status_label || worksheetStatusLabel(entry.status),
         entry.client_acknowledgement?.signer_name || "",
         entry.client_acknowledgement?.signer_role || "",
         humanizeTimestamp(entry.client_acknowledgement?.acknowledged_at) || ""
@@ -316,11 +392,25 @@ export function getTimesheetPeriodPackPdf(req, res) {
     };
   });
 
+  const kioskSections = pack.kiosk_technicians.map((tech) => ({
+    type: "table",
+    heading: `Kiosk time, Supervisor approved: ${tech.technician_name || tech.technician_id}`,
+    columns: PERIOD_PACK_KIOSK_COLUMNS,
+    rows: tech.entries.map((entry) => [entry.work_date, entry.dispatch_number || "", String(entry.hours ?? ""), entry.shift || "", entry.status_label]),
+    emptyMessage: "No approved kiosk entries."
+  }));
+  const technicianName = pack.technician_filter
+    ? req.db.users.find((user) => user.id === pack.technician_filter)?.name || pack.technician_filter
+    : null;
+  const dispatchLabel = pack.dispatch_filter
+    ? req.db.dispatch_cards.find((item) => item.id === pack.dispatch_filter)?.dispatch_number || pack.dispatch_filter
+    : null;
+
   const model = {
     documentType: "TIMESHEET_PERIOD_PACK",
     documentTypeLabel: "Timesheet Period Pack",
     documentNumber: `${pack.client.name} ${pack.date_range.from} to ${pack.date_range.to}`,
-    status: `${pack.entry_count} acknowledged ${pack.entry_count === 1 ? "entry" : "entries"}`,
+    status: `${pack.entry_count} acknowledged ${pack.entry_count === 1 ? "entry" : "entries"}${pack.include_kiosk ? `, ${pack.kiosk_entry_count} approved kiosk ${pack.kiosk_entry_count === 1 ? "entry" : "entries"}` : ""}`,
     company: companyFromProfile(req.db.company_profile),
     generatedAtLabel: "Generated",
     generatedAt: humanizeTimestamp(pack.generated_at),
@@ -328,10 +418,12 @@ export function getTimesheetPeriodPackPdf(req, res) {
     headerMeta: [
       { label: "Client", value: pack.client.name },
       siteName ? { label: "Site", value: siteName } : { label: "Site", value: "All sites", placeholder: true },
-      { label: "Date Range", value: `${pack.date_range.from} to ${pack.date_range.to}` }
+      { label: "Date Range", value: `${pack.date_range.from} to ${pack.date_range.to}` },
+      ...(technicianName ? [{ label: "Technician", value: technicianName }] : []),
+      ...(dispatchLabel ? [{ label: "Task (Dispatch)", value: dispatchLabel }] : [])
     ],
-    sections: technicianSections.length
-      ? technicianSections
+    sections: technicianSections.length || kioskSections.length
+      ? [...technicianSections, ...kioskSections]
       : [{ type: "paragraph", heading: "No entries", text: "No client-acknowledged or Supervisor-approved entries fall in this range.", placeholder: true }]
   };
 

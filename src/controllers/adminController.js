@@ -18,6 +18,7 @@ function safeUser(user) {
     password_hash,
     password,
     reset_token,
+    reset_token_hash,
     reset_token_expires_at,
     ...publicUser
   } = user;
@@ -79,7 +80,11 @@ export const updateUser = (req, res) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
   if (target.role !== "Technician") target.trade = null;
-  if (req.body.password !== undefined) target.password_hash = bcrypt.hashSync(req.body.password, 10);
+  if (req.body.password !== undefined) {
+    target.password_hash = bcrypt.hashSync(req.body.password, 10);
+    // Ends every session issued before this moment (checked in middleware/auth.js).
+    target.password_changed_at = new Date().toISOString();
+  }
   req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, safeUser(target));
   res.json({ success: true, data: safeUser(target) });
 };

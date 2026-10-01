@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import { pool, ensureTableExists } from "../src/pool.js";
+import { requireDestructiveApply, snapshotStore } from "./lib/destructiveGuard.js";
 
 function uuid() { return crypto.randomUUID(); }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -271,6 +272,11 @@ function buildInventory() {
 // ASSEMBLE + WRITE
 // ---------------------------------------------------------------------------
 async function main() {
+  requireDestructiveApply({
+    scriptName: "load-massive-seed.js",
+    phrase: "REPLACE_ALL_DATA",
+    effect: "REPLACES the entire main store with a large generated demonstration data set and resets account passwords."
+  });
   const { users, credentialsLog } = await buildUsers();
   const quotes = buildQuotes(users);
   const purchaseOrders = buildPurchaseOrders(quotes);
@@ -297,6 +303,8 @@ async function main() {
 
   try {
     await ensureTableExists();
+    const backupId = await snapshotStore(pool, "before-load-massive-seed");
+    console.log(`Previous state saved as store_backups id ${backupId ?? "(none - no prior main row)"}.`);
     // Use the idempotent upsert approach over the entire blob
     await pool.query(
       "INSERT INTO store (id, data) VALUES ('main', $1) ON CONFLICT (id) DO UPDATE SET data = $1",

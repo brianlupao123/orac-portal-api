@@ -37,9 +37,9 @@ export const ORAC_WORKFLOW_KNOWLEDGE = {
   pending_review: {
     title: "Pending worksheet review",
     explanation:
-      "Pending review means submitted worksheet evidence is waiting for a permitted reviewer decision.",
+      "Pending review counts Submitted entries (waiting for the client representative to acknowledge) plus Client_Acknowledged entries (waiting for an independent reviewer). Only Client_Acknowledged entries can be approved or returned.",
     nextAction:
-      "Review pending worksheets first because approval unlocks downstream workflow progress."
+      "Reviewers act on Client_Acknowledged entries; Submitted entries wait for client acknowledgement. Approval of a Client_Acknowledged entry unlocks downstream progress."
   },
   returned_for_correction: {
     title: "Returned for correction",

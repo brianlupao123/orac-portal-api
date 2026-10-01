@@ -11,6 +11,8 @@ import { ensureTableExists } from "./src/pool.js";
 import { createStore as createJsonStore } from "./src/store.js";
 import { createStore as createPostgresStore } from "./src/postgresStore.js";
 import { persistenceMiddleware } from "./src/persistenceMiddleware.js";
+import { securityHeaders } from "./src/middleware/securityHeaders.js";
+import { createPublicEndpointLimits } from "./src/middleware/rateLimit.js";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const publicDir = join(__dirname, "public");
@@ -25,6 +27,14 @@ if (config.storeDriver === "postgres") {
 
 const app = express();
 app.disable("x-powered-by");
+
+// Trust forwarded headers only when the operator states how many proxy hops sit
+// in front of this service (Render / Fly are normally 1). Unset by default: a
+// wrong value would let a client spoof req.ip, which the rate limiter keys on.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) app.set("trust proxy", trustProxyHops);
+
+app.use(securityHeaders({ isProduction: config.isProduction }));
 app.use(express.json({ limit: "1mb" }));
 
 // Render probes this endpoint without an application session. Keeping it
@@ -47,6 +57,10 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+
+// Rate limits for the unauthenticated endpoints. This MUST stay ahead of
+// persistenceMiddleware: that middleware takes the store lock for every write.
+app.use("/api", createPublicEndpointLimits());
 
 // Mutex lock middleware for API routes
 app.use("/api", persistenceMiddleware(store));

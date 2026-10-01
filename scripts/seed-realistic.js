@@ -4,6 +4,7 @@
 // Run: node scripts/seed-realistic.js
 import bcrypt from "bcrypt";
 import { pool, ensureTableExists } from "../src/pool.js";
+import { requireDestructiveApply, snapshotStore } from "./lib/destructiveGuard.js";
 
 const now = () => new Date().toISOString();
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
@@ -266,8 +267,16 @@ const data = {
   }
 };
 
+requireDestructiveApply({
+  scriptName: "seed-realistic.js",
+  phrase: "REPLACE_ALL_DATA",
+  effect: "REPLACES the entire main store with generated demonstration data and resets every account password."
+});
+
 try {
   await ensureTableExists();
+  const backupId = await snapshotStore(pool, "before-seed-realistic");
+  console.log(`Previous state saved as store_backups id ${backupId ?? "(none - no prior main row)"}.`);
   await pool.query(
     "INSERT INTO store (id, data) VALUES ('main', $1) ON CONFLICT (id) DO UPDATE SET data = $1",
     [data]

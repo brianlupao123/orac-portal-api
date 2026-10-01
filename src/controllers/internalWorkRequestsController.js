@@ -33,7 +33,7 @@ import {
 // mutate req.db and call req.store.audit(); persistence is the store's job (one
 // mutating request holds the store lock, so a claim cannot be won twice).
 // Nothing here moves stock, edits a quote/PO/dispatch/invoice/timesheet, sends
-// email or creates a notification.
+// email. Notifications come only from the committed audit event (see notifications.js).
 
 // Same reload-per-request source of truth as auth.js: the account in req.db.
 // Deliberately NOT coreController.getActor(), which falls back to users[0].

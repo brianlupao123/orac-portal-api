@@ -2,35 +2,42 @@ import { generateToken } from "../middleware/auth.js";
 import { config } from "../config.js";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
+import { verifyResetToken, clearResetToken, toPublicUser } from "../accountTokens.js";
+import { verifySetupToken, clearSetupToken } from "../setupTokens.js";
 
-// ── Unchanged from the current file ──────────────────────────────────────
-export const loginDemoUser = (req, res) => {
+// Compared against when the account does not exist or is inactive, so the work
+// done (and the response time) does not reveal whether an email has an account.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), 10);
+const INVALID_LOGIN = { success: false, message: "Invalid credentials." };
+
+export const loginDemoUser = async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = req.body.password;
   const user = req.db.users.find((item) => item.email.toLowerCase() === email && item.is_active);
 
-  if (!user) {
-    return res.status(401).json({ success: false, message: "User not found or inactive." });
-  }
-
-  if (config.isProduction || password) {
+  if (config.requirePassword || password) {
     if (!password) {
-      return res.status(401).json({ success: false, message: "Password is required." });
+      // Decided before any lookup, so it says nothing about whether the account exists.
+      return res.status(400).json({ success: false, message: "Password is required." });
     }
-    const valid = Boolean(user.password_hash) && bcrypt.compareSync(password, user.password_hash);
-
-    if (!valid) {
-      return res.status(401).json({ success: false, message: "Invalid credentials." });
+    // Asynchronous compare: a synchronous bcrypt call blocks the whole server
+    // for its duration, which makes unauthenticated login attempts a cheap way
+    // to stall every other user.
+    const storedHash = user?.password_hash || DUMMY_PASSWORD_HASH;
+    const matches = await bcrypt.compare(String(password), storedHash);
+    if (!user || !user.password_hash || !matches) {
+      return res.status(401).json(INVALID_LOGIN);
     }
+  } else if (!user) {
+    // Local development only: no password supplied and none required.
+    return res.status(401).json(INVALID_LOGIN);
   }
 
   const token = generateToken(user);
-
-  const { password_hash, password: ignoredPassword, ...publicUser } = user;
   res.json({
     success: true,
     data: {
-      user: publicUser,
+      user: toPublicUser(user),
       token,
       note: "JWT Login successful"
     }
@@ -42,11 +49,10 @@ export const getMe = (req, res) => {
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found." });
   }
-  const { password_hash, password: ignoredPassword, ...publicUser } = user;
-  res.json({ success: true, data: publicUser });
+  res.json({ success: true, data: toPublicUser(user) });
 };
 
-// ── Forgot / Reset Password ──────────────────────────────────────────────
+// -- Forgot / Reset Password ------------------------------------------------
 // No owner-approved delivery adapter exists. A reset request therefore has
 // generic anti-enumeration behaviour but deliberately issues no reset token
 // until a secure delivery path is implemented. Tokens and reset links must
@@ -87,31 +93,26 @@ export const resetPassword = (req, res) => {
   if (!email || !token || !new_password) {
     return res.status(400).json({ success: false, message: "Email, token, and new password are required." });
   }
-  if (String(new_password).length < 10) {
+  const password = String(new_password);
+  if (password.length < 10) {
     return res.status(400).json({ success: false, message: "Password must be at least 10 characters." });
+  }
+  // bcrypt only uses the first 72 bytes; refuse longer input instead of silently truncating it.
+  if (Buffer.byteLength(password) > 72) {
+    return res.status(400).json({ success: false, message: "Password must be at most 72 bytes." });
   }
 
   const user = findUserByEmail(req, email);
-  if (!user || !user.reset_token || !user.reset_token_expires_at) {
-    return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
-  }
-  if (Date.now() > user.reset_token_expires_at) {
-    return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
-  }
-
-  const providedBuf = Buffer.from(String(token));
-  const storedBuf = Buffer.from(String(user.reset_token));
-  const tokenMatches =
-    providedBuf.length === storedBuf.length && crypto.timingSafeEqual(providedBuf, storedBuf);
-
-  if (!tokenMatches) {
+  if (!user || !user.is_active || !(verifyResetToken(user, token) || verifySetupToken(user, token))) {
     return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
   }
 
   const before = { id: user.id, email: user.email };
-  user.password_hash = bcrypt.hashSync(new_password, 10);
-  user.reset_token = null;
-  user.reset_token_expires_at = null;
+  user.password_hash = bcrypt.hashSync(password, 10);
+  // Ends every session issued before this moment (checked in middleware/auth.js).
+  user.password_changed_at = new Date().toISOString();
+  clearResetToken(user);
+  clearSetupToken(user);
 
   req.store.audit(req.db, user, "user", user.id, "PASSWORD_RESET_COMPLETED", before, { id: user.id, email: user.email });
 

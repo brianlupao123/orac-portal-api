@@ -17,6 +17,14 @@ export function authMiddleware(req, res, next) {
       return res.status(401).json({ success: false, message: "Unauthorized. Account is inactive." });
     }
 
+    // A password change or reset ends every session issued before it.
+    if (user.password_changed_at) {
+      const changedAt = Math.floor(Date.parse(user.password_changed_at) / 1000);
+      if (Number.isFinite(changedAt) && !(payload.iat >= changedAt)) {
+        return res.status(401).json({ success: false, message: "Unauthorized. Session is no longer valid." });
+      }
+    }
+
     req.user = {
       id: user.id,
       email: user.email,

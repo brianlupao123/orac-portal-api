@@ -1,5 +1,5 @@
 import { exportInvoicesCsv } from "../exporter.js";
-import { hasPermission, requirePermission } from "../permissions.js";
+import { hasPermission, requirePermission, permissions } from "../permissions.js";
 import { roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
 import {
@@ -47,7 +47,7 @@ export const collectionGuards = {
   stock_items: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
-  access_requests: [roles.ADMIN]
+  access_requests: [...permissions.viewAccessRequests]
 };
 
 const archivePermissions = {
@@ -86,6 +86,7 @@ const sensitiveAuditKeys = new Set([
   "password",
   "password_hash",
   "reset_token",
+  "reset_token_hash",
   "reset_token_expires_at"
 ]);
 

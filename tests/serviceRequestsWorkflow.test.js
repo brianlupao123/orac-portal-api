@@ -521,7 +521,9 @@ test("the whole workflow creates no quote, PO, dispatch, invoice, notification o
     const converted = run(convertServiceRequestToLead, db, store, "u_sales", { params: { id } });
     assert.equal(created.statusCode, 201);
     assert.equal(converted.statusCode, 201);
-    for (const collection of ["quotes", "quote_lines", "purchase_orders", "dispatch_cards", "invoices", "notifications"]) {
+    // Business documents must stay empty. Notifications are deliberately not in this list: the real audit
+    // hook generates them (Task 01 owner decision) and serviceRequestsRealStore.test.js pins exactly which.
+    for (const collection of ["quotes", "quote_lines", "purchase_orders", "dispatch_cards", "invoices"]) {
       assert.equal(db[collection].length, 0, `${collection} must stay empty`);
     }
     assert.equal(db.leads.length, 1);

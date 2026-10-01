@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import pg from "pg";
+import { secureConnectionString } from "../src/dbUrl.js";
 
 const { Pool } = pg;
 
@@ -13,7 +14,13 @@ if (Buffer.byteLength(password) < 16 || Buffer.byteLength(password) > 72) {
   throw new Error("RESET_ADMIN_PASSWORD must be 16-72 bytes.");
 }
 
-const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 10000 });
+// Same TLS policy as src/pool.js: certificate and host name validation stay on.
+const pool = new Pool({
+  connectionString: secureConnectionString(databaseUrl),
+  ssl: { rejectUnauthorized: true },
+  max: 1,
+  connectionTimeoutMillis: 10000
+});
 
 try {
   const client = await pool.connect();
@@ -29,6 +36,8 @@ try {
     if (!user.is_active) throw new Error("The Admin account is inactive.");
 
     user.password_hash = await bcrypt.hash(password, 12);
+    // Ends every session issued before this moment (checked in src/middleware/auth.js).
+    user.password_changed_at = new Date().toISOString();
     delete user.password;
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];
     data.audit_logs.push({

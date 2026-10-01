@@ -10,7 +10,8 @@ import {
 // the real central audit(), including whatever audit-triggered behaviour
 // notifications.js implements. It proves audit events and the seeded
 // mine-site -> plant -> section -> equipment hierarchy, and that the workflow
-// produces no notifications and no other business documents.
+// produces exactly the expected content-free notifications (Task 01 owner decision)
+// and no other business documents.
 
 function response() {
   return { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
@@ -67,7 +68,21 @@ test("full workflow on the seeded ORAC data writes the central audit trail and t
       "SERVICE_REQUEST_CONVERTED_TO_LEAD", "LEAD_CREATED_FROM_SERVICE_REQUEST"
     ]);
     for (const key of ["quotes", "purchase_orders", "dispatch_cards", "invoices"]) assert.equal(db[key].length, before[key], `${key} must not change`);
-    assert.equal(db.notifications.length, before.notifications, "no notification may be produced by any service-request audit event");
+    // Task 01: notifications are now expected, exactly: created -> Sales+Operations (role copy),
+    // acknowledge -> requesting client user, accept -> requesting client user. Convert-to-lead is silent.
+    const added = db.notifications.slice(before.notifications);
+    assert.deepEqual(added.map((item) => item.audit_log_id), db.audit_logs.slice(before.audits)
+      .filter((entry) => ["SERVICE_REQUEST_CREATED", "SERVICE_REQUEST_ACKNOWLEDGED", "SERVICE_REQUEST_ACCEPTED"].includes(entry.action)).map((entry) => entry.id));
+    assert.deepEqual(added[0].target_roles, ["Sales", "Operations"]);
+    assert.deepEqual(added[0].destination, { kind: "service_request", id });
+    assert.equal(added[1].user_id, client.id);
+    assert.equal(added[2].user_id, client.id);
+    assert.equal(added[1].client_id, client.client_id);
+    const serialisedNotifications = JSON.stringify(added);
+    assert.equal(serialisedNotifications.includes("Inspect seeded equipment"), false, "no request text is copied into a notification");
+    assert.equal(serialisedNotifications.includes("Seeded request"), false);
+    const hasRole = (user, item) => (item.user_id ? item.user_id === user.id : item.target_roles.includes(user.role));
+    assert.ok(hasRole(sales, added[0]) && hasRole(operations, added[0]));
   } finally {
     store.release(release);
   }

@@ -20,7 +20,9 @@ export const METRIC_LABELS = {
   returned_for_correction: "Worksheets returned for correction",
   blocked_amendments: "POs requiring amendment",
   pending_po: "Quotes awaiting a purchase order",
-  invoices: "Invoices"
+  invoices: "Invoices",
+  pending_client_acknowledgement: "Timesheets awaiting client acknowledgement",
+  pending_supervisor_review: "Timesheets awaiting Supervisor review"
 };
 
 const QUESTION_METRICS = [
@@ -83,6 +85,11 @@ function claim(payload, metric, sentence) {
     sentence,
     evidenceRefs: reference ? [reference] : []
   };
+}
+
+// Same grounding rule as the dashboard claims: value comes from the scoped payload.
+export function workflowClaim(payload, metric, sentence) {
+  return claim(payload, metric, sentence);
 }
 
 function attachMessage(claims, message) {

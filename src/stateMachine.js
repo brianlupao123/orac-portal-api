@@ -1,4 +1,5 @@
 import { requirePermission } from "./permissions.js";
+import { countedTimesheets, pendingKioskTimesheets, reviewBlockedReason } from "./timesheetReview.js";
 
 const allowedTransitions = {
   Draft: ["Sent"],
@@ -75,6 +76,10 @@ function validateTransition(db, quote, targetState, payload, actor) {
     if (approvedWorksheets(db, job.id).length === 0) {
       throw Object.assign(new Error("Invoice blocked: at least one supervisor-approved worksheet is required."), { status: 400 });
     }
+    const pendingKiosk = pendingKioskTimesheets(db, job.id);
+    if (pendingKiosk.length > 0) {
+      throw Object.assign(new Error(`Invoice blocked: ${pendingKiosk.length} kiosk timesheet ${pendingKiosk.length === 1 ? "entry is" : "entries are"} awaiting Supervisor review.${reviewBlockedReason(db, job) ? " " + reviewBlockedReason(db, job) : ""}`), { status: 400 });
+    }
     if (po.requires_amendment) {
       throw Object.assign(new Error("Invoice blocked: logged work exceeds PO amount and requires an approved PO amendment."), { status: 400 });
     }
@@ -126,7 +131,8 @@ function createDispatch(db, store, quote, payload, actor) {
 function createInvoice(db, store, quote, actor) {
   const po = getPo(db, quote.id);
   const job = getDispatch(db, quote.id);
-  const timesheets = db.timesheets.filter((item) => item.dispatch_card_id === job.id);
+  // Only approved hours are billed: pending or rejected kiosk entries are excluded.
+  const timesheets = countedTimesheets(db, job.id);
   const materials = db.material_usage.filter((item) => item.dispatch_card_id === job.id);
   const laborTotal = timesheets.reduce((sum, item) => sum + item.hours_logged * item.hourly_rate, 0);
   const laborHours = timesheets.reduce((sum, item) => sum + item.hours_logged, 0);

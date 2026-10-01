@@ -7,7 +7,8 @@ import {
 
 // Runs the workflow against the real in-memory store: real seed data, the real
 // central audit() and whatever audit-triggered behaviour notifications.js has.
-// It proves the request produces audit events and NOTHING else.
+// It proves the request produces audit events plus exactly the expected
+// content-free notifications (Task 01 owner decision), and nothing else.
 
 const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
 function call(handler, db, store, userId, { body, params, query } = {}) {
@@ -16,7 +17,7 @@ function call(handler, db, store, userId, { body, params, query } = {}) {
   return res;
 }
 
-test("full workflow on the seeded ORAC data writes the central audit trail and triggers nothing else", async () => {
+test("full workflow on the seeded ORAC data writes the central audit trail, exactly the expected notifications, and nothing else", async () => {
   const store = createStore(":memory:");
   const { db, release } = await store.read();
   try {
@@ -52,7 +53,18 @@ test("full workflow on the seeded ORAC data writes the central audit trail and t
       "INTERNAL_WORK_REQUEST_CREATED", "INTERNAL_WORK_REQUEST_ACKNOWLEDGED", "INTERNAL_WORK_REQUEST_STARTED", "INTERNAL_WORK_REQUEST_COMPLETED"
     ]);
     assert.ok(db.audit_logs.slice(before.audits).every((entry) => /^audit_/.test(entry.id) && entry.entity_id === id && entry.created_at));
-    assert.equal(db.notifications.length, before.notifications, "no internal-work-request audit event may produce a notification");
+    // Task 01: created -> Operations inbox (role copy, requester excluded); acknowledge, start
+    // and complete -> the requester only. Nothing carries subject, description or note text.
+    const added = db.notifications.slice(before.notifications);
+    assert.equal(added.length, 4);
+    assert.deepEqual(added[0].target_roles, ["Operations"]);
+    assert.deepEqual(added[0].exclude_user_ids, [sales.id]);
+    assert.deepEqual(added.slice(1).map((item) => item.user_id), [sales.id, sales.id, sales.id]);
+    assert.ok(added.every((item) => item.destination?.kind === "internal_work_request" && item.destination.id === id));
+    const serialisedNotifications = JSON.stringify(added);
+    for (const secret of ["Need 10 m2", "reserve confirmed", "Availability for Q-0001"]) {
+      assert.equal(serialisedNotifications.includes(secret), false, `notification must not copy "${secret}"`);
+    }
     assert.equal(JSON.stringify(db.stock_items), stockBefore, "stock is never moved");
     assert.equal(JSON.stringify(db.quotes), before.quotes, "the quote is never edited");
     for (const key of ["purchase_orders", "dispatch_cards", "invoices", "leads", "stock_movements", "timesheets"]) assert.equal(db[key].length, before[key], `${key} must not change`);

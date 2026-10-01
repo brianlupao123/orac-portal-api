@@ -115,6 +115,11 @@ test("a recorded movement carries quantity_before, quantity_after and direction"
 
 test("an increasing movement is recorded with direction 'increase'", () => {
   const req = createRequest({ quantity: 5, movementType: "in" });
+  // A receipt must now cite a registered supplier and a source document.
+  req.body.reference_type = "supplier";
+  req.body.reference_id = "sup-1";
+  req.body.source_document_ref = "DN-1001";
+  req.db.suppliers = [{ id: "sup-1", name: "Fictional Supplies" }];
   const res = createResponse();
 
   recordStockMovement(req, res);
@@ -370,6 +375,9 @@ test("a return against a real dispatch resolves through the same dispatch label 
   req.body.reference_type = "return";
   req.body.reference_id = "dispatch-1";
   req.db.dispatch_cards = [{ id: "dispatch-1", dispatch_number: "JOB-0042", quotation_id: null }];
+  // A return tied to a dispatch cannot exceed what that dispatch used.
+  req.db.stock_items[0].catalog_item_id = "cat-1";
+  req.db.material_usage = [{ id: "mu-1", dispatch_card_id: "dispatch-1", catalog_item_id: "cat-1", quantity_used: 5 }];
   const res = createResponse();
 
   recordStockMovement(req, res);
@@ -447,15 +455,16 @@ test("unit of measure cannot change once movements exist, but can before", () =>
 
 test("quantity_on_hand is mutated in exactly one place in backend source (applyStockChange)", async () => {
   const { readdirSync, readFileSync, statSync } = await import("node:fs");
-  const { join } = await import("node:path");
+  const { join, sep } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
   const walk = (dir) => readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
     return statSync(p).isDirectory() ? walk(p) : p.endsWith(".js") ? [p] : [];
   });
-  const srcDir = new URL("../src", import.meta.url).pathname;
+  const srcDir = fileURLToPath(new URL("../src", import.meta.url));
   const offenders = walk(srcDir).filter((f) => /quantity_on_hand\s*[-+]?=[^=]/.test(readFileSync(f, "utf8")) && !f.endsWith("inventoryLedger.js"));
   // Seed/demo files build initial data objects; controllers must not mutate balance.
-  const controllerOffenders = offenders.filter((f) => f.includes("/controllers/") && !f.endsWith("inventoryController.js"));
+  const controllerOffenders = offenders.filter((f) => f.includes(`${sep}controllers${sep}`) && !f.endsWith("inventoryController.js"));
   assert.deepEqual(controllerOffenders, []);
 });
 

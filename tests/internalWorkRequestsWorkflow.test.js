@@ -503,7 +503,10 @@ test("a full request lifecycle changes no stock, quote, PO, dispatch, invoice, t
     assert.equal(act(db, store, recipientUser, id, "complete", "Resolved without touching any record.").statusCode, 200);
   }
   assert.equal(snapshotUntouchable(db), before);
-  assert.equal(db.notifications.length, 0);
+  // This fixture's stub store has no audit-to-notification hook, so nothing here can generate one.
+  // Notification content and routing for these events is pinned against the real store in
+  // internalWorkRequestsRealStore.test.js and notificationRouting.test.js (Task 01 owner decision).
+  assert.equal(db.notifications.length, 0, "stub store: the hook is not wired in this fixture");
   assert.equal(db.stock_items[0].quantity_on_hand, 30);
 });
 

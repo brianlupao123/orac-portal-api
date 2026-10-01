@@ -1,3 +1,7 @@
+import { resolveDestination } from "../notificationDestinations.js";
+
+const MAX_NOTIFICATIONS_RETURNED = 100;
+
 /**
  * Resolve the full user record from db (JWT payload may not include client_id).
  */
@@ -14,6 +18,7 @@ export function getVisibleNotifications(db, jwtUser) {
   if (!db.notifications) return [];
 
   const user = resolveUser(db, jwtUser);
+  if (user.is_active === false) return [];
 
   return db.notifications.filter(notif => {
     const targetRoles = Array.isArray(notif.target_roles) ? notif.target_roles : [];
@@ -22,6 +27,11 @@ export function getVisibleNotifications(db, jwtUser) {
     // narrow path separate from role and client visibility.
     if (notif.user_id) {
       return notif.user_id === user.id;
+    }
+
+    // A person who raised an item is not also told about it as a "recipient".
+    if (Array.isArray(notif.exclude_user_ids) && notif.exclude_user_ids.includes(user.id)) {
+      return false;
     }
 
     // Client Viewer only sees their assigned client notifications
@@ -35,9 +45,30 @@ export function getVisibleNotifications(db, jwtUser) {
   }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
+/**
+ * The shape a viewer receives. Read state is projected for THIS viewer only:
+ * the stored read_by list (other people's user IDs), target_roles, exclusion
+ * lists and audit ids never leave the server.
+ */
+export function toNotificationView(db, user, notif) {
+  const readBy = Array.isArray(notif.read_by) ? notif.read_by : [];
+  return {
+    id: notif.id,
+    type: notif.type,
+    title: notif.title,
+    message: notif.message,
+    severity: notif.severity,
+    created_at: notif.created_at,
+    read: readBy.includes(user.id),
+    destination: resolveDestination(db, user, notif.destination)
+  };
+}
+
 export function getNotifications(req, res) {
+  const user = resolveUser(req.db, req.user);
   const visible = getVisibleNotifications(req.db, req.user);
-  res.json({ success: true, data: visible });
+  const data = visible.slice(0, MAX_NOTIFICATIONS_RETURNED).map((notif) => toNotificationView(req.db, user, notif));
+  res.json({ success: true, data });
 }
 
 export function markRead(req, res) {
@@ -56,7 +87,7 @@ export function markRead(req, res) {
   }
 
   // Mutation committed automatically by server.js middleware on successful res.json
-  res.json({ success: true, data: notif });
+  res.json({ success: true, data: toNotificationView(req.db, user, notif) });
 }
 
 export function markAllRead(req, res) {
