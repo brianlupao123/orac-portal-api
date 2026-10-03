@@ -40,7 +40,9 @@ function requestFor(actor) {
       audit_logs: [],
       access_requests: [],
       dispatch_cards: [{ id: "dispatch-a", quotation_id: "quote-a", assigned_technician_id: "tech-1", assigned_supervisor_id: "supervisor-1" }],
-      field_worksheets: [{ id: "worksheet-a", dispatch_card_id: "dispatch-a", technician_id: "tech-1", supervisor_id: "supervisor-1" }]
+      field_worksheets: [{ id: "worksheet-a", dispatch_card_id: "dispatch-a", technician_id: "tech-1", supervisor_id: "supervisor-1" }],
+      daily_timesheets: [{ id: "dts-a", technician_id: "tech-1" }],
+      contractor_log_sheets: [{ id: "cls-a" }]
     }
   };
 }

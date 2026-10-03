@@ -30,6 +30,13 @@ export const collectionGuards = {
   leads: [roles.ADMIN, roles.MANAGEMENT, roles.SALES],
   dispatch_cards: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   field_worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  // Daily Time Sheet / Contractors Log Sheet (paper-form digitisation).
+  // Technician sees only their own daily_timesheets, enforced below in
+  // scopeOperationalData. Contractor logs are crew-level and have no
+  // individual-technician ownership, so Technician/Client Viewer are
+  // excluded from the list entirely rather than scoped to an empty set.
+  daily_timesheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  contractor_log_sheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   // Client Viewers may read invoices only after the client-scoping step below
   // filters them to their own organisation.
@@ -152,6 +159,9 @@ export function scopeOperationalData(data, collectionName, actor, db) {
     }
     if (collectionName === "field_worksheets") {
       return data.filter((worksheet) => worksheet.technician_id === actor.id);
+    }
+    if (collectionName === "daily_timesheets") {
+      return data.filter((sheet) => sheet.technician_id === actor.id);
     }
   }
 

@@ -15,7 +15,9 @@ import {
   StockMovementSchema, DirectSaleStockIssueSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
   CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
-  ClientAcknowledgeWorksheetSchema, ReviseWorksheetSchema
+  ClientAcknowledgeWorksheetSchema, ReviseWorksheetSchema,
+  CreateDailyTimesheetSchema, UpdateDailyTimesheetSchema, ReviewDailyTimesheetSchema,
+  CreateContractorLogSchema, UpdateContractorLogSchema, ReviewContractorLogSchema
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
@@ -27,6 +29,14 @@ import {
   getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster, assignDispatchSupervisor
 } from "./controllers/dispatchController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
+import {
+  createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet,
+  reviewDailyTimesheet, getDailyTimesheetDocument
+} from "./controllers/dailyTimesheetController.js";
+import {
+  createContractorLog, updateContractorLog, submitContractorLog,
+  reviewContractorLog, getContractorLogDocument
+} from "./controllers/contractorLogController.js";
 import { listDispatchTimesheets, listKioskReviewQueue, reviewKioskTimesheet } from "./controllers/timesheetReviewController.js";
 import {
   listOwnClientTimesheets, acknowledgeWorksheet, reviseWorksheet,
@@ -104,6 +114,8 @@ router.get("/document-data/purchase_orders/:id", getPoDocument);
 router.get("/document-data/daily-task-report", getDailyTaskReport);
 router.get("/document-data/invoice-ready-summary", getInvoiceReadySummary);
 router.get("/document-data/client-completion/:id", getClientCompletionRecord);
+router.get("/document-data/daily_timesheets/:id", getDailyTimesheetDocument);
+router.get("/document-data/contractor_log_sheets/:id", getContractorLogDocument);
 
 // Printable document endpoints (Phase 09)
 router.get("/documents/quotes/:id.pdf", getQuotePdf);
@@ -168,6 +180,14 @@ router.post("/dispatch_cards/:id/supervisor", validate(AssignDispatchSupervisorS
 router.post("/field_worksheets/:id/submit", submitWorksheet);
 router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
+router.post("/daily_timesheets", validate(CreateDailyTimesheetSchema), createDailyTimesheet);
+router.patch("/daily_timesheets/:id", validate(UpdateDailyTimesheetSchema), updateDailyTimesheet);
+router.post("/daily_timesheets/:id/submit", submitDailyTimesheet);
+router.post("/daily_timesheets/:id/review", validate(ReviewDailyTimesheetSchema), reviewDailyTimesheet);
+router.post("/contractor_log_sheets", validate(CreateContractorLogSchema), createContractorLog);
+router.patch("/contractor_log_sheets/:id", validate(UpdateContractorLogSchema), updateContractorLog);
+router.post("/contractor_log_sheets/:id/submit", submitContractorLog);
+router.post("/contractor_log_sheets/:id/review", validate(ReviewContractorLogSchema), reviewContractorLog);
 router.get("/field_worksheets/mine/client", listOwnClientTimesheets);
 router.post("/field_worksheets/:id/client-acknowledge", validate(ClientAcknowledgeWorksheetSchema), acknowledgeWorksheet);
 router.post("/field_worksheets/:id/revise", validate(ReviseWorksheetSchema), reviseWorksheet);
@@ -238,7 +258,7 @@ router.patch("/maintenance-schedules/:id", updateMaintenanceSchedule);
 // Generic GET endpoints for collections
 const collections = [
   "users", "clients", "leads", "quotes", "quote_lines",
-  "purchase_orders", "dispatch_cards", "field_worksheets",
+  "purchase_orders", "dispatch_cards", "field_worksheets", "daily_timesheets", "contractor_log_sheets",
   "invoices", "equipment_tags", "catalog_items", "audit_logs",
   "mine_sites", "plants", "plant_sections",
   "suppliers", "stock_items", "stock_movements",
