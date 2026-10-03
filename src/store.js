@@ -108,6 +108,14 @@ function seedData() {
     dispatch_cards: [],
     field_worksheets: [],
     timesheets: [],
+    // Daily Time Sheet / Contractors Log Sheet (paper-form digitisation).
+    // New, dedicated collections rather than reusing field_worksheets or
+    // timesheets — neither existing shape preserves a per-day NORMAL/1.5/2.0
+    // breakdown (confirmed by reading kioskController.js and schemas.js;
+    // see the feature README). normalizeDb() below backfills these onto any
+    // pre-existing local db.json automatically; no migration script needed.
+    daily_timesheets: [],
+    contractor_log_sheets: [],
     material_usage: [],
     invoices: [],
     invoice_lines: [],

@@ -28,6 +28,12 @@ export const permissions = {
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   reviewWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  createDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  createContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  submitContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  reviewContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   // Chat B — Digital Timesheets and client acknowledgement.
   // Only the client's own representative may acknowledge that client's work.
   acknowledgeWorksheet: [roles.CLIENT_VIEWER],

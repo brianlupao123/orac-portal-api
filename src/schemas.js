@@ -141,6 +141,80 @@ export const ReviseWorksheetSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required to revise an acknowledged or approved worksheet")
 });
 
+const DailyTimesheetEntrySchema = z.object({
+  kind: z.enum(["entry", "separator"]).optional(),
+  date: z.string().optional(),
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
+  normal_hours: z.union([z.number(), z.null()]).optional(),
+  ot_15: z.union([z.number(), z.literal("X"), z.literal("x"), z.null()]).optional(),
+  ot_20: z.union([z.number(), z.literal("X"), z.literal("x"), z.null()]).optional(),
+  description: z.string().max(500, "Description cannot exceed 500 characters").optional()
+});
+
+const SignatureSchema = z.object({
+  name: z.string().optional(),
+  date: z.string().optional()
+});
+
+export const CreateDailyTimesheetSchema = z.object({
+  technician_id: z.string().optional(),
+  name_on_form: z.string().min(1, "Name is required"),
+  category: z.string().optional(),
+  department_section: z.string().optional(),
+  cell_number: z.string().optional(),
+  entries: z.array(DailyTimesheetEntrySchema).max(60, "A daily time sheet cannot exceed 60 rows").optional(),
+  signatures: z.object({
+    employee: SignatureSchema.optional(),
+    site_foreman: SignatureSchema.optional(),
+    customer_representative: SignatureSchema.optional()
+  }).optional(),
+  signed_copy_image: z.string().optional(),
+  submit: z.boolean().optional()
+});
+
+export const UpdateDailyTimesheetSchema = CreateDailyTimesheetSchema.partial();
+export const ReviewDailyTimesheetSchema = z.object({
+  decision: z.enum(["approve", "return"], { errorMap: () => ({ message: "Decision must be approve or return" }) }),
+  comment: z.string().optional()
+});
+
+const ContractorLogRowSchema = z.object({
+  worker_name: z.string().optional(),
+  grade: z.enum(["Artisan", "Assistant"]).optional(),
+  normal: z.union([z.number(), z.null()]).optional(),
+  ot_15: z.union([z.number(), z.null()]).optional(),
+  ot_20: z.union([z.number(), z.null()]).optional(),
+  comments: z.string().max(500, "Comments cannot exceed 500 characters").optional()
+});
+
+const ContractorLogSignOffSchema = z.object({
+  name: z.string().optional(),
+  signature: z.string().optional(),
+  date: z.string().optional()
+});
+
+export const CreateContractorLogSchema = z.object({
+  contractor_name: z.string().min(1, "Name of Contractor is required"),
+  department_section: z.string().optional(),
+  section: z.string().optional(),
+  order_no: z.string().optional(),
+  log_date: z.string().optional(),
+  work_description: z.string().max(1000, "Work description cannot exceed 1000 characters").optional(),
+  rows: z.array(ContractorLogRowSchema).max(40, "A contractor log cannot exceed 40 rows").optional(),
+  signatures: z.object({
+    supervisor: ContractorLogSignOffSchema.optional(),
+    foreman: ContractorLogSignOffSchema.optional()
+  }).optional(),
+  submit: z.boolean().optional()
+});
+
+export const UpdateContractorLogSchema = CreateContractorLogSchema.partial();
+export const ReviewContractorLogSchema = z.object({
+  decision: z.enum(["approve", "return"], { errorMap: () => ({ message: "Decision must be approve or return" }) }),
+  comment: z.string().optional()
+});
+
 export const ApproveAmendmentSchema = z.object({
   new_amount: z.number().positive("New amount must be positive"),
   reason: z.string().optional()
