@@ -137,7 +137,7 @@ export function acknowledgeWorksheet(req, res) {
   requirePermission(actor, "acknowledgeWorksheet");
 
   const worksheet = req.db.field_worksheets.find((item) => item.id === req.params.id);
-  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
 
   const ownerClientId = resolveWorksheetClientId(req.db, worksheet);
   if (!isClientViewer(actor) || !actor.client_id || ownerClientId !== actor.client_id) {
@@ -180,7 +180,7 @@ export function reviseWorksheet(req, res) {
   requirePermission(actor, "reviseWorksheet");
 
   const original = req.db.field_worksheets.find((item) => item.id === req.params.id);
-  if (!original) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!original) return res.status(404).json({ success: false, message: "Timesheet not found." });
 
   if (actor.role === roles.TECHNICIAN && original.technician_id !== actor.id) {
     return res.status(403).json({ success: false, message: "A Technician may revise only their own worksheet." });
@@ -189,11 +189,11 @@ export function reviseWorksheet(req, res) {
   if (!["Client_Acknowledged", "Supervisor_Approved"].includes(original.status)) {
     return res.status(400).json({
       success: false,
-      message: `Only an acknowledged or approved worksheet can be revised (current status: ${original.status}). Use the edit endpoint for a Draft or Returned_For_Correction worksheet instead.`
+      message: `Only an acknowledged or approved timesheet can be revised (current status: ${original.status}). Use the edit endpoint for a Draft or Returned_For_Correction timesheet instead.`
     });
   }
   if (original.superseded_by) {
-    return res.status(400).json({ success: false, message: "This worksheet has already been superseded by a later revision." });
+    return res.status(400).json({ success: false, message: "This timesheet has already been superseded by a later revision." });
   }
 
   const now = new Date().toISOString();
@@ -207,6 +207,13 @@ export function reviseWorksheet(req, res) {
     hours: original.hours,
     tools_used: original.tools_used,
     materials_used: original.materials_used,
+    // Timesheet v2 fields carry over so a revision is still a Timesheet. Signed
+    // data was revised, so the worker's sign-off is cleared and must be given again.
+    ...(original.timesheet_version === 2 ? {
+      timesheet_version: 2, hours_breakdown: { ...original.hours_breakdown }, start_time: original.start_time, end_time: original.end_time,
+      worker_type: original.worker_type, worker_name: original.worker_name, worker_category: original.worker_category,
+      signatures: {}, signed_copy_image: null, created_by: actor.id
+    } : {}),
     outcomes: original.outcomes,
     challenges: original.challenges,
     evidence_files: original.evidence_files,

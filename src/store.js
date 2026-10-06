@@ -116,6 +116,9 @@ function seedData() {
     // pre-existing local db.json automatically; no migration script needed.
     daily_timesheets: [],
     contractor_log_sheets: [],
+    // Worksheet: register consolidated from approved daily_timesheets rows.
+    // Auto-backfilled onto an existing data file by normalizeDb() below.
+    worksheet_registers: [],
     material_usage: [],
     invoices: [],
     invoice_lines: [],

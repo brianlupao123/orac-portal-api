@@ -109,8 +109,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
       const destination = buildDestination("worksheet", entity_id);
       notif = {
         type: "worksheet",
-        title: "Worksheet Submitted",
-        message: "A worksheet was submitted and is waiting for client acknowledgement before Supervisor review.",
+        title: "Timesheet Submitted",
+        message: "A timesheet was submitted and is waiting for client acknowledgement before Supervisor review.",
         severity: "info",
         target_roles: ["Operations", "Admin", "Management"],
         client_id: null,
@@ -121,7 +121,7 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         groups.push({
           type: "worksheet",
           title: "Timesheet Awaiting Your Acknowledgement",
-          message: "A worksheet was submitted for your site and needs your acknowledgement.",
+          message: "A timesheet was submitted for your site and needs your acknowledgement.",
           severity: "info",
           target_roles: ["Client Viewer"],
           client_id: clientId,
@@ -132,8 +132,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         if (userId === auditEntry.actor_id) continue;
         personal.push({
           type: "worksheet",
-          title: "Worksheet Submitted",
-          message: "A worksheet on your dispatch was submitted and is waiting for client acknowledgement.",
+          title: "Timesheet Submitted",
+          message: "A timesheet on your dispatch was submitted and is waiting for client acknowledgement.",
           severity: "info",
           user_id: userId,
           destination
@@ -150,7 +150,7 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
       const submitter = new_values?.submitted_by;
       notif = {
         type: "worksheet",
-        title: "Worksheet Ready for Review",
+        title: "Timesheet Ready for Review",
         message: "A client acknowledged a worksheet. It is ready for Supervisor review.",
         severity: "info",
         target_roles: unscopedReviewerRoles(),
@@ -162,8 +162,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         if (userId === submitter) continue;
         personal.push({
           type: "worksheet",
-          title: "Worksheet Ready for Review",
-          message: "A client acknowledged a worksheet on your dispatch. It is ready for your review.",
+          title: "Timesheet Ready for Review",
+          message: "A client acknowledged a timesheet on your dispatch. It is ready for your review.",
           severity: "info",
           user_id: userId,
           destination
@@ -178,8 +178,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
       const destination = buildDestination("worksheet", entity_id);
       notif = {
         type: "worksheet",
-        title: "Worksheet Returned",
-        message: "Worksheet returned for correction.",
+        title: "Timesheet Returned",
+        message: "Timesheet returned for correction.",
         severity: "warning",
         target_roles: unscopedReviewerRoles(),
         client_id: null,
@@ -190,8 +190,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         if (userId === auditEntry.actor_id) continue;
         personal.push({
           type: "worksheet",
-          title: "Your worksheet was returned",
-          message: "A reviewer returned your worksheet for correction. Open Timesheets to see the reason.",
+          title: "Your timesheet was returned",
+          message: "A reviewer returned your timesheet for correction. Open Timesheets to see the reason.",
           severity: "warning",
           user_id: userId,
           destination
@@ -201,11 +201,34 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         if (userId === auditEntry.actor_id || owners.includes(userId)) continue;
         personal.push({
           type: "worksheet",
-          title: "Worksheet Returned",
-          message: "A worksheet on your dispatch was returned for correction.",
+          title: "Timesheet Returned",
+          message: "A timesheet on your dispatch was returned for correction.",
           severity: "warning",
           user_id: userId,
           destination
+        });
+      }
+      break;
+    }
+
+    // Worksheet (the monthly register). Content-free: names no hours and no workers.
+    case "REGISTER_SUBMITTED": {
+      notif = {
+        type: "worksheet_register", title: "Worksheet awaiting approval", message: "A monthly Worksheet was submitted and needs an independent approver.",
+        severity: "info", target_roles: ["Admin", "Operations", "Supervisor"], exclude_user_ids: [auditEntry.actor_id].filter(Boolean),
+        client_id: null, destination: buildDestination("worksheet_register", entity_id)
+      };
+      break;
+    }
+    case "REGISTER_APPROVED":
+    case "REGISTER_RETURNED": {
+      const approved = action === "REGISTER_APPROVED";
+      for (const userId of new Set([new_values?.submitted_by, old_values?.submitted_by, new_values?.built_by].filter(Boolean))) {
+        if (userId === auditEntry.actor_id) continue;
+        personal.push({
+          type: "worksheet_register", title: approved ? "Worksheet approved" : "Worksheet returned",
+          message: approved ? "A monthly Worksheet you prepared was approved." : "A monthly Worksheet you prepared was returned for correction. Open Worksheets to see the reason.",
+          severity: approved ? "success" : "warning", user_id: userId, destination: buildDestination("worksheet_register", entity_id)
         });
       }
       break;
@@ -216,8 +239,8 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
         if (userId === auditEntry.actor_id) continue;
         personal.push({
           type: "worksheet",
-          title: "Your worksheet was approved",
-          message: "Your worksheet was approved.",
+          title: "Your timesheet was approved",
+          message: "Your timesheet was approved.",
           severity: "success",
           user_id: userId,
           destination: buildDestination("worksheet", entity_id)

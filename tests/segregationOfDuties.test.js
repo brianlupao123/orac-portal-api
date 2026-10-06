@@ -116,7 +116,7 @@ test("worksheet submitter cannot approve their own submission", () => {
 
   assert.equal(res.statusCode, 403);
   assert.equal(req.worksheet.status, "Client_Acknowledged");
-  assert.match(res.body.message, /submitted this worksheet/i);
+  assert.match(res.body.message, /submitted this timesheet/i);
 });
 
 test("legacy worksheet approval uses submission audit evidence without backfilling fields", () => {

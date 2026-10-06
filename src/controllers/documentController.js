@@ -233,7 +233,7 @@ export const getDispatchDocument = (req, res) => {
 export const getWorksheetDocument = (req, res) => {
   if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.CLIENT_VIEWER], "Role cannot view worksheet documents.")) return;
   const doc = findWorksheetDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!doc) return res.status(404).json({ success: false, message: "Timesheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
   if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
     return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
@@ -253,7 +253,7 @@ export const getInvoiceDocument = (req, res) => {
     return res.status(409).json({ success: false, message: "Invoice document blocked: PO amendment is required." });
   }
   if (doc.worksheets.length === 0) {
-    return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved worksheet is required." });
+    return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved timesheet is required." });
   }
   res.json({ success: true, data: doc });
 };
@@ -422,7 +422,7 @@ export const getJobCardPdf = (req, res) => {
 export const getWorksheetPdf = (req, res) => {
   if (!assertDocumentRole(req, res, [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.CLIENT_VIEWER], "Role cannot view worksheet documents.")) return;
   const doc = findWorksheetDoc(req.db, req.params.id);
-  if (!doc) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!doc) return res.status(404).json({ success: false, message: "Timesheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
   if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
     return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
@@ -498,7 +498,7 @@ export const getInvoicePdf = (req, res) => {
     return res.status(409).json({ success: false, message: "Invoice document blocked: PO amendment is required." });
   }
   if (doc.worksheets.length === 0) {
-    return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved worksheet is required." });
+    return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved timesheet is required." });
   }
 
   const jobReference = doc.job?.dispatch_number || doc.job?.id;
