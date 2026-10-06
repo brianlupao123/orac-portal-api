@@ -34,6 +34,14 @@ export const permissions = {
   createContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   submitContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   reviewContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  // Worksheet: consolidation of approved Daily Time Sheets (hours only, no rates).
+  // Technicians and Client Viewers hold none of these: a month shows colleagues' hours.
+  // Approval separation of duties (submitter / builder / roster member) is enforced in the controller.
+  viewWorksheetRegister: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR],
+  manageWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  submitWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  reviewWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  reconcileWorksheetRegister: [roles.ADMIN, roles.OPERATIONS],
   // Chat B — Digital Timesheets and client acknowledgement.
   // Only the client's own representative may acknowledge that client's work.
   acknowledgeWorksheet: [roles.CLIENT_VIEWER],

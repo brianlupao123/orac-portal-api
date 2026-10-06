@@ -306,7 +306,7 @@ test("destination builder rejects unknown kinds and unsafe identifiers", () => {
 });
 
 test("every destination route, for every role, is an internal path the role's workspace can open", () => {
-  const ALLOWED_PATHS = new Set(["/", "/portal", "/service-requests", "/quotations", "/finance", "/internal-requests", "/worksheets", "/inventory", "/admin"]);
+  const ALLOWED_PATHS = new Set(["/", "/portal", "/service-requests", "/quotations", "/finance", "/internal-requests", "/worksheets", "/monthly-worksheets", "/inventory", "/admin"]);
   const db = makeDb();
   const roleUsers = db.users;
   for (const kind of DESTINATION_KINDS) {

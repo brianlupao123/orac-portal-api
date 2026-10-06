@@ -50,6 +50,11 @@ export const DESTINATIONS = Object.freeze({
       [CLIENT_VIEWER]: { path: "/portal" }
     }
   },
+  worksheet_register: {
+    collection: "worksheet_registers",
+    label: "Worksheets",
+    routes: Object.fromEntries([ADMIN, MANAGEMENT, OPERATIONS, SUPERVISOR].map((role) => [role, { path: "/monthly-worksheets" }]))
+  },
   dispatch_card: {
     collection: "dispatch_cards",
     label: "Timesheets",

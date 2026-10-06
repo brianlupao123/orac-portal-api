@@ -156,7 +156,7 @@ test("invoice documents stay blocked without verified PO, with PO amendment, or 
 
     db = fixture(); db.field_worksheets.forEach((w) => { w.status = "Submitted"; });
     r = run(docs[handlerName], db, "finance", "i1");
-    assert.equal(r.statusCode, 409); assert.match(r.body.message, /supervisor-approved worksheet/);
+    assert.equal(r.statusCode, 409); assert.match(r.body.message, /supervisor-approved timesheet/);
     assert.equal(r.body.success, false);
   }
 });

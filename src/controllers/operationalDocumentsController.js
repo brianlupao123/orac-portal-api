@@ -27,7 +27,7 @@ export function getClientCompletionRecord(req, res) {
   if (!actor?.is_active || !allowed.includes(actor.role)) return deny(res, "Role cannot view completion records.");
   if (actor.role === roles.CLIENT_VIEWER && !actor.client_id) return deny(res, "Client Viewer is not linked to a client account.");
   const worksheet = req.db.field_worksheets.find((item) => item.id === req.params.id);
-  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const dispatch = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   const quote = dispatch && req.db.quotes.find((item) => item.id === dispatch.quotation_id);
   const clientId = quote?.client_id;

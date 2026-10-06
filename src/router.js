@@ -37,6 +37,16 @@ import {
   createContractorLog, updateContractorLog, submitContractorLog,
   reviewContractorLog, getContractorLogDocument
 } from "./controllers/contractorLogController.js";
+import {
+  listWorksheetRegisters, getWorksheetRegister, getWorksheetRegisterDocument, createWorksheetRegister, updateWorksheetRegister,
+  buildWorksheetRegister, acknowledgeRegisterExceptions, submitWorksheetRegister, reviewWorksheetRegister, cancelWorksheetRegister,
+  reconcileWorksheetRegister, listLegacyTimesheets
+} from "./controllers/worksheetRegisterController.js";
+import {
+  CreateWorksheetRegisterSchema, UpdateWorksheetRegisterSchema, AcknowledgeRegisterExceptionsSchema,
+  ReviewWorksheetRegisterSchema, CancelWorksheetRegisterSchema, ReconcileWorksheetRegisterSchema
+} from "./worksheetRegisterSchemas.js";
+import { CreateTimesheetSchemaV2, UpdateTimesheetSchemaV2 } from "./timesheetSchemasV2.js";
 import { listDispatchTimesheets, listKioskReviewQueue, reviewKioskTimesheet } from "./controllers/timesheetReviewController.js";
 import {
   listOwnClientTimesheets, acknowledgeWorksheet, reviseWorksheet,
@@ -116,6 +126,7 @@ router.get("/document-data/invoice-ready-summary", getInvoiceReadySummary);
 router.get("/document-data/client-completion/:id", getClientCompletionRecord);
 router.get("/document-data/daily_timesheets/:id", getDailyTimesheetDocument);
 router.get("/document-data/contractor_log_sheets/:id", getContractorLogDocument);
+router.get("/document-data/worksheet_registers/:id", getWorksheetRegisterDocument);
 
 // Printable document endpoints (Phase 09)
 router.get("/documents/quotes/:id.pdf", getQuotePdf);
@@ -173,21 +184,40 @@ router.get("/kiosk/dispatch_cards/:id/roster", getKioskRoster);
 router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatchSchema), submitKioskTimesheets);
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
-router.post("/dispatch_cards/:id/worksheets", validate(CreateWorksheetSchema), createWorksheet);
+router.post("/dispatch_cards/:id/worksheets", validate(CreateTimesheetSchemaV2), createWorksheet);
 router.get("/dispatch_cards/:id/roster", getDispatchRoster);
 router.post("/dispatch_cards/:id/roster", validate(AssignRosterSchema), assignRosterTechnician);
 router.post("/dispatch_cards/:id/supervisor", validate(AssignDispatchSupervisorSchema), assignDispatchSupervisor);
 router.post("/field_worksheets/:id/submit", submitWorksheet);
-router.patch("/field_worksheets/:id", validate(UpdateWorksheetSchema), updateWorksheet);
+router.patch("/field_worksheets/:id", validate(UpdateTimesheetSchemaV2), updateWorksheet);
 router.post("/field_worksheets/:id/review", validate(ReviewWorksheetSchema), reviewWorksheet);
-router.post("/daily_timesheets", validate(CreateDailyTimesheetSchema), createDailyTimesheet);
+// Legacy forms are READ-ONLY history. New work is recorded on a Timesheet. Existing legacy
+// records can still be edited, submitted and reviewed so nothing in flight is stranded.
+// Set LEGACY_TIMESHEET_FORM_CREATION=enabled to reopen creation (rollback switch).
+const legacyFormCreationGate = (req, res, next) => {
+  if (process.env.LEGACY_TIMESHEET_FORM_CREATION === "enabled") return next();
+  return res.status(409).json({ success: false, code: "LEGACY_FORM_READ_ONLY", message: "Daily Time Sheets and Contractor Logs are now read-only history. Record the work on a Timesheet." });
+};
+router.post("/daily_timesheets", legacyFormCreationGate, validate(CreateDailyTimesheetSchema), createDailyTimesheet);
 router.patch("/daily_timesheets/:id", validate(UpdateDailyTimesheetSchema), updateDailyTimesheet);
 router.post("/daily_timesheets/:id/submit", submitDailyTimesheet);
 router.post("/daily_timesheets/:id/review", validate(ReviewDailyTimesheetSchema), reviewDailyTimesheet);
-router.post("/contractor_log_sheets", validate(CreateContractorLogSchema), createContractorLog);
+router.post("/contractor_log_sheets", legacyFormCreationGate, validate(CreateContractorLogSchema), createContractorLog);
 router.patch("/contractor_log_sheets/:id", validate(UpdateContractorLogSchema), updateContractorLog);
 router.post("/contractor_log_sheets/:id/submit", submitContractorLog);
 router.post("/contractor_log_sheets/:id/review", validate(ReviewContractorLogSchema), reviewContractorLog);
+// Worksheet (explicit routes, deliberately not in the generic `collections` list below).
+router.get("/legacy_timesheets", listLegacyTimesheets);
+router.get("/worksheet_registers", listWorksheetRegisters);
+router.post("/worksheet_registers", validate(CreateWorksheetRegisterSchema), createWorksheetRegister);
+router.get("/worksheet_registers/:id", getWorksheetRegister);
+router.patch("/worksheet_registers/:id", validate(UpdateWorksheetRegisterSchema), updateWorksheetRegister);
+router.post("/worksheet_registers/:id/build", buildWorksheetRegister);
+router.post("/worksheet_registers/:id/acknowledge", validate(AcknowledgeRegisterExceptionsSchema), acknowledgeRegisterExceptions);
+router.post("/worksheet_registers/:id/submit", submitWorksheetRegister);
+router.post("/worksheet_registers/:id/review", validate(ReviewWorksheetRegisterSchema), reviewWorksheetRegister);
+router.post("/worksheet_registers/:id/cancel", validate(CancelWorksheetRegisterSchema), cancelWorksheetRegister);
+router.post("/worksheet_registers/:id/reconcile", validate(ReconcileWorksheetRegisterSchema), reconcileWorksheetRegister);
 router.get("/field_worksheets/mine/client", listOwnClientTimesheets);
 router.post("/field_worksheets/:id/client-acknowledge", validate(ClientAcknowledgeWorksheetSchema), acknowledgeWorksheet);
 router.post("/field_worksheets/:id/revise", validate(ReviseWorksheetSchema), reviseWorksheet);

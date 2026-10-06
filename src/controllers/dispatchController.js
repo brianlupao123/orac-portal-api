@@ -2,7 +2,64 @@ import { requirePermission, roles } from "../permissions.js";
 import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
 import { applyStockChange, readIdempotencyKey, requestFingerprint, findIdempotentRecord, publicMovement } from "../inventoryLedger.js";
 import { dispatchSupervisors, reviewBlockedReason } from "../timesheetReview.js";
+import { createHash } from "node:crypto";
+import {
+  TIMESHEET_VERSION, normaliseBreakdown, validateTimes, isTimesheetV2, employeeSignoffMissing, classifyTimesheet, isIsoDate
+} from "../timesheetModel.js";
 
+const STAFF_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR];
+const normName = (v) => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Same worker identity: a linked Technician id, or (contractors without an
+// account) a normalised name.
+const sameWorker = (a, b) => (a.technician_id && b.technician_id ? a.technician_id === b.technician_id
+  : !a.technician_id && !b.technician_id && normName(a.worker_name) !== "" && normName(a.worker_name) === normName(b.worker_name));
+
+// Content fingerprint for idempotent replay (offline sync): same key + same
+// content returns the original record; same key + different content is a 409.
+function timesheetFingerprint(dispatchId, technicianId, body) {
+  return createHash("sha256").update(JSON.stringify([
+    dispatchId, technicianId, body.worker_name || "", body.work_date || "", body.activity, body.hours_breakdown || body.hours,
+    body.start_time || "", body.end_time || "", body.materials_used || [], body.outcomes || "", body.signatures || {}, body.signed_copy_image ? "img" : "", body.submit === true
+  ])).digest("hex");
+}
+
+// Applies the v2 fields (breakdown, times, materials, worker, sign-off) to a
+// record. Returns an error string or null. Never trusts a client-sent total.
+function applyTimesheetFields(record, body, actor, { creating }) {
+  if (body.hours_breakdown !== undefined) {
+    const parsed = normaliseBreakdown(body.hours_breakdown);
+    if (!parsed.ok) return parsed.error;
+    if (body.hours !== undefined && Math.abs(Number(body.hours) - parsed.total) > 0.001) return `Hours (${body.hours}) must equal Normal + 1.5 + 2.0 (${parsed.total}).`;
+    record.hours_breakdown = parsed.breakdown;
+    record.hours = parsed.total;
+    record.timesheet_version = TIMESHEET_VERSION;
+  } else if (creating && body.hours !== undefined) {
+    // Legacy single-number body: stays a legacy record (no breakdown, not counted in a Worksheet).
+    record.hours = body.hours;
+  } else if (body.hours !== undefined && !isTimesheetV2(record)) {
+    record.hours = body.hours;
+  } else if (body.hours !== undefined && isTimesheetV2(record)) {
+    return "Send hours_breakdown (Normal, 1.5, 2.0) to change the hours of this Timesheet.";
+  }
+  for (const key of ["start_time", "end_time"]) if (body[key] !== undefined) record[key] = body[key];
+  const timeError = validateTimes(record.start_time, record.end_time);
+  if (timeError) return timeError;
+  if (body.worker_category !== undefined) record.worker_category = body.worker_category;
+  if (body.materials_used !== undefined) record.materials_used = body.materials_used;
+  if (body.signed_copy_image !== undefined) record.signed_copy_image = body.signed_copy_image || null;
+  if (body.signatures?.employee) {
+    const e = body.signatures.employee;
+    const prev = record.signatures?.employee || {};
+    // The server, not the device, stamps who attested and when.
+    const attested = e.attest === true && e.method === "on_device";
+    record.signatures = { ...(record.signatures || {}), employee: {
+      name: e.name ?? prev.name ?? "", date: e.date ?? prev.date ?? "", method: e.method ?? prev.method,
+      ...(attested ? { attested_by: actor.id, attested_at: new Date().toISOString() } : (e.method === "on_device" ? {} : { attested_by: prev.attested_by, attested_at: prev.attested_at }))
+    } };
+  }
+  return null;
+}
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
@@ -151,20 +208,20 @@ export const addTimesheet = (req, res) => {
     if (!worksheetId) {
       return res.status(400).json({
         success: false,
-        message: "A Technician's timesheet entry must reference a Supervisor-approved worksheet (source_worksheet_id)."
+        message: "A Technician's timesheet entry must reference a Supervisor-approved timesheet (source_worksheet_id)."
       });
     }
     const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
     if (!worksheet || worksheet.dispatch_card_id !== dispatchId || worksheet.technician_id !== actor.id) {
       return res.status(400).json({
         success: false,
-        message: "source_worksheet_id must reference the Technician's own worksheet on this dispatch."
+        message: "source_worksheet_id must reference the Technician's own timesheet on this dispatch."
       });
     }
     if (worksheet.status !== "Supervisor_Approved") {
       return res.status(409).json({
         success: false,
-        message: `Timesheet entry blocked: worksheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
+        message: `Timesheet entry blocked: timesheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
       });
     }
     const alreadyLogged = (req.db.timesheets || [])
@@ -173,7 +230,7 @@ export const addTimesheet = (req, res) => {
     if (alreadyLogged + Number(body.hours_logged) > Number(worksheet.hours || 0)) {
       return res.status(409).json({
         success: false,
-        message: `Timesheet entry blocked: ${alreadyLogged + Number(body.hours_logged)} hours would exceed the ${Number(worksheet.hours || 0)} hours the Supervisor approved on worksheet ${worksheetId}.`
+        message: `Timesheet entry blocked: ${alreadyLogged + Number(body.hours_logged)} hours would exceed the ${Number(worksheet.hours || 0)} hours the Supervisor approved on timesheet ${worksheetId}.`
       });
     }
   }
@@ -375,16 +432,34 @@ export const createWorksheet = (req, res) => {
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
 
   const body = req.body;
-  const technicianId = [roles.ADMIN, roles.OPERATIONS].includes(actor.role)
+  const isContractorOnBehalf = body.worker_type === "contractor" && !body.technician_id && STAFF_ROLES.includes(actor.role);
+  if (isContractorOnBehalf && !String(body.worker_name || "").trim()) {
+    return res.status(400).json({ success: false, message: "A contractor name is required when entering a Timesheet for a contractor without an account." });
+  }
+  const technicianId = isContractorOnBehalf ? null : ([roles.ADMIN, roles.OPERATIONS].includes(actor.role)
     ? (body.technician_id || job.assigned_technician_id || (job.assigned_technician_ids || [])[0])
-    : actor.id;
-  const technician = req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN);
-  if (!technician) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
+    : actor.id);
+  const technician = technicianId ? req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN) : null;
+  if (!technician && !isContractorOnBehalf) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
+
+  // Offline sync: a retried create with the same reference never makes a second record.
+  const requestId = body.client_request_id ? String(body.client_request_id) : null;
+  const fingerprint = timesheetFingerprint(dispatchId, technicianId, body);
+  if (requestId) {
+    const prior = (req.db.field_worksheets || []).find((w) => w.created_by === actor.id && w.client_request_id === requestId);
+    if (prior) {
+      if (prior.client_payload_hash !== fingerprint) return res.status(409).json({ success: false, message: "This submission reference was already used with different content. Start a new Timesheet." });
+      return res.json({ success: true, data: prior, replayed: true });
+    }
+  }
   const worksheet = {
     id: req.store.id("ws"),
     dispatch_card_id: dispatchId,
     technician_id: technicianId,
-    technician_trade: technician.trade || null,
+    technician_trade: technician?.trade || null,
+    worker_type: isContractorOnBehalf ? "contractor" : (body.worker_type || "technician"),
+    worker_name: isContractorOnBehalf ? String(body.worker_name).trim() : (technician?.name || null),
+    worker_category: body.worker_category || technician?.trade || "",
     work_date: body.work_date || new Date().toISOString().slice(0, 10),
     activity: body.activity,
     hours: body.hours,
@@ -398,10 +473,30 @@ export const createWorksheet = (req, res) => {
     supervisor_comment: "",
     approved_by: null,
     approved_at: null,
+    created_by: actor.id,
     created_at: new Date().toISOString(),
     submitted_at: body.submit ? new Date().toISOString() : null,
     updated_at: new Date().toISOString()
   };
+
+  const fieldError = applyTimesheetFields(worksheet, body, actor, { creating: true });
+  if (fieldError) return res.status(400).json({ success: false, message: fieldError });
+  if (isTimesheetV2(worksheet)) {
+    if (!isIsoDate(worksheet.work_date)) return res.status(400).json({ success: false, message: "Work date must be a valid date (YYYY-MM-DD)." });
+    // One worker + one date + one dispatch = one Timesheet. A second one is refused, not merged.
+    const dup = (req.db.field_worksheets || []).find((w) => isTimesheetV2(w) && !w.superseded_by && w.dispatch_card_id === dispatchId
+      && w.work_date === worksheet.work_date && sameWorker(w, worksheet));
+    if (dup) return res.status(409).json({ success: false, code: "DUPLICATE_TIMESHEET", message: `A Timesheet for this worker, date and dispatch already exists (${dup.id}, ${dup.status}). Open and edit it, or revise it if it is already acknowledged or approved.`, existing_id: dup.id });
+    if (body.submit) {
+      const missing = employeeSignoffMissing(worksheet);
+      if (missing.length) return res.status(400).json({ success: false, code: "SIGNOFF_INCOMPLETE", message: `The worker's sign-off is incomplete (${missing.join(", ")}).` });
+    }
+    worksheet.client_request_id = requestId;
+    worksheet.client_payload_hash = requestId ? fingerprint : null;
+    worksheet.captured_offline_at = body.captured_offline_at || null;
+    worksheet.synced_at = body.captured_offline_at ? worksheet.created_at : null;
+    worksheet.server_checks = classifyTimesheet(worksheet);
+  }
 
   req.db.field_worksheets.push(worksheet);
   req.store.audit(req.db, actor, "field_worksheet", worksheet.id, worksheet.status === "Submitted" ? "WORKSHEET_SUBMITTED" : "WORKSHEET_CREATED", null, worksheet);
@@ -415,7 +510,7 @@ export const updateWorksheet = (req, res) => {
   
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
-  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
@@ -424,14 +519,16 @@ export const updateWorksheet = (req, res) => {
   }
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
-    return res.status(400).json({ success: false, message: `Worksheet cannot be edited in ${worksheet.status} status.` });
+    return res.status(400).json({ success: false, message: `Timesheet cannot be edited in ${worksheet.status} status.` });
   }
 
   const before = { ...worksheet };
   const body = req.body;
   
   if (body.activity !== undefined) worksheet.activity = body.activity;
-  if (body.hours !== undefined) worksheet.hours = body.hours;
+  const updateError = applyTimesheetFields(worksheet, body, actor, { creating: false });
+  if (updateError) return res.status(400).json({ success: false, message: updateError });
+  if (isTimesheetV2(worksheet)) worksheet.server_checks = classifyTimesheet(worksheet);
   if (body.tools_used !== undefined) worksheet.tools_used = String(body.tools_used || "").trim();
   if (body.outcomes !== undefined) worksheet.outcomes = String(body.outcomes || "").trim();
   if (body.challenges !== undefined) worksheet.challenges = String(body.challenges || "").trim();
@@ -448,7 +545,7 @@ export const submitWorksheet = (req, res) => {
   
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
-  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
@@ -457,13 +554,18 @@ export const submitWorksheet = (req, res) => {
   }
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
-    return res.status(400).json({ success: false, message: `Worksheet cannot be submitted from ${worksheet.status}.` });
+    return res.status(400).json({ success: false, message: `Timesheet cannot be submitted from ${worksheet.status}.` });
   }
 
+  if (isTimesheetV2(worksheet)) {
+    const missing = employeeSignoffMissing(worksheet);
+    if (missing.length) return res.status(400).json({ success: false, code: "SIGNOFF_INCOMPLETE", message: `The worker's sign-off is incomplete (${missing.join(", ")}). Add it before submitting.` });
+  }
   const before = { ...worksheet };
   worksheet.status = "Submitted";
   worksheet.submitted_by = actor.id;
   worksheet.submitted_at = new Date().toISOString();
+  if (isTimesheetV2(worksheet)) worksheet.server_checks = classifyTimesheet(worksheet);
   worksheet.updated_at = new Date().toISOString();
   req.store.audit(req.db, actor, "field_worksheet", worksheet.id, "WORKSHEET_SUBMITTED", before, worksheet);
   
@@ -476,7 +578,7 @@ export const reviewWorksheet = (req, res) => {
   
   const worksheetId = req.params.id;
   const worksheet = req.db.field_worksheets.find((item) => item.id === worksheetId);
-  if (!worksheet) return res.status(404).json({ success: false, message: "Worksheet not found." });
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const assignedDispatch = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   if (!assignedDispatch) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, assignedDispatch, req.db, res)) return;
@@ -485,12 +587,12 @@ export const reviewWorksheet = (req, res) => {
   // representative has acknowledged the work. Submitted-but-not-yet-
   // acknowledged worksheets are not eligible for Supervisor review.
   if (worksheet.status !== "Client_Acknowledged") {
-    return res.status(400).json({ success: false, message: `Worksheet review requires Client_Acknowledged status, not ${worksheet.status}.` });
+    return res.status(400).json({ success: false, message: `Timesheet review requires Client_Acknowledged status, not ${worksheet.status}.` });
   }
 
   const { decision, comment } = req.body;
   if (decision === "return" && !String(comment || "").trim()) {
-    return res.status(400).json({ success: false, message: "Returning a worksheet requires a supervisor comment." });
+    return res.status(400).json({ success: false, message: "Returning a timesheet requires a supervisor comment." });
   }
 
   if (decision === "approve") {
@@ -501,13 +603,13 @@ export const reviewWorksheet = (req, res) => {
     if (!submittedBy) {
       return res.status(409).json({
         success: false,
-        message: "Worksheet approval is blocked because its submission ownership cannot be verified. Return and resubmit the worksheet."
+        message: "Timesheet approval is blocked because its submission ownership cannot be verified. Return and resubmit the worksheet."
       });
     }
     if (submittedBy === actor.id) {
       return res.status(403).json({
         success: false,
-        message: "The user who submitted this worksheet cannot approve it. Assign an independent reviewer."
+        message: "The user who submitted this timesheet cannot approve it. Assign an independent reviewer."
       });
     }
 
@@ -524,6 +626,16 @@ export const reviewWorksheet = (req, res) => {
   }
 
   const before = { ...worksheet };
+  if (isTimesheetV2(worksheet)) {
+    // Reviewer sees (and the record keeps) the server's own classification at the moment of approval.
+    worksheet.server_checks = classifyTimesheet(worksheet);
+    if (decision === "approve") {
+      if (worksheet.server_checks.flags.some((f) => f.severity === "blocking")) {
+        return res.status(409).json({ success: false, code: "BLOCKING_FLAGS", message: `This Timesheet has blocking checks: ${worksheet.server_checks.flags.filter((f) => f.severity === "blocking").map((f) => f.message).join(" ")} Return it for correction.` });
+      }
+      worksheet.flags_at_approval = worksheet.server_checks.flags.filter((f) => f.severity !== "info");
+    }
+  }
   worksheet.status = decision === "approve" ? "Supervisor_Approved" : "Returned_For_Correction";
   worksheet.supervisor_comment = comment || "";
   worksheet.approved_by = decision === "approve" ? actor.id : null;
