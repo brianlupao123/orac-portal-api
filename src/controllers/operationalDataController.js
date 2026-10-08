@@ -1,6 +1,7 @@
 import { roles, requirePermission } from "../permissions.js";
 import { getActor, scopeOperationalData } from "./coreController.js";
 import { computeInvoiceReadyReport } from "../reports.js";
+import { isEligibleForDb, awaitsSupervisorReview } from "../timesheetEligibility.js";
 
 const analyticsRoles = [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN];
 const leadPreviewRoles = [roles.ADMIN, roles.MANAGEMENT, roles.SALES];
@@ -158,11 +159,11 @@ export function getOperationalAnalytics(req, res) {
     dispatches: { total: dispatches.length, by_status: Object.groupBy(dispatches, (item) => item.status || "Unknown") },
     worksheets: {
       total: worksheets.length,
-      approved: worksheets.filter((item) => item.status === "Supervisor_Approved").length,
+      approved: worksheets.filter((item) => isEligibleForDb(req.db, item)).length,
       // Superset for backward compatibility; Chat B split this into two stages.
       pending_review: worksheets.filter((item) => ["Submitted", "Client_Acknowledged"].includes(item.status)).length,
       pending_client_acknowledgement: worksheets.filter((item) => item.status === "Submitted").length,
-      pending_supervisor_review: worksheets.filter((item) => item.status === "Client_Acknowledged").length
+      pending_supervisor_review: worksheets.filter((item) => awaitsSupervisorReview(req.db, item)).length
     }
   };
   if ([roles.ADMIN, roles.MANAGEMENT, roles.FINANCE].includes(actor.role)) data.invoice_ready = computeInvoiceReadyReport(req.db).length;

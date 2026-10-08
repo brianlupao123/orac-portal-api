@@ -30,6 +30,7 @@
 
 import { createHash } from "node:crypto";
 import { isTimesheetV2, timesheetSignoff, normaliseBreakdown } from "./timesheetModel.js";
+import { evaluateForDb, eligibilityCutoverEnabled, INELIGIBLE } from "./timesheetEligibility.js";
 
 export const REGISTER_STATUS = Object.freeze({
   DRAFT: "Draft",
@@ -475,17 +476,19 @@ export function consolidate(monthly, db) {
       }
       continue;
     }
-    if (ws.status !== TS_APPROVED) {
-      const code = ws.status === "Draft" ? EXCEPTION_CODES.DAILY_NOT_SUBMITTED
+    const eligibility = evaluateForDb(db, ws);
+    if (!eligibility.eligible) {
+      const code = eligibility.reason === INELIGIBLE.NO_DECLARATION ? EXCEPTION_CODES.DAILY_SIGNOFF_INCOMPLETE : ws.status === "Draft" ? EXCEPTION_CODES.DAILY_NOT_SUBMITTED
         : ws.status === "Returned_For_Correction" ? EXCEPTION_CODES.DAILY_RETURNED : EXCEPTION_CODES.DAILY_AWAITING_REVIEW;
-      const text = code === EXCEPTION_CODES.DAILY_NOT_SUBMITTED ? "is still a draft" : code === EXCEPTION_CODES.DAILY_RETURNED ? "was returned for correction"
+      const text = eligibility.reason === INELIGIBLE.NO_DECLARATION ? "has no complete worker declaration" : code === EXCEPTION_CODES.DAILY_NOT_SUBMITTED ? "is still a draft" : code === EXCEPTION_CODES.DAILY_RETURNED ? "was returned for correction"
         : ws.status === "Submitted" ? "is waiting for the customer's acknowledgement" : "is waiting for Supervisor approval";
       push(makeException(code, SEVERITY.BLOCKING, `${label(rosterKeyFor)}: Timesheet ${ws.id} (${date}) ${text}, so its hours cannot be counted. Get it approved, or exclude it with a reason.`,
         { roster_key: rosterKeyFor, record_id: ws.id, date }, { status: ws.status, rows: [refOf(T, ws.id, 0)] }));
       continue;
     }
     const so = timesheetSignoff(ws);
-    if (!so.complete) {
+    // Cutover replaces the three-party rule with declaration + client/paper evidence (predicate above).
+    if (!so.complete && !eligibilityCutoverEnabled()) {
       push(makeException(EXCEPTION_CODES.DAILY_SIGNOFF_INCOMPLETE, SEVERITY.BLOCKING,
         `${label(rosterKeyFor)}: Timesheet ${ws.id} (${date}) is approved but sign-off is incomplete: ${so.missing.map((m) => `${m.label} (${m.missing.join(", ")})`).join("; ")}. Exclude it with a reason, or have it revised.`,
         { roster_key: rosterKeyFor, record_id: ws.id, date }, { missing: so.missing, rows: [refOf(T, ws.id, 0)] }));
@@ -877,8 +880,8 @@ export function verifySourceLineage(record, db) {
         const ws = timesheets.get(s.record_id);
         if (!ws) drift.push({ ...ref, reason: "Timesheet no longer exists." });
         else if (ws.superseded_by) drift.push({ ...ref, reason: "Timesheet has been superseded by a revision." });
-        else if (ws.status !== TS_APPROVED) drift.push({ ...ref, reason: `Timesheet is now ${ws.status}.` });
-        else if (!timesheetSignoff(ws).complete) drift.push({ ...ref, reason: "Timesheet sign-off is no longer complete." });
+        else if (!evaluateForDb(db, ws).eligible) drift.push({ ...ref, reason: `Timesheet is now ${ws.status}.` });
+        else if (!eligibilityCutoverEnabled() && !timesheetSignoff(ws).complete) drift.push({ ...ref, reason: "Timesheet sign-off is no longer complete." });
         else if (rowFingerprint(type, s.record_id, 0, ws) !== s.row_hash) drift.push({ ...ref, reason: "Source row content changed since consolidation." });
         continue;
       }

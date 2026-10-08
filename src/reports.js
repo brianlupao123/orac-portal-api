@@ -1,3 +1,5 @@
+import { isEligibleForDb, awaitsSupervisorReview } from "./timesheetEligibility.js";
+
 export function computePipelineReport(db) {
   const byStatus = {};
   for (const quote of db.quotes) {
@@ -46,7 +48,7 @@ export function computeDispatchReport(db) {
       started_before_po: job.started_before_po,
       scheduled_start: job.scheduled_start,
       worksheet_count: worksheets.length,
-      approved_worksheet_count: worksheets.filter((w) => w.status === "Supervisor_Approved").length
+      approved_worksheet_count: worksheets.filter((w) => isEligibleForDb(db, w)).length
     };
   });
 }
@@ -57,7 +59,7 @@ export function computeWorksheetReport(db) {
   // Client_Acknowledged) for backward compatibility with existing callers;
   // the two new fields give the precise breakdown by stage.
   const awaitingClientAcknowledgement = db.field_worksheets.filter((w) => w.status === "Submitted");
-  const awaitingSupervisorReview = db.field_worksheets.filter((w) => w.status === "Client_Acknowledged");
+  const awaitingSupervisorReview = db.field_worksheets.filter((w) => awaitsSupervisorReview(db, w));
   return {
     pending_review: [...awaitingClientAcknowledgement, ...awaitingSupervisorReview]
       .map((w) => ({ id: w.id, dispatch_card_id: w.dispatch_card_id, work_date: w.work_date, hours: w.hours })),
@@ -68,7 +70,7 @@ export function computeWorksheetReport(db) {
     returned_for_correction: db.field_worksheets
       .filter((w) => w.status === "Returned_For_Correction")
       .map((w) => ({ id: w.id, dispatch_card_id: w.dispatch_card_id, supervisor_comment: w.supervisor_comment })),
-    approved_count: db.field_worksheets.filter((w) => w.status === "Supervisor_Approved").length
+    approved_count: db.field_worksheets.filter((w) => isEligibleForDb(db, w)).length
   };
 }
 
@@ -79,7 +81,7 @@ export function computeInvoiceReadyReport(db) {
     .filter((job) => {
       const po = db.purchase_orders.find((p) => p.quotation_id === job.quotation_id);
       if (!po || po.status !== "verified" || po.requires_amendment) return false;
-      return db.field_worksheets.some((w) => w.dispatch_card_id === job.id && w.status === "Supervisor_Approved");
+      return db.field_worksheets.some((w) => w.dispatch_card_id === job.id && isEligibleForDb(db, w));
     })
     .map((job) => ({ id: job.id, dispatch_number: job.dispatch_number, quotation_id: job.quotation_id }));
 }

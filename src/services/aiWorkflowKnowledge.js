@@ -102,7 +102,7 @@ export const ARTICLES = Object.freeze([
       [R.CLIENT_VIEWER]: { do: "Your organisation's representative acknowledges Submitted entries for your own organisation only. After a Supervisor approves an entry, its completion document becomes available to you.", next: "Open Documents for approved completion records.", link: "documents" }
     },
     knownLimits: [
-      "At this release the portal has no screen for client acknowledgement. The server accepts it, but a Submitted entry cannot be advanced to Client_Acknowledged from the web app, so it cannot yet reach Supervisor review from the web app. Raise this with the ORAC owner.",
+      "Client confirmation is done by the client's named authoriser or delegate in the Client portal. If the client has no active authoriser the Timesheet shows Awaiting Client Authority and ORAC Sales and Admin are told. A client can also return a Timesheet with a reason when that option is enabled. Ask Admin which clients have reached their confirmation cutover.",
       "The Timesheets page tile labelled Awaiting Review counts Submitted entries. The server only lets reviewers act on Client_Acknowledged entries."
     ],
     metrics: {

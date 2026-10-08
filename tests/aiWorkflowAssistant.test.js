@@ -317,10 +317,10 @@ test("kiosk guidance states the owner rule is not yet enforced and who can submi
   assert.equal(tech.label, "Declined");
 });
 
-test("timesheet guidance says Submitted is not reviewable and names the missing client screen", () => {
+test("timesheet guidance says Submitted is not reviewable and explains client confirmation by the authoriser", () => {
   const { data } = ask("Supervisor", "What does Submitted mean and who can approve it?");
   assert.match(data.message, /not yet eligible for Supervisor review/);
-  assert.match(data.message, /no screen for client acknowledgement/);
+  assert.match(data.message, /named authoriser or delegate/);
   assert.match(data.message, /cannot approve an entry you submitted/);
 });
 

@@ -134,6 +134,11 @@ export const ClientAcknowledgeWorksheetSchema = z.object({
   acknowledgement: z.literal(true, { errorMap: () => ({ message: "Explicit acknowledgement is required" }) })
 });
 
+// Client return-with-reason (Implementation Contract step 1). A reason is mandatory.
+export const ClientReturnWorksheetSchema = z.object({
+  reason: z.string().trim().min(3, "A reason of at least 3 characters is required to return a Timesheet").max(1000)
+});
+
 // Chat B — corrections after client acknowledgement or supervisor approval
 // must go through a new, reasoned, linked revision rather than editing
 // signed data in place.
