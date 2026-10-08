@@ -10,6 +10,7 @@ import {
   enrichEquipmentTag
 } from "../services/entityHierarchy.js";
 import { decorateMovementForDisplay } from "../inventoryLedger.js";
+import { awaitsSupervisorReview } from "../timesheetEligibility.js";
 
 export function getActor(req) {
   // GET endpoints might be called by an authenticated user
@@ -243,7 +244,7 @@ export function buildScopedSummary(db, actor) {
     // acknowledgement then Supervisor review.
     pending_review: worksheetsData.filter((worksheet) => ["Submitted", "Client_Acknowledged"].includes(worksheet.status)).length,
     pending_client_acknowledgement: worksheetsData.filter((worksheet) => worksheet.status === "Submitted").length,
-    pending_supervisor_review: worksheetsData.filter((worksheet) => worksheet.status === "Client_Acknowledged").length,
+    pending_supervisor_review: worksheetsData.filter((worksheet) => awaitsSupervisorReview(db, worksheet)).length,
     returned_for_correction: worksheetsData.filter((worksheet) => worksheet.status === "Returned_For_Correction").length,
     pending_po: quotesData.filter((quote) => quote.status === "Approved_Pending_PO").length,
     blocked_amendments: purchaseOrdersData.filter((po) => po.requires_amendment).length,

@@ -1,6 +1,7 @@
 import { roles } from "../permissions.js";
 import { scopeOperationalData } from "./coreController.js";
 import { computeInvoiceReadyReport } from "../reports.js";
+import { isEligibleForDb } from "../timesheetEligibility.js";
 
 function deny(res, message) { return res.status(403).json({ success: false, message }); }
 function getActor(req) { return req.user?.id ? req.db.users.find((user) => user.id === req.user.id) : null; }
@@ -34,6 +35,6 @@ export function getClientCompletionRecord(req, res) {
   if (actor.role === roles.CLIENT_VIEWER && actor.client_id !== clientId) return deny(res, "Client Viewer cannot access another client's completion record.");
   if (actor.role === roles.TECHNICIAN && worksheet.technician_id !== actor.id) return deny(res, "Technician can only view assigned completion records.");
   if (actor.role === roles.SUPERVISOR && dispatch?.assigned_supervisor_id !== actor.id && worksheet.supervisor_id !== actor.id) return deny(res, "Supervisor can only view assigned completion records.");
-  if (worksheet.status !== "Supervisor_Approved") return res.status(409).json({ success: false, message: "Completion record requires a supervisor-approved worksheet." });
+  if (!isEligibleForDb(req.db, worksheet)) return res.status(409).json({ success: false, message: "Completion record requires a supervisor-approved worksheet." });
   return res.json({ success: true, data: { worksheet, dispatch, quote, client: req.db.clients.find((item) => item.id === clientId) || null } });
 }

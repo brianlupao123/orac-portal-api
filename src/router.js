@@ -1,4 +1,9 @@
 import express from "express";
+import {
+  getTimesheetPolicy, updateTimesheetPolicy, listTimesheetAuthorities, createTimesheetAuthority, revokeTimesheetAuthority,
+  setClientCutover, listTimesheetsRateFree, capturePaperTimesheet, logPaperCustody, batchConfirmTimesheets,
+  runTimesheetReminders, getPaperSampling, getInvoiceVariance, requestVarianceOverride, approveVarianceOverride, resolvePostInvoiceRevision
+} from "./controllers/timesheetWorkflowController.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
@@ -15,7 +20,7 @@ import {
   StockMovementSchema, DirectSaleStockIssueSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
   CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
-  ClientAcknowledgeWorksheetSchema, ReviseWorksheetSchema,
+  ClientAcknowledgeWorksheetSchema, ClientReturnWorksheetSchema, ReviseWorksheetSchema,
   CreateDailyTimesheetSchema, UpdateDailyTimesheetSchema, ReviewDailyTimesheetSchema,
   CreateContractorLogSchema, UpdateContractorLogSchema, ReviewContractorLogSchema
 } from "./schemas.js";
@@ -49,7 +54,7 @@ import {
 import { CreateTimesheetSchemaV2, UpdateTimesheetSchemaV2 } from "./timesheetSchemasV2.js";
 import { listDispatchTimesheets, listKioskReviewQueue, reviewKioskTimesheet } from "./controllers/timesheetReviewController.js";
 import {
-  listOwnClientTimesheets, acknowledgeWorksheet, reviseWorksheet,
+  listOwnClientTimesheets, acknowledgeWorksheet, returnWorksheetByClient, reviseWorksheet,
   getTimesheetPeriodPack, getTimesheetPeriodPackPdf, getTimesheetPeriodSummary
 } from "./controllers/timesheetAcknowledgementController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
@@ -220,6 +225,23 @@ router.post("/worksheet_registers/:id/cancel", validate(CancelWorksheetRegisterS
 router.post("/worksheet_registers/:id/reconcile", validate(ReconcileWorksheetRegisterSchema), reconcileWorksheetRegister);
 router.get("/field_worksheets/mine/client", listOwnClientTimesheets);
 router.post("/field_worksheets/:id/client-acknowledge", validate(ClientAcknowledgeWorksheetSchema), acknowledgeWorksheet);
+router.post("/field_worksheets/:id/client-return", validate(ClientReturnWorksheetSchema), returnWorksheetByClient);
+router.get("/timesheet-policy", getTimesheetPolicy);
+router.patch("/timesheet-policy", updateTimesheetPolicy);
+router.get("/timesheet-authorities", listTimesheetAuthorities);
+router.post("/timesheet-authorities", createTimesheetAuthority);
+router.post("/timesheet-authorities/:id/revoke", revokeTimesheetAuthority);
+router.patch("/clients/:id/timesheet-cutover", setClientCutover);
+router.get("/timesheets/rate-free", listTimesheetsRateFree);
+router.post("/field_worksheets/paper-capture", capturePaperTimesheet);
+router.post("/timesheet-paper-custody", logPaperCustody);
+router.post("/field_worksheets/batch-confirm", batchConfirmTimesheets);
+router.post("/timesheets/reminders/run", runTimesheetReminders);
+router.get("/timesheets/paper-sampling", getPaperSampling);
+router.get("/dispatch_cards/:id/invoice-variance", getInvoiceVariance);
+router.post("/dispatch_cards/:id/variance-override", requestVarianceOverride);
+router.post("/variance-overrides/:id/approve", approveVarianceOverride);
+router.post("/field_worksheets/:id/resolve-post-invoice", resolvePostInvoiceRevision);
 router.post("/field_worksheets/:id/revise", validate(ReviseWorksheetSchema), reviseWorksheet);
 router.get("/reports/timesheets/period-pack", getTimesheetPeriodPack);
 router.get("/documents/timesheets/period-pack.pdf", getTimesheetPeriodPackPdf);

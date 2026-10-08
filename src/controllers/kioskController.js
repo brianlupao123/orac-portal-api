@@ -1,4 +1,5 @@
 import { requirePermission } from "../permissions.js";
+import { kioskBlocked } from "../timesheetWorkflow.js";
 import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
 import { KIOSK_REVIEW_STATUS, isKioskEntry, kioskReviewStatus } from "../timesheetReview.js";
 import { createHash } from "node:crypto";
@@ -65,6 +66,7 @@ function storedFingerprint(row) {
 }
 
 export function getKioskRoster(req, res) {
+  if (kioskBlocked(req.db)) return res.status(409).json({ success: false, code: "KIOSK_RESTRICTED", message: "Kiosk Mode is restricted for this deployment." });
   const actor = getActor(req);
   requirePermission(actor, "submitKioskTimesheets");
   const dispatch = getDispatch(req, res);
@@ -78,6 +80,7 @@ export function getKioskRoster(req, res) {
 }
 
 export function submitKioskTimesheets(req, res) {
+  if (kioskBlocked(req.db)) return res.status(409).json({ success: false, code: "KIOSK_RESTRICTED", message: "Kiosk Mode is restricted for this deployment." });
   const actor = getActor(req);
   requirePermission(actor, "submitKioskTimesheets");
   const dispatch = getDispatch(req, res);

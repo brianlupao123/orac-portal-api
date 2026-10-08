@@ -3,6 +3,7 @@ import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatch
 import { applyStockChange, readIdempotencyKey, requestFingerprint, findIdempotentRecord, publicMovement } from "../inventoryLedger.js";
 import { dispatchSupervisors, reviewBlockedReason } from "../timesheetReview.js";
 import { createHash } from "node:crypto";
+import { isEligibleForDb } from "../timesheetEligibility.js";
 import {
   TIMESHEET_VERSION, normaliseBreakdown, validateTimes, isTimesheetV2, employeeSignoffMissing, classifyTimesheet, isIsoDate
 } from "../timesheetModel.js";
@@ -218,7 +219,7 @@ export const addTimesheet = (req, res) => {
         message: "source_worksheet_id must reference the Technician's own timesheet on this dispatch."
       });
     }
-    if (worksheet.status !== "Supervisor_Approved") {
+    if (!isEligibleForDb(req.db, worksheet)) {
       return res.status(409).json({
         success: false,
         message: `Timesheet entry blocked: timesheet ${worksheetId} is '${worksheet.status}', not Supervisor-approved yet.`
@@ -562,6 +563,11 @@ export const submitWorksheet = (req, res) => {
     if (missing.length) return res.status(400).json({ success: false, code: "SIGNOFF_INCOMPLETE", message: `The worker's sign-off is incomplete (${missing.join(", ")}). Add it before submitting.` });
   }
   const before = { ...worksheet };
+  const nowIso = new Date().toISOString();
+  // Auditable resubmission: close the open client-return entry; history is append-only in meaning.
+  if (worksheet.status === "Returned_For_Correction" && Array.isArray(worksheet.return_history)) {
+    worksheet.return_history = worksheet.return_history.map((h) => (h.resubmitted_at ? h : { ...h, resubmitted_at: nowIso, resubmitted_by: actor.id }));
+  }
   worksheet.status = "Submitted";
   worksheet.submitted_by = actor.id;
   worksheet.submitted_at = new Date().toISOString();

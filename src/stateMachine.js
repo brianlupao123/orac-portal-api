@@ -1,4 +1,6 @@
 import { requirePermission } from "./permissions.js";
+import { isEligibleForDb } from "./timesheetEligibility.js";
+import { invoiceVarianceGate, lockTimesheetsForInvoice } from "./timesheetWorkflow.js";
 import { countedTimesheets, pendingKioskTimesheets, reviewBlockedReason } from "./timesheetReview.js";
 
 const allowedTransitions = {
@@ -23,7 +25,7 @@ function getDispatch(db, quoteId) {
 }
 
 function approvedWorksheets(db, dispatchId) {
-  return db.field_worksheets.filter((item) => item.dispatch_card_id === dispatchId && item.status === "Supervisor_Approved");
+  return db.field_worksheets.filter((item) => item.dispatch_card_id === dispatchId && isEligibleForDb(db, item));
 }
 
 function validateTransition(db, quote, targetState, payload, actor) {
@@ -133,6 +135,9 @@ function createInvoice(db, store, quote, actor) {
   const job = getDispatch(db, quote.id);
   // Only approved hours are billed: pending or rejected kiosk entries are excluded.
   const timesheets = countedTimesheets(db, job.id);
+  // Dark by default (TIMESHEET_INVOICE_VARIANCE): billed hours may never exceed eligible hours without a second-approved override.
+  const gate = invoiceVarianceGate(db, job.id);
+  if (!gate.allow) throw Object.assign(new Error(gate.reason), { status: 409, code: "INVOICE_VARIANCE_BLOCK" });
   const materials = db.material_usage.filter((item) => item.dispatch_card_id === job.id);
   const laborTotal = timesheets.reduce((sum, item) => sum + item.hours_logged * item.hourly_rate, 0);
   const laborHours = timesheets.reduce((sum, item) => sum + item.hours_logged, 0);
@@ -151,6 +156,8 @@ function createInvoice(db, store, quote, actor) {
   };
 
   db.invoices.push(invoice);
+  if (gate.overridden) { const o = (db.timesheet_variance_overrides || []).find((x) => x.dispatch_card_id === job.id && !x.voided_at && !x.consumed_invoice_id); if (o) o.consumed_invoice_id = invoice.id; }
+  if (!gate.skipped) lockTimesheetsForInvoice(db, job.id, invoice.id, invoice.generated_at);
   // A labour line is written unless the invoice is materials-only. Without this
   // guard a materials-only invoice put the whole total on the labour line and
   // then added the materials line again, so the lines summed to twice the total.

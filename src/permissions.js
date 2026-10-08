@@ -86,8 +86,42 @@ export const permissions = {
   auditInternalWorkRequests: [roles.ADMIN]
 };
 
+// Timesheet workflow packet (contract steps 3-9). Every overlay is DARK: with its
+// environment flag unset, effectivePermissionRoles() returns the base list unchanged.
+const S = roles.SALES, F = roles.FINANCE, A = roles.ADMIN, M = roles.MANAGEMENT, O = roles.OPERATIONS, V = roles.SUPERVISOR, T = roles.TECHNICIAN;
+const NEW_PERMISSIONS = {
+  // Always-defined but only reachable through flag-guarded endpoints.
+  viewTimesheetsRateFree: [A, M, S, O, V, F],
+  manageTimesheetAuthority: [A],
+  captureTimesheetPaper: [A, S],
+  logPaperCustody: [A, S, O],
+  viewInvoiceVariance: [A, F],
+  overrideInvoiceVariance: [A, F],
+  resolvePostInvoiceRevision: [A, F],
+  viewPaperSampling: [A, F],
+  runTimesheetReminders: [A, S]
+};
+const OVERLAYS = [
+  { flag: "TIMESHEET_SALES_ACCESS",
+    add: { viewWorksheetRegister: [S, F], manageWorksheetRegister: [S], submitWorksheetRegister: [S], reviewWorksheetRegister: [S], reconcileWorksheetRegister: [F], reviseWorksheet: [S] } },
+  { flag: "TIMESHEET_RATE_ROW_RESTRICT",
+    replace: { addTimesheet: [A, F], submitKioskTimesheets: [A, F] } },
+  { flag: "TIMESHEET_OPS_RESTRICT",
+    remove: { viewWorksheetRegister: [O, V], manageWorksheetRegister: [O, V], submitWorksheetRegister: [O, V], reviewWorksheetRegister: [O, V], reconcileWorksheetRegister: [O] } }
+];
+export function effectivePermissionRoles(permission) {
+  let list = permissions[permission] || NEW_PERMISSIONS[permission] || [];
+  for (const o of OVERLAYS) {
+    if (process.env[o.flag] !== "enabled") continue;
+    if (o.replace?.[permission]) list = o.replace[permission];
+    if (o.add?.[permission]) list = [...new Set([...list, ...o.add[permission]])];
+    if (o.remove?.[permission]) list = list.filter((r) => !o.remove[permission].includes(r));
+  }
+  return list;
+}
+
 export function hasPermission(actor, permission) {
-  return Boolean(actor?.is_active) && (permissions[permission] || []).includes(actor.role);
+  return Boolean(actor?.is_active) && effectivePermissionRoles(permission).includes(actor.role);
 }
 
 export function requirePermission(actor, permission) {

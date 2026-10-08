@@ -156,6 +156,15 @@ function toRoute(rule, id, exact) {
   return query ? `${rule.path}?${query}` : rule.path;
 }
 
+// Dark additions (TIMESHEET_SALES_ACCESS): Sales/Finance may open the same workspaces once the
+// rate-free access flag is on. With the flag off this returns undefined, so nothing changes.
+function flaggedRule(kind, role) {
+  if (process.env.TIMESHEET_SALES_ACCESS !== "enabled") return undefined;
+  if (kind === "worksheet" && [SALES, FINANCE].includes(role)) return { path: "/worksheets" };
+  if (kind === "worksheet_register" && [SALES, FINANCE].includes(role)) return { path: "/monthly-worksheets" };
+  return undefined;
+}
+
 /**
  * Resolve a stored { kind, id } for the CURRENT viewer.
  * Always returns { route, exact, resolved, note, kind?, id? }; never throws.
@@ -166,7 +175,7 @@ export function resolveDestination(db, user, destination) {
     return fallback("This notification has no linked record. Showing your dashboard.");
   }
   const spec = DESTINATIONS[clean.kind];
-  const rule = spec.routes[user.role];
+  const rule = spec.routes[user.role] || flaggedRule(clean.kind, user.role);
   if (!rule) {
     return { ...fallback(`This item is not available in your workspace. Showing your dashboard.`), kind: clean.kind };
   }

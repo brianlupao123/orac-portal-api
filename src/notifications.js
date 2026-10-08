@@ -395,6 +395,32 @@ export function handleAuditForNotifications(db, auditEntry, options = {}) {
       notif.destination = buildDestination("purchase_order", entity_id);
       break;
 
+    // Timesheet workflow packet (dark: these audit actions are only emitted behind their flags).
+    case "TIMESHEET_AWAITING_AUTHORITY": {
+      const destination = buildDestination("worksheet", entity_id);
+      notif = { type: "worksheet", title: "Timesheet Awaiting Client Authority",
+        message: "A submitted Timesheet is paused: its client has no active authoriser or delegate. Appoint one or use the paper exception.",
+        severity: "warning", target_roles: ["Sales", "Admin"], client_id: null, destination };
+      break;
+    }
+    case "TIMESHEET_REMINDER":
+    case "TIMESHEET_ESCALATION": {
+      const destination = buildDestination("worksheet", entity_id);
+      const escalated = action === "TIMESHEET_ESCALATION";
+      notif = { type: "worksheet", title: escalated ? "Timesheet Confirmation Overdue" : "Timesheet Awaiting Your Confirmation",
+        message: escalated ? "A Timesheet has waited past the escalation threshold for client confirmation." : "A Timesheet is waiting for client confirmation.",
+        severity: escalated ? "warning" : "info", target_roles: escalated ? ["Sales", "Admin"] : ["Client Viewer"],
+        client_id: escalated ? null : clientIdForDispatch(db, new_values?.dispatch_card_id), destination };
+      if (!escalated && !notif.client_id) notif = null; // fail closed: never broadcast a client copy without a client
+      break;
+    }
+    case "VARIANCE_OVERRIDE_REQUESTED": {
+      notif = { type: "invoice", title: "Variance Override Needs Second Approval",
+        message: "An invoice variance override was requested and needs a second approver.", severity: "warning",
+        target_roles: ["Finance", "Admin"], exclude_user_ids: [auditEntry.actor_id].filter(Boolean), client_id: null,
+        destination: buildDestination("dispatch_card", new_values?.dispatch_card_id) };
+      break;
+    }
     case "INVOICE_GENERATED":
       notif = {
         type: "invoice",

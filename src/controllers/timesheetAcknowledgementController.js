@@ -2,6 +2,8 @@ import { requirePermission, roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
 import { generateControlledPdf, humanizeTimestamp } from "../pdfGenerator.js";
 import { companyFromProfile } from "./documentController.js";
+import { clientReturnEnabled, clientForWorksheet, eligibilityCutoverEnabled } from "../timesheetEligibility.js";
+import { swapRevisionIfEligible, flag, activeAuthorityFor, authoritySnapshot, anyActiveAuthority, CONFIRMATION_STATEMENT } from "../timesheetWorkflow.js";
 import { isKioskEntry, kioskReviewStatus, KIOSK_REVIEW_STATUS } from "../timesheetReview.js";
 
 // Plain-language status for printed packs. The JSON keeps the raw status (API
@@ -115,7 +117,9 @@ function worksheetSummary(db, worksheet) {
     mine_site_name: mineSite?.name || null,
     client_acknowledgement: worksheet.client_acknowledgement || null,
     approved_by: worksheet.approved_by || null,
-    approved_at: worksheet.approved_at || null
+    approved_at: worksheet.approved_at || null,
+    client_return: worksheet.client_return || null,
+    return_history: (worksheet.return_history || []).map((h) => ({ ...h }))
   };
 }
 
@@ -130,6 +134,23 @@ export function listOwnClientTimesheets(req, res) {
     .map((worksheet) => worksheetSummary(req.db, worksheet));
 
   res.json({ success: true, data });
+}
+
+// Step 4 gate. Flag off, or client with no cutover date reached: today's behaviour (no snapshot).
+// After the client's cutover only a named, active authoriser/delegate may confirm.
+export function authorityGate(db, actor, worksheet) {
+  if (!flag("AUTHORITY")) return { ok: true, snapshot: null };
+  const client = clientForWorksheet(db, worksheet);
+  const today = new Date().toISOString().slice(0, 10);
+  const cutover = client?.timesheet_cutover_date;
+  if (!cutover || today < cutover) return { ok: true, snapshot: null };
+  if (worksheet.submitted_by === actor.id || worksheet.created_by === actor.id) return { ok: false, message: "You cannot confirm a record you prepared." };
+  const siteId = worksheet.mine_site_id || null;
+  const authority = activeAuthorityFor(db, actor.id, client.id, today, siteId);
+  if (!authority) return { ok: false, message: anyActiveAuthority(db, client.id, today)
+    ? "Only a named Client Authoriser or Delegate can confirm Timesheets for this client."
+    : "Awaiting Client Authority: this client has no active authoriser or delegate. Contact ORAC." };
+  return { ok: true, snapshot: authoritySnapshot(authority, actor, new Date().toISOString()) };
 }
 
 export function acknowledgeWorksheet(req, res) {
@@ -151,10 +172,14 @@ export function acknowledgeWorksheet(req, res) {
     });
   }
 
+  const authz = authorityGate(req.db, actor, worksheet);
+  if (!authz.ok) return res.status(403).json({ success: false, code: "AUTHORITY_REQUIRED", message: authz.message });
+
   const before = { ...worksheet };
   const acknowledgedAt = new Date().toISOString();
   worksheet.status = "Client_Acknowledged";
   worksheet.client_acknowledgement = {
+    ...(authz.snapshot ? { authority_snapshot: authz.snapshot, confirmation_statement: CONFIRMATION_STATEMENT } : {}),
     id: req.store.id("wsack"),
     signer_name: req.body.signer_name,
     signer_role: req.body.signer_role,
@@ -168,6 +193,47 @@ export function acknowledgeWorksheet(req, res) {
   worksheet.updated_at = acknowledgedAt;
 
   req.store.audit(req.db, actor, "field_worksheet", worksheet.id, "WORKSHEET_CLIENT_ACKNOWLEDGED", before, worksheet);
+  swapRevisionIfEligible(req.db, req.store, actor, worksheet);
+  res.json({ success: true, data: worksheetSummary(req.db, worksheet) });
+}
+
+// Client return-with-reason (Implementation Contract step 1; fixes the Submitted dead end).
+// Dark by default: refuses until TIMESHEET_CLIENT_RETURN=enabled. Submitted ->
+// Returned_For_Correction, own client only, reason mandatory and kept in a history
+// that is never overwritten. The preparer corrects the same record in place (allowed
+// only before confirmation) and resubmits; submitWorksheet stamps the resubmission.
+// Zero stock movements, no rate data.
+export function returnWorksheetByClient(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "acknowledgeWorksheet");
+  if (!clientReturnEnabled()) {
+    return res.status(409).json({ success: false, code: "FEATURE_DISABLED", message: "Returning a Timesheet with a reason is not enabled yet." });
+  }
+  const worksheet = req.db.field_worksheets.find((item) => item.id === req.params.id);
+  if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
+  const ownerClientId = resolveWorksheetClientId(req.db, worksheet);
+  if (!isClientViewer(actor) || !actor.client_id || ownerClientId !== actor.client_id) {
+    return res.status(403).json({ success: false, message: "A client representative may return only their own client's entries." });
+  }
+  if (worksheet.status !== "Submitted") {
+    return res.status(400).json({ success: false, message: `This entry is in ${worksheet.status} status and is not awaiting client confirmation, so it cannot be returned.` });
+  }
+  const before = { ...worksheet };
+  const now = new Date().toISOString();
+  const entry = {
+    id: req.store.id("wsret"),
+    reason: req.body.reason,
+    returned_by_user_id: actor.id,
+    returned_by_name: actor.name || null,
+    returned_at: now,
+    resubmitted_at: null,
+    resubmitted_by: null
+  };
+  worksheet.status = "Returned_For_Correction";
+  worksheet.client_return = entry;
+  worksheet.return_history = [...(worksheet.return_history || []), entry];
+  worksheet.updated_at = now;
+  req.store.audit(req.db, actor, "field_worksheet", worksheet.id, "WORKSHEET_RETURNED", before, worksheet);
   res.json({ success: true, data: worksheetSummary(req.db, worksheet) });
 }
 
@@ -196,6 +262,12 @@ export function reviseWorksheet(req, res) {
     return res.status(400).json({ success: false, message: "This timesheet has already been superseded by a later revision." });
   }
 
+  if (flag("SALES_ACCESS") && actor.role === roles.SALES && original.status !== "Captured_From_Signed_Paper") {
+    return res.status(403).json({ success: false, message: "Sales may revise only paper-origin Timesheets." });
+  }
+  if (flag("OPS_RESTRICT") && ![roles.ADMIN, roles.SALES].includes(actor.role) && original.created_by !== actor.id) {
+    return res.status(403).json({ success: false, message: "Only the preparer may revise a digital Timesheet." });
+  }
   const now = new Date().toISOString();
   const revision = {
     id: req.store.id("ws"),
@@ -235,11 +307,18 @@ export function reviseWorksheet(req, res) {
   };
 
   const before = { ...original };
-  original.superseded_by = revision.id;
+  const deferSupersede = eligibilityCutoverEnabled();
+  if (original.invoice_locked) revision.post_invoice = true;
+  if (deferSupersede) {
+    // Contract 2.2: the original stays eligible until the revision is itself eligible (atomic swap later).
+    original.pending_revision_id = revision.id;
+  } else {
+    original.superseded_by = revision.id;
+  }
   original.updated_at = now;
 
   req.db.field_worksheets.push(revision);
-  req.store.audit(req.db, actor, "field_worksheet", original.id, "WORKSHEET_SUPERSEDED", before, original);
+  if (!deferSupersede) req.store.audit(req.db, actor, "field_worksheet", original.id, "WORKSHEET_SUPERSEDED", before, original);
   req.store.audit(req.db, actor, "field_worksheet", revision.id, "WORKSHEET_REVISION_CREATED", null, revision);
 
   res.json({ success: true, data: revision });

@@ -119,6 +119,10 @@ function seedData() {
     // Worksheet: register consolidated from approved daily_timesheets rows.
     // Auto-backfilled onto an existing data file by normalizeDb() below.
     worksheet_registers: [],
+    // Timesheet workflow packet (dark): authoriser/delegate records, paper custody log, variance overrides.
+    timesheet_authorities: [],
+    timesheet_paper_custody: [],
+    timesheet_variance_overrides: [],
     material_usage: [],
     invoices: [],
     invoice_lines: [],

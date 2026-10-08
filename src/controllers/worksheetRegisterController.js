@@ -1,4 +1,5 @@
 import { hasPermission, requirePermission, roles } from "../permissions.js";
+import { registerReviewRefusal, reviewPaused, flag as tsFlag } from "../timesheetWorkflow.js";
 import { legacyTimesheetViews } from "../legacyAdapters.js";
 import {
   REGISTER_STATUS, RECONCILIATION_STATE, SEVERITY,
@@ -41,6 +42,7 @@ function auditView(record) {
     source_record_ids: sourceRecordIds(record.lines),
     acknowledged: (record.exceptions || []).filter((e) => e.acknowledged_at).map((e) => ({ key: e.key, by: e.acknowledged_by, at: e.acknowledged_at, note: e.acknowledgement_note })),
     approved_by: record.approved_by || null, submitted_by: record.submitted_by || null, built_by: record.built_by || null,
+    ...(tsFlag("SALES_ACCESS") && record.status === "Submitted" ? { review_paused: reviewPaused(db, record), review_state_label: reviewPaused(db, record) ? "Review Paused: no independent reviewer" : "Awaiting independent Sales review" } : {}),
     has_reconciliation: Boolean(record.reconciliation)
   };
 }
@@ -398,6 +400,9 @@ export const reviewWorksheetRegister = (req, res) => {
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
   if (record.status !== REGISTER_STATUS.SUBMITTED) return fail(res, 409, `Worksheet review requires Submitted status, not ${record.status}.`);
+
+  const independence = registerReviewRefusal(req.db, record, actor);
+  if (independence) return fail(res, 403, independence);
 
   const { decision, comment } = req.body;
   const note = String(comment || "").trim();

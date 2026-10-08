@@ -1,4 +1,5 @@
 import { roles } from "../permissions.js";
+import { isEligibleForDb } from "../timesheetEligibility.js";
 import { generateControlledPdf, humanizeTimestamp, formatCurrency } from "../pdfGenerator.js";
 
 function getActor(req) {
@@ -190,7 +191,7 @@ function findInvoiceDoc(db, id) {
   const client = quote ? db.clients.find((c) => c.id === quote.client_id) : null;
   const equipment = job ? db.equipment_tags.find((e) => e.id === job.equipment_tag_id) : null;
   const lines = db.invoice_lines.filter((l) => l.invoice_id === invoice.id);
-  const worksheets = job ? db.field_worksheets.filter((worksheet) => worksheet.dispatch_card_id === job.id && worksheet.status === "Supervisor_Approved") : [];
+  const worksheets = job ? db.field_worksheets.filter((worksheet) => worksheet.dispatch_card_id === job.id && isEligibleForDb(db, worksheet)) : [];
   return {
     invoice,
     po,
@@ -235,7 +236,7 @@ export const getWorksheetDocument = (req, res) => {
   const doc = findWorksheetDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Timesheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
-  if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
+  if (getActor(req).role === roles.CLIENT_VIEWER && !isEligibleForDb(req.db, doc.worksheet)) {
     return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
   }
   res.json({ success: true, data: doc });
@@ -424,7 +425,7 @@ export const getWorksheetPdf = (req, res) => {
   const doc = findWorksheetDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Timesheet not found." });
   if (!assertWorksheetAccess(req, res, doc)) return;
-  if (getActor(req).role === roles.CLIENT_VIEWER && doc.worksheet.status !== "Supervisor_Approved") {
+  if (getActor(req).role === roles.CLIENT_VIEWER && !isEligibleForDb(req.db, doc.worksheet)) {
     return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
   }
 
