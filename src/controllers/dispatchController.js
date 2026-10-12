@@ -7,6 +7,7 @@ import { isEligibleForDb } from "../timesheetEligibility.js";
 import {
   TIMESHEET_VERSION, normaliseBreakdown, validateTimes, isTimesheetV2, employeeSignoffMissing, classifyTimesheet, isIsoDate
 } from "../timesheetModel.js";
+import { v5Enabled } from "../v5CommercialWorkflow.js";
 
 const STAFF_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR];
 const normName = (v) => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -20,7 +21,7 @@ const sameWorker = (a, b) => (a.technician_id && b.technician_id ? a.technician_
 // content returns the original record; same key + different content is a 409.
 function timesheetFingerprint(dispatchId, technicianId, body) {
   return createHash("sha256").update(JSON.stringify([
-    dispatchId, technicianId, body.worker_name || "", body.work_date || "", body.activity, body.hours_breakdown || body.hours,
+    dispatchId, technicianId, body.worker_name || "", body.work_date || "", body.activity, body.hours_breakdown || body.hours, body.quote_line_id || "",
     body.start_time || "", body.end_time || "", body.materials_used || [], body.outcomes || "", body.signatures || {}, body.signed_copy_image ? "img" : "", body.submit === true
   ])).digest("hex");
 }
@@ -176,6 +177,18 @@ function requireAssignedDispatch(actor, dispatch, db, res) {
   if (isAssignedToDispatch(actor, dispatch, db)) return true;
   res.status(403).json({ success: false, message: "This role may work only on an assigned dispatch." });
   return false;
+}
+
+// V5 never stores a rate on a Timesheet. Instead, its daily source record
+// points to one priced quotation line on the same dispatch. The invoice layer
+// can later price verified hours from that controlled commercial record.
+function v5QuoteLineForWorksheet(db, dispatch, quoteLineId) {
+  const quote = (db.quotes || []).find((item) => item.id === dispatch.quotation_id);
+  if (!v5Enabled() || !quote?.v5_commercial_workflow) return { required: false, line: null };
+  if (!quoteLineId) return { required: true, error: "A V5 Timesheet must select a quotation labour line." };
+  const line = (db.quote_lines || []).find((item) => item.id === quoteLineId && item.quotation_id === quote.id);
+  if (!line) return { required: true, error: "The selected quotation line does not belong to this dispatch's quotation." };
+  return { required: true, line };
 }
 
 export const addTimesheet = (req, res) => {
@@ -442,6 +455,8 @@ export const createWorksheet = (req, res) => {
     : actor.id);
   const technician = technicianId ? req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN) : null;
   if (!technician && !isContractorOnBehalf) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
+  const quoteLine = v5QuoteLineForWorksheet(req.db, job, body.quote_line_id);
+  if (quoteLine.error) return res.status(400).json({ success: false, message: quoteLine.error });
 
   // Offline sync: a retried create with the same reference never makes a second record.
   const requestId = body.client_request_id ? String(body.client_request_id) : null;
@@ -458,6 +473,7 @@ export const createWorksheet = (req, res) => {
     dispatch_card_id: dispatchId,
     technician_id: technicianId,
     technician_trade: technician?.trade || null,
+    quote_line_id: quoteLine.line?.id || null,
     worker_type: isContractorOnBehalf ? "contractor" : (body.worker_type || "technician"),
     worker_name: isContractorOnBehalf ? String(body.worker_name).trim() : (technician?.name || null),
     worker_category: body.worker_category || technician?.trade || "",
@@ -527,6 +543,11 @@ export const updateWorksheet = (req, res) => {
   const body = req.body;
   
   if (body.activity !== undefined) worksheet.activity = body.activity;
+  if (body.quote_line_id !== undefined) {
+    const quoteLine = v5QuoteLineForWorksheet(req.db, job, body.quote_line_id);
+    if (quoteLine.error) return res.status(400).json({ success: false, message: quoteLine.error });
+    worksheet.quote_line_id = quoteLine.line?.id || null;
+  }
   const updateError = applyTimesheetFields(worksheet, body, actor, { creating: false });
   if (updateError) return res.status(400).json({ success: false, message: updateError });
   if (isTimesheetV2(worksheet)) worksheet.server_checks = classifyTimesheet(worksheet);
