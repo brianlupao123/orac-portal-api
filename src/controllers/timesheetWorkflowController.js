@@ -13,7 +13,8 @@ import {
   poPosition, paperSamplingPlan, businessDaysBetween, reminderStage, anyActiveAuthority, workDateValidity, swapRevisionIfEligible, resolveAuthorityGate
 } from "../timesheetWorkflow.js";
 import { createHash } from "node:crypto";
-import { canonicalHoursByQuoteLine, v5Enabled } from "../v5CommercialWorkflow.js";
+import { v5Enabled } from "../v5CommercialWorkflow.js";
+import { v5VerifiedHoursByQuoteLine } from "../v5SignatureEvidence.js";
 
 const off = (res, name) => res.status(409).json({ success: false, code: "FEATURE_DISABLED", message: `${name} is not enabled yet.` });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -108,7 +109,8 @@ export function getV5BillingReadiness(req, res) {
   if (!quote?.v5_commercial_workflow) {
     return res.status(409).json({ success: false, message: "This dispatch is not linked to a V5 quotation revision." });
   }
-  const hours = canonicalHoursByQuoteLine(req.db, dispatch.id);
+  // Only V5-verified Timesheets count: paper evidence AND assigned ORAC Supervisor confirmation on the same current hash.
+  const hours = v5VerifiedHoursByQuoteLine(req.db, dispatch.id);
   const lines = (req.db.quote_lines || [])
     .filter((line) => line.quotation_id === quote.id)
     .map((line) => ({
@@ -121,7 +123,7 @@ export function getV5BillingReadiness(req, res) {
   const mappedHours = lines.reduce((sum, line) => sum + line.canonical_hours, 0);
   const blockers = [];
   if (hours.unmapped.hours > 0) blockers.push("Verified Timesheets have no quotation-line link.");
-  if (mappedHours <= 0) blockers.push("No verified canonical Timesheet hours are available.");
+  if (mappedHours <= 0) blockers.push("No V5-verified canonical Timesheet hours are available.");
   res.json({
     success: true,
     data: {
@@ -130,6 +132,11 @@ export function getV5BillingReadiness(req, res) {
       quotation_number: quote.quote_number || quote.id,
       lines,
       unmapped: hours.unmapped,
+      verification: {
+        definition: "paper_evidence_and_assigned_supervisor_confirmation_on_same_current_hash",
+        unverified_hours: hours.unverified.hours,
+        unverified_timesheets: hours.unverified.items
+      },
       canonical_hours_total: Number((mappedHours + hours.unmapped.hours).toFixed(2)),
       ready_for_pricing_review: blockers.length === 0,
       blockers

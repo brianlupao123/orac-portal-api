@@ -133,6 +133,10 @@ function seedData() {
     timesheet_authorities: [],
     timesheet_paper_custody: [],
     timesheet_variance_overrides: [],
+    // V5 paper-signature evidence (dark, append-only). Auto-backfilled onto an existing data file by normalizeDb().
+    v5_client_supervisor_contacts: [],
+    v5_paper_signatures: [],
+    v5_supervisor_confirmations: [],
     material_usage: [],
     invoices: [],
     invoice_lines: [],

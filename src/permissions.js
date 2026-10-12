@@ -93,6 +93,11 @@ const NEW_PERMISSIONS = {
   // Always-defined but only reachable through flag-guarded endpoints.
   viewTimesheetsRateFree: [A, M, S, O, V, F],
   viewV5BillingReadiness: [A, M, S, F],
+  // V5 paper-signature evidence (dark). The client-site Supervisor has NO role; only the assigned ORAC Supervisor confirms.
+  manageV5ClientSupervisorContacts: [A, S],
+  recordV5PaperSignature: [A, S],
+  confirmV5Timesheet: [V],
+  viewV5SignatureEvidence: [A, M, S, V, F],
   manageTimesheetAuthority: [A],
   captureTimesheetPaper: [A, S],
   logPaperCustody: [A, S, O],
