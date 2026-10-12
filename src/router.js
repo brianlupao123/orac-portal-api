@@ -2,7 +2,8 @@ import express from "express";
 import {
   getTimesheetPolicy, updateTimesheetPolicy, listTimesheetAuthorities, createTimesheetAuthority, revokeTimesheetAuthority,
   setClientCutover, listTimesheetsRateFree, capturePaperTimesheet, logPaperCustody, batchConfirmTimesheets,
-  runTimesheetReminders, getPaperSampling, getInvoiceVariance, requestVarianceOverride, approveVarianceOverride, resolvePostInvoiceRevision
+  runTimesheetReminders, getPaperSampling, getInvoiceVariance, requestVarianceOverride, approveVarianceOverride, resolvePostInvoiceRevision,
+  getV5BillingReadiness
 } from "./controllers/timesheetWorkflowController.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
@@ -235,6 +236,7 @@ router.post("/timesheet-authorities", createTimesheetAuthority);
 router.post("/timesheet-authorities/:id/revoke", revokeTimesheetAuthority);
 router.patch("/clients/:id/timesheet-cutover", setClientCutover);
 router.get("/timesheets/rate-free", listTimesheetsRateFree);
+router.get("/dispatch_cards/:id/v5-billing-readiness", getV5BillingReadiness);
 router.post("/field_worksheets/paper-capture", capturePaperTimesheet);
 router.post("/timesheet-paper-custody", logPaperCustody);
 router.post("/field_worksheets/batch-confirm", batchConfirmTimesheets);

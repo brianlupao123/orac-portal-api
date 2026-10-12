@@ -13,6 +13,7 @@ import {
   poPosition, paperSamplingPlan, businessDaysBetween, reminderStage, anyActiveAuthority, workDateValidity, swapRevisionIfEligible, resolveAuthorityGate
 } from "../timesheetWorkflow.js";
 import { createHash } from "node:crypto";
+import { canonicalHoursByQuoteLine, v5Enabled } from "../v5CommercialWorkflow.js";
 
 const off = (res, name) => res.status(409).json({ success: false, code: "FEATURE_DISABLED", message: `${name} is not enabled yet.` });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -93,6 +94,47 @@ export function listTimesheetsRateFree(req, res) {
     return out;
   });
   res.json({ success: true, data: rows });
+}
+
+// Read-only V5 bridge. It neither creates an invoice nor reads a rate: it
+// tells Sales and Finance whether the verified daily source is complete enough
+// to be priced against the quotation in a later, separately approved phase.
+export function getV5BillingReadiness(req, res) {
+  requirePermission(getActor(req), "viewV5BillingReadiness");
+  if (!v5Enabled()) return off(res, "V5 billing readiness");
+  const dispatch = (req.db.dispatch_cards || []).find((item) => item.id === req.params.id);
+  if (!dispatch) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  const quote = (req.db.quotes || []).find((item) => item.id === dispatch.quotation_id);
+  if (!quote?.v5_commercial_workflow) {
+    return res.status(409).json({ success: false, message: "This dispatch is not linked to a V5 quotation revision." });
+  }
+  const hours = canonicalHoursByQuoteLine(req.db, dispatch.id);
+  const lines = (req.db.quote_lines || [])
+    .filter((line) => line.quotation_id === quote.id)
+    .map((line) => ({
+      quote_line_id: line.id,
+      description: line.description,
+      pricing_basis: line.pricing_basis || null,
+      canonical_hours: hours.by_quote_line[line.id]?.hours || 0,
+      source_timesheet_ids: hours.by_quote_line[line.id]?.source_ids || []
+    }));
+  const mappedHours = lines.reduce((sum, line) => sum + line.canonical_hours, 0);
+  const blockers = [];
+  if (hours.unmapped.hours > 0) blockers.push("Verified Timesheets have no quotation-line link.");
+  if (mappedHours <= 0) blockers.push("No verified canonical Timesheet hours are available.");
+  res.json({
+    success: true,
+    data: {
+      dispatch_card_id: dispatch.id,
+      quotation_id: quote.id,
+      quotation_number: quote.quote_number || quote.id,
+      lines,
+      unmapped: hours.unmapped,
+      canonical_hours_total: Number((mappedHours + hours.unmapped.hours).toFixed(2)),
+      ready_for_pricing_review: blockers.length === 0,
+      blockers
+    }
+  });
 }
 
 // ---- Step 5: paper capture + custody ------------------------------------------

@@ -92,6 +92,7 @@ const S = roles.SALES, F = roles.FINANCE, A = roles.ADMIN, M = roles.MANAGEMENT,
 const NEW_PERMISSIONS = {
   // Always-defined but only reachable through flag-guarded endpoints.
   viewTimesheetsRateFree: [A, M, S, O, V, F],
+  viewV5BillingReadiness: [A, M, S, F],
   manageTimesheetAuthority: [A],
   captureTimesheetPaper: [A, S],
   logPaperCustody: [A, S, O],
