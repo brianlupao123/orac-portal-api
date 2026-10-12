@@ -27,6 +27,7 @@ const shared = {
   start_time: z.string().max(5).optional(),
   end_time: z.string().max(5).optional(),
   technician_id: z.string().optional(),
+  quote_line_id: z.string().optional(),
   work_date: z.string().optional(),
   worker_type: z.enum(["technician", "contractor"]).optional(),
   worker_name: z.string().trim().max(120).optional(),

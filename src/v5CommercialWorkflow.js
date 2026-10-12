@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isEligibleForDb } from "./timesheetEligibility.js";
 
 // V5 remains dark until every dependent adapter is ready. Its master flag is
 // intentionally independent from the earlier TIMESHEET_* experiment flags.
@@ -64,4 +65,26 @@ export function sheetIsVerified(db, sheet) {
   const client = sheet?.signatures?.client;
   return !signatureRefusal(db, "paper_attested", currentHash, orac) &&
     !signatureRefusal(db, sheet?.client_signature_method, currentHash, client);
+}
+
+// Rate-free input to a future V5 invoice calculation. The mapping is explicit
+// so one verified Timesheet cannot be silently priced against an unrelated
+// quotation line. Unmapped records are reported rather than discarded.
+export function canonicalHoursByQuoteLine(db, dispatchId) {
+  const byQuoteLine = {};
+  const unmapped = { hours: 0, source_ids: [] };
+  for (const sheet of db?.field_worksheets || []) {
+    if (sheet.dispatch_card_id !== dispatchId || !isEligibleForDb(db, sheet)) continue;
+    const hours = Number(sheet.hours || 0);
+    if (!sheet.quote_line_id) {
+      unmapped.hours = Number((unmapped.hours + hours).toFixed(2));
+      unmapped.source_ids.push(sheet.id);
+      continue;
+    }
+    const current = byQuoteLine[sheet.quote_line_id] || { hours: 0, source_ids: [] };
+    current.hours = Number((current.hours + hours).toFixed(2));
+    current.source_ids.push(sheet.id);
+    byQuoteLine[sheet.quote_line_id] = current;
+  }
+  return { by_quote_line: byQuoteLine, unmapped };
 }
