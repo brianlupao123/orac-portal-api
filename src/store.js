@@ -98,7 +98,17 @@ function seedData() {
       phone: "",
       email: "info@orac.co.zw",
       brand_primary: "#6EC1E4",
-      brand_slate: "#54595F"
+      brand_slate: "#54595F",
+      // V5 remains inert until ORAC_V5_COMMERCIAL_WORKFLOW is enabled. A
+      // signature method is never selected implicitly from a deployment.
+      v5_commercial_policy: {
+        invoice_self_approval: "allowed_if_clean",
+        client_signature_methods: [],
+        unbilled_age_days: 30,
+        variance_warning_percent: 80,
+        currency: "USD",
+        tax_rate: null
+      }
     },
     leads: [],
     quotes: [],
@@ -188,6 +198,9 @@ export function normalizeDb(db) {
 
   if (!db.company_profile || typeof db.company_profile !== "object") {
     db.company_profile = seeded.company_profile;
+  }
+  if (!db.company_profile.v5_commercial_policy || typeof db.company_profile.v5_commercial_policy !== "object") {
+    db.company_profile.v5_commercial_policy = seeded.company_profile.v5_commercial_policy;
   }
 
   // Backfill is_active on master-data records seeded before this field

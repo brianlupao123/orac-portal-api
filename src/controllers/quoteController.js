@@ -1,6 +1,8 @@
 import { requirePermission } from "../permissions.js";
 import { transitionQuote } from "../stateMachine.js";
 import { validateEquipmentTagForClient } from "../services/entityHierarchy.js";
+import { v5Enabled, getV5Policy } from "../v5CommercialWorkflow.js";
+import { calculateV5QuoteLines, quoteTotal } from "../v5QuoteRules.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -45,6 +47,71 @@ export const createQuote = (req, res) => {
   req.db.quote_lines.push(...lines.map((line) => ({ ...line, quotation_id: quote.id })));
   req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_CREATED", null, quote);
   
+  res.json({ success: true, data: quote });
+};
+
+function requireV5CommercialWorkflow(res) {
+  if (v5Enabled()) return true;
+  res.status(409).json({ success: false, code: "V5_WORKFLOW_DISABLED", message: "The V5 commercial workflow is not enabled." });
+  return false;
+}
+
+// A revision is a new immutable quotation. The original quote and its lines are
+// deliberately not changed; this protects the accepted commercial record.
+export const createQuoteRevision = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "createQuote");
+  if (!requireV5CommercialWorkflow(res)) return;
+
+  const original = req.db.quotes.find((item) => item.id === req.params.id);
+  if (!original) return res.status(404).json({ success: false, message: "Quote not found." });
+  if (original.status === "Cancelled") return res.status(409).json({ success: false, message: "A cancelled quote cannot be revised." });
+  const policy = getV5Policy(req.db);
+  const lines = calculateV5QuoteLines(req.body.lines);
+  const rootId = original.root_quote_id || original.id;
+  const rootQuote = req.db.quotes.find((quote) => quote.id === rootId) || original;
+  const revisionNumber = req.db.quotes.filter((quote) => (quote.root_quote_id || quote.id) === rootId).length;
+  const quote = {
+    id: req.store.id("quote"),
+    quote_number: `${rootQuote.quote_number}-R${revisionNumber}`,
+    client_id: original.client_id,
+    equipment_tag_id: original.equipment_tag_id || null,
+    status: "Draft",
+    total_amount: quoteTotal(lines),
+    currency: policy.currency,
+    tax_rate: req.body.tax_rate ?? policy.tax_rate,
+    root_quote_id: rootId,
+    revision_of_quote_id: original.id,
+    revision_number: revisionNumber,
+    revision_reason: req.body.reason,
+    client_po_reference: req.body.client_po_reference || null,
+    client_po_date: req.body.client_po_date || null,
+    created_by: actor.id,
+    created_at: new Date().toISOString(),
+    v5_commercial_workflow: true
+  };
+  req.db.quotes.push(quote);
+  req.db.quote_lines.push(...lines.map((line) => ({ ...line, id: req.store.id("ql"), quotation_id: quote.id })));
+  req.store.audit(req.db, actor, "quotation", quote.id, "V5_QUOTE_REVISION_CREATED", null, quote);
+  res.status(201).json({ success: true, data: quote });
+};
+
+// Sales records the client's amended PO or written acceptance. Finance remains
+// payments-only in the V5 path; later invoice preparation checks this evidence.
+export const recordAmendedPoEvidence = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "createQuote");
+  if (!requireV5CommercialWorkflow(res)) return;
+  const quote = req.db.quotes.find((item) => item.id === req.params.id);
+  if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
+  if (!quote.revision_of_quote_id) return res.status(409).json({ success: false, message: "Client amendment evidence applies to a quotation revision only." });
+  const before = { ...quote };
+  quote.amended_po_evidence = {
+    ...req.body,
+    recorded_by: actor.id,
+    recorded_at: new Date().toISOString()
+  };
+  req.store.audit(req.db, actor, "quotation", quote.id, "V5_AMENDED_PO_EVIDENCE_RECORDED", before, quote);
   res.json({ success: true, data: quote });
 };
 

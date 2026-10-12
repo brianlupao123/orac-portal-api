@@ -7,7 +7,7 @@ import {
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
-  LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, TransitionQuoteSchema, VerifyPoSchema,
+  LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, CreateQuoteRevisionSchema, RecordAmendedPoEvidenceSchema, TransitionQuoteSchema, VerifyPoSchema,
   AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema, AssignRosterSchema,
   ReviewWorksheetSchema, ReviewKioskTimesheetSchema, AssignDispatchSupervisorSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
@@ -27,7 +27,7 @@ import {
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
 import { createAccessRequest, approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink } from "./controllers/accessRequestsController.js";
-import { createQuote, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
+import { createQuote, createQuoteRevision, recordAmendedPoEvidence, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
@@ -175,6 +175,8 @@ router.post("/access-requests/:id/setup-link", issueAccessRequestSetupLink);
 // Quotes
 router.post("/quotes", validate(CreateQuoteSchema), createQuote);
 router.patch("/quotes/:id", validate(UpdateQuoteSchema), updateQuote);
+router.post("/quotes/:id/revisions", validate(CreateQuoteRevisionSchema), createQuoteRevision);
+router.post("/quotes/:id/amended-po-evidence", validate(RecordAmendedPoEvidenceSchema), recordAmendedPoEvidence);
 router.post("/quotes/:id/cancel", cancelQuote);
 router.post("/quotes/:id/transition", validate(TransitionQuoteSchema), transition);
 router.post("/quotes/:id/po", validate(VerifyPoSchema), capturePo);

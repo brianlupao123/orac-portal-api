@@ -26,6 +26,31 @@ export const UpdateQuoteSchema = z.object({
   lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required").optional()
 });
 
+const V5QuoteLineSchema = z.object({
+  catalog_item_id: z.string().nullable().optional(),
+  description: z.string().min(1, "Description is required"),
+  quantity: z.number().positive("Quantity must be positive"),
+  unit_price: z.number().min(0, "Unit price cannot be negative"),
+  pricing_basis: z.enum(["hourly", "minimum_hours", "fixed"]),
+  planned_hours: z.number().positive("Planned hours must be positive").max(24 * 366).nullable().optional(),
+  materials_included: z.boolean().optional()
+});
+
+export const CreateQuoteRevisionSchema = z.object({
+  reason: z.string().trim().min(3, "A revision reason is required").max(1000),
+  lines: z.array(V5QuoteLineSchema).min(1, "At least one quote line is required"),
+  tax_rate: z.number().min(0).max(100).nullable().optional(),
+  client_po_reference: z.string().trim().min(1).max(120).nullable().optional(),
+  client_po_date: z.string().date().nullable().optional()
+});
+
+export const RecordAmendedPoEvidenceSchema = z.object({
+  evidence_reference: z.string().trim().min(3, "Client acceptance evidence is required").max(500),
+  evidence_channel: z.enum(["amended_po", "written_acceptance"]),
+  accepted_on: z.string().date(),
+  notes: z.string().trim().max(1000).optional()
+});
+
 export const TransitionQuoteSchema = z.object({
   target_state: z.string().min(1, "Target state is required"),
   started_before_po: z.boolean().optional(),
