@@ -8,6 +8,7 @@ import {
   TIMESHEET_VERSION, normaliseBreakdown, validateTimes, isTimesheetV2, employeeSignoffMissing, classifyTimesheet, isIsoDate
 } from "../timesheetModel.js";
 import { v5Enabled } from "../v5CommercialWorkflow.js";
+import { v5SupervisorAssignmentRefusal } from "../v5SignatureEvidence.js";
 
 const STAFF_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR];
 const normName = (v) => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -135,6 +136,8 @@ export const assignDispatchSupervisor = (req, res) => {
   const supervisor = req.db.users.find((user) => user.id === req.body.supervisor_id && user.role === roles.SUPERVISOR);
   if (!supervisor) return res.status(400).json({ success: false, message: "A valid Supervisor is required." });
   if (supervisor.is_active === false) return res.status(400).json({ success: false, message: "Cannot assign an inactive Supervisor." });
+  const separationRefusal = v5SupervisorAssignmentRefusal(req.db, job, supervisor); // dark: null unless V5 is enabled for this quotation
+  if (separationRefusal) return res.status(409).json({ success: false, code: "V5_SUPERVISOR_SEPARATION", message: separationRefusal });
   if (job.assigned_supervisor_id === supervisor.id) {
     return res.json({ success: true, data: job, message: "This Supervisor is already assigned to the dispatch." });
   }

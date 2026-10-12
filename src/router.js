@@ -5,6 +5,11 @@ import {
   runTimesheetReminders, getPaperSampling, getInvoiceVariance, requestVarianceOverride, approveVarianceOverride, resolvePostInvoiceRevision,
   getV5BillingReadiness
 } from "./controllers/timesheetWorkflowController.js";
+import {
+  createV5ClientSupervisorContact, listV5ClientSupervisorContacts, withdrawV5ClientSupervisorContact,
+  getV5SignatureState, recordV5PaperSignature, confirmV5Timesheet
+} from "./controllers/v5SignatureController.js";
+import { V5ClientSupervisorContactSchema, V5PaperSignatureSchema, V5SupervisorConfirmationSchema } from "./v5SignatureSchemas.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import {
@@ -237,6 +242,12 @@ router.post("/timesheet-authorities/:id/revoke", revokeTimesheetAuthority);
 router.patch("/clients/:id/timesheet-cutover", setClientCutover);
 router.get("/timesheets/rate-free", listTimesheetsRateFree);
 router.get("/dispatch_cards/:id/v5-billing-readiness", getV5BillingReadiness);
+router.get("/dispatch_cards/:id/v5-client-supervisor-contacts", listV5ClientSupervisorContacts);
+router.post("/dispatch_cards/:id/v5-client-supervisor-contacts", validate(V5ClientSupervisorContactSchema), createV5ClientSupervisorContact);
+router.post("/v5-client-supervisor-contacts/:id/withdraw", withdrawV5ClientSupervisorContact);
+router.get("/field_worksheets/:id/v5-signature-state", getV5SignatureState);
+router.post("/field_worksheets/:id/v5-paper-signature", validate(V5PaperSignatureSchema), recordV5PaperSignature);
+router.post("/field_worksheets/:id/v5-supervisor-confirmation", validate(V5SupervisorConfirmationSchema), confirmV5Timesheet);
 router.post("/field_worksheets/paper-capture", capturePaperTimesheet);
 router.post("/timesheet-paper-custody", logPaperCustody);
 router.post("/field_worksheets/batch-confirm", batchConfirmTimesheets);
