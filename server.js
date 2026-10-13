@@ -19,7 +19,7 @@ const publicDir = join(__dirname, "public");
 
 export const store = config.storeDriver === "postgres" 
   ? createPostgresStore(join(__dirname, "data", "db.json")) 
-  : createJsonStore(join(__dirname, "data", "db.json"));
+  : createJsonStore(config.jsonDbPath);
 
 if (config.storeDriver === "postgres") {
   await ensureTableExists();
