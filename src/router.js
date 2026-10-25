@@ -12,18 +12,20 @@ import {
 import { V5ClientSupervisorContactSchema, V5PaperSignatureSchema, V5SupervisorConfirmationSchema } from "./v5SignatureSchemas.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
+import { idempotencyKeyMiddleware } from "./idempotency.js";
 import {
-  LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, CreateQuoteRevisionSchema, RecordAmendedPoEvidenceSchema, TransitionQuoteSchema, VerifyPoSchema,
-  AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, CreateWorksheetSchema, AssignRosterSchema,
+  LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, CreateQuoteRevisionSchema, RecordAmendedPoEvidenceSchema, ApproveV5AmendmentSchema, TransitionQuoteSchema, VerifyPoSchema,
+  AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, V5MaterialAllocationSchema, V5AmendmentDispatchLinkSchema, V5AmendmentEvidenceAllocationSchema, CreateV5InvoiceDraftSchema, IssueV5InvoiceDraftSchema, V5LineCompletionSchema, V5AmendmentSupersessionSchema, V5AllocationRemapSchema, CreateWorksheetSchema, AssignRosterSchema,
   ReviewWorksheetSchema, ReviewKioskTimesheetSchema, AssignDispatchSupervisorSchema, ApproveAmendmentSchema, CreateLeadSchema, UpdateWorksheetSchema,
   AdminCreateUserSchema, AdminUpdateUserSchema, AdminCreateClientSchema, AdminUpdateClientSchema,
   AdminCreateMineSiteSchema, AdminUpdateMineSiteSchema, AdminCreatePlantSchema, AdminUpdatePlantSchema,
   AdminCreatePlantSectionSchema, AdminUpdatePlantSectionSchema, AdminCreateEquipmentTagSchema, AdminUpdateEquipmentTagSchema,
   AdminCreateCatalogItemSchema, AdminUpdateCatalogItemSchema, AdminCompanyProfileSchema,
-  ClientSubmitPoSchema,
+  ClientSubmitPoSchema, RejectPoSchema,
   CreateSupplierSchema, UpdateSupplierSchema,
   CreateStockItemSchema, UpdateStockItemSchema,
   StockMovementSchema, DirectSaleStockIssueSchema,
+  RecordInvoicePaymentSchema, VoidInvoicePaymentSchema, CreateLegacyInvoiceDraftSchema, IssueLegacyInvoiceDraftSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
   CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
   ClientAcknowledgeWorksheetSchema, ClientReturnWorksheetSchema, ReviseWorksheetSchema,
@@ -33,12 +35,17 @@ import {
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
 import { createAccessRequest, approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink } from "./controllers/accessRequestsController.js";
-import { createQuote, createQuoteRevision, recordAmendedPoEvidence, transition, capturePo, submitClientPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
+import { createQuote, createQuoteRevision, recordAmendedPoEvidence, approveV5Amendment, transition, capturePo, submitClientPo, rejectPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
   addTimesheet, addMaterialUsage, createWorksheet,
   submitWorksheet, reviewWorksheet, approveAmendment, updateWorksheet,
-  getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster, assignDispatchSupervisor
+  getDispatchMaterialStatus, assignRosterTechnician, getDispatchRoster, assignDispatchSupervisor, getDispatchJobCard, getDispatchInvoiceReadiness
 } from "./controllers/dispatchController.js";
+import { allocateV5MaterialUsage } from "./controllers/v5MaterialAllocationController.js";
+import { linkV5AmendmentToDispatch } from "./controllers/v5AmendmentLinkController.js";
+import { allocateV5AmendmentEvidence } from "./controllers/v5AmendmentEvidenceAllocationController.js";
+import { getV5InvoicePreview } from "./controllers/v5InvoicePreviewController.js";
+import { createV5InvoiceDraft, getV5InvoiceDraft, getV5InvoiceDraftWorkspace, issueV5InvoiceDraft, listDispatchV5InvoiceDrafts, recordV5LineCompletion, supersedeV5Amendment, remapV5Allocation, getV5Invoice, listDispatchV5Invoices, getV5InvoiceBillingState } from "./controllers/v5InvoiceWriterController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
 import {
   createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet,
@@ -64,12 +71,15 @@ import {
   getTimesheetPeriodPack, getTimesheetPeriodPackPdf, getTimesheetPeriodSummary
 } from "./controllers/timesheetAcknowledgementController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
+import { getInvoiceSettlement, recordInvoicePayment, voidInvoicePayment } from "./controllers/invoiceSettlementController.js";
+import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft, listLegacyInvoiceDrafts } from "./controllers/legacyInvoiceDraftController.js";
+import { getQuoteTrail } from "./controllers/trailController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport, getInventoryReconciliation } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
-import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, flagAiResponse } from "./controllers/aiController.js";
+import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, getRecordAnalysis, flagAiResponse } from "./controllers/aiController.js";
 import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
 import { getDailyTaskReport, getInvoiceReadySummary, getClientCompletionRecord } from "./controllers/operationalDocumentsController.js";
 import {
@@ -90,7 +100,7 @@ const router = express.Router();
 
 // Public routes
 router.post("/auth/login", validate(LoginSchema), loginDemoUser);
-router.post("/leads", validate(CreateLeadSchema), createLead);
+router.post("/leads", idempotencyKeyMiddleware, validate(CreateLeadSchema), createLead);
 
 // NEW — Phase 6: forgot/reset password (public; token proves identity).
 // Not run through the `validate()` middleware — schemas.js's exact export
@@ -124,6 +134,7 @@ router.post("/ai/attention", getAttentionItems);
 router.post("/ai/explain", getMetricExplanation);
 router.post("/ai/chat", getChatResponse);
 router.post("/ai/workflow", getWorkflowGuide);
+router.post("/ai/record-analysis", getRecordAnalysis);
 router.post("/ai/feedback", flagAiResponse);
 
 // Printable/document-data endpoints (Phase 03)
@@ -145,6 +156,9 @@ router.get("/documents/job-cards/:id.pdf", getJobCardPdf);
 router.get("/documents/worksheets/:id.pdf", getWorksheetPdf);
 router.get("/documents/invoices/:id.pdf", getInvoicePdf);
 router.post("/invoices/:id/void", voidInvoice);
+router.get("/invoices/:id/settlement", getInvoiceSettlement);
+router.post("/invoices/:id/payments", idempotencyKeyMiddleware, validate(RecordInvoicePaymentSchema), recordInvoicePayment);
+router.post("/invoices/:id/payments/:paymentId/void", validate(VoidInvoicePaymentSchema), voidInvoicePayment);
 router.get("/documents/purchase-orders/:id.pdf", getPoDocumentPdf);
 
 // Reports (Phase 04)
@@ -183,12 +197,21 @@ router.post("/quotes", validate(CreateQuoteSchema), createQuote);
 router.patch("/quotes/:id", validate(UpdateQuoteSchema), updateQuote);
 router.post("/quotes/:id/revisions", validate(CreateQuoteRevisionSchema), createQuoteRevision);
 router.post("/quotes/:id/amended-po-evidence", validate(RecordAmendedPoEvidenceSchema), recordAmendedPoEvidence);
+router.post("/quotes/:id/approve-amendment", validate(ApproveV5AmendmentSchema), approveV5Amendment);
 router.post("/quotes/:id/cancel", cancelQuote);
 router.post("/quotes/:id/transition", validate(TransitionQuoteSchema), transition);
 router.post("/quotes/:id/po", validate(VerifyPoSchema), capturePo);
 router.post("/quotes/:id/client-po", validate(ClientSubmitPoSchema), submitClientPo);
+router.post("/quotes/:id/record-po", validate(ClientSubmitPoSchema), submitClientPo);
+router.post("/quotes/:id/reject-po", validate(RejectPoSchema), rejectPo);
+router.get("/trail/quotes/:id", getQuoteTrail);
 
 // Dispatches & Worksheets
+router.get("/dispatch_cards/:id/job-card", getDispatchJobCard);
+router.get("/dispatch_cards/:id/invoice-readiness", getDispatchInvoiceReadiness);
+router.get("/dispatch_cards/:id/legacy-invoice-drafts", listLegacyInvoiceDrafts);
+router.post("/dispatch_cards/:id/legacy-invoice-drafts", validate(CreateLegacyInvoiceDraftSchema), createLegacyInvoiceDraft);
+router.post("/legacy-invoice-drafts/:id/issue", validate(IssueLegacyInvoiceDraftSchema), issueLegacyInvoiceDraft);
 router.post("/dispatch_cards/:id/timesheets", validate(AddTimesheetSchema), addTimesheet);
 router.get("/dispatch_cards/:id/timesheets", listDispatchTimesheets);
 router.get("/timesheets/kiosk-review", listKioskReviewQueue);
@@ -197,6 +220,9 @@ router.get("/kiosk/dispatch_cards/:id/roster", getKioskRoster);
 router.post("/kiosk/dispatch_cards/:id/timesheets", validate(KioskTimesheetBatchSchema), submitKioskTimesheets);
 router.post("/dispatch_cards/:id/materials", validate(AddMaterialSchema), addMaterialUsage);
 router.get("/dispatch_cards/:id/materials/status", getDispatchMaterialStatus);
+router.post("/dispatch_cards/:id/v5-material-allocations", validate(V5MaterialAllocationSchema), allocateV5MaterialUsage);
+router.post("/dispatch_cards/:id/v5-amendment-links", validate(V5AmendmentDispatchLinkSchema), linkV5AmendmentToDispatch);
+router.post("/dispatch_cards/:id/v5-amendment-evidence-allocations", validate(V5AmendmentEvidenceAllocationSchema), allocateV5AmendmentEvidence);
 router.post("/dispatch_cards/:id/worksheets", validate(CreateTimesheetSchemaV2), createWorksheet);
 router.get("/dispatch_cards/:id/roster", getDispatchRoster);
 router.post("/dispatch_cards/:id/roster", validate(AssignRosterSchema), assignRosterTechnician);
@@ -242,6 +268,18 @@ router.post("/timesheet-authorities/:id/revoke", revokeTimesheetAuthority);
 router.patch("/clients/:id/timesheet-cutover", setClientCutover);
 router.get("/timesheets/rate-free", listTimesheetsRateFree);
 router.get("/dispatch_cards/:id/v5-billing-readiness", getV5BillingReadiness);
+router.get("/dispatch_cards/:id/v5-invoice-preview", getV5InvoicePreview);
+router.get("/dispatch_cards/:id/v5-invoice-draft-workspace", getV5InvoiceDraftWorkspace);
+router.get("/dispatch_cards/:id/v5-invoice-drafts", listDispatchV5InvoiceDrafts);
+router.post("/dispatch_cards/:id/v5-invoice-drafts", validate(CreateV5InvoiceDraftSchema), createV5InvoiceDraft);
+router.get("/v5-invoice-drafts/:id", getV5InvoiceDraft);
+router.post("/v5-invoice-drafts/:id/issue", validate(IssueV5InvoiceDraftSchema), issueV5InvoiceDraft);
+router.post("/dispatch_cards/:id/v5-line-completions", validate(V5LineCompletionSchema), recordV5LineCompletion);
+router.post("/dispatch_cards/:id/v5-amendment-supersessions", validate(V5AmendmentSupersessionSchema), supersedeV5Amendment);
+router.post("/dispatch_cards/:id/v5-allocation-remaps", validate(V5AllocationRemapSchema), remapV5Allocation);
+router.get("/v5-invoices/:id", getV5Invoice);
+router.get("/dispatch_cards/:id/v5-invoices", listDispatchV5Invoices);
+router.get("/dispatch_cards/:id/v5-invoice-billing-state", getV5InvoiceBillingState);
 router.get("/dispatch_cards/:id/v5-client-supervisor-contacts", listV5ClientSupervisorContacts);
 router.post("/dispatch_cards/:id/v5-client-supervisor-contacts", validate(V5ClientSupervisorContactSchema), createV5ClientSupervisorContact);
 router.post("/v5-client-supervisor-contacts/:id/withdraw", withdrawV5ClientSupervisorContact);

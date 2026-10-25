@@ -14,6 +14,7 @@ function ctx({ quoteStatus = "Field_Dispatch", clientActive, invoices = [], po =
   const db = {
     users: [
       { id: "ops", role: "Operations", is_active: true },
+      { id: "fin", role: "Finance", is_active: true },
       { id: "cli", role: "Client Viewer", is_active: true, client_id: "c1" },
       { id: "tech", role: "Technician", is_active: true }
     ],
@@ -32,21 +33,21 @@ const reqFor = (user, c, params, body) => ({ user: { id: user }, params, body, d
 // ---- PO controls
 test("verified PO amount cannot be changed via capturePo (must use amendment)", () => {
   const c = ctx({ po: verifiedPo() }); const r = res();
-  capturePo(reqFor("ops", c, { id: "q1" }, { po_reference: "R1", po_amount: 500 }), r);
+  capturePo(reqFor("fin", c, { id: "q1" }, { po_reference: "R1", po_amount: 500 }), r);
   assert.equal(r.statusCode, 409);
   assert.equal(c.db.purchase_orders[0].po_amount, 100);
   assert.equal(c.audits.length, 0);
 });
 test("re-verifying a verified PO at the same amount is still allowed", () => {
   const c = ctx({ po: verifiedPo() }); const r = res();
-  capturePo(reqFor("ops", c, { id: "q1" }, { po_reference: "R1-fixed", po_amount: 100 }), r);
+  capturePo(reqFor("fin", c, { id: "q1" }, { po_reference: "R1-fixed", po_amount: 100 }), r);
   assert.equal(r.statusCode, 200);
   assert.equal(c.db.purchase_orders[0].po_reference, "R1-fixed");
 });
 test("PO capture refused for Invoiced and Cancelled quotes", () => {
   for (const status of ["Invoiced", "Cancelled"]) {
     const c = ctx({ quoteStatus: status, po: verifiedPo() }); const r = res();
-    capturePo(reqFor("ops", c, { id: "q1" }, { po_reference: "R1", po_amount: 100 }), r);
+    capturePo(reqFor("fin", c, { id: "q1" }, { po_reference: "R1", po_amount: 100 }), r);
     assert.equal(r.statusCode, 409, status);
     assert.equal(c.audits.length, 0);
   }

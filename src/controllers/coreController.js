@@ -11,6 +11,10 @@ import {
 } from "../services/entityHierarchy.js";
 import { decorateMovementForDisplay } from "../inventoryLedger.js";
 import { awaitsSupervisorReview } from "../timesheetEligibility.js";
+import {
+  LEAD_CREATE_SCOPE, IDEMPOTENCY_REPLAY_HEADER, canonicalLeadFields, leadRequestHash,
+  pruneExpiredKeys, findActiveKey, buildKeyRecord, requestNowMs
+} from "../idempotency.js";
 
 export function getActor(req) {
   // GET endpoints might be called by an authenticated user
@@ -21,6 +25,14 @@ export function getActor(req) {
 // Role guards for every generic collection GET endpoint. Keep this explicit:
 // a newly mounted collection must receive a deliberate policy before it can
 // return data to any authenticated account.
+export const CLIENT_VISIBLE_QUOTE_STATUSES = Object.freeze([
+  "Sent",
+  "Approved_Pending_PO",
+  "PO_Verified",
+  "Field_Dispatch",
+  "Invoiced"
+]);
+
 export const collectionGuards = {
   users: [roles.ADMIN],
   // Master-data and commercial collections must be explicitly guarded. Field
@@ -191,7 +203,8 @@ export function buildScopedSummary(db, actor) {
   let worksheetsData = db.field_worksheets;
 
   if (isClientViewer(actor)) {
-    quotesData = scopeByClient(quotesData, actor, clientScopedResolvers.quotes);
+    quotesData = scopeByClient(quotesData, actor, clientScopedResolvers.quotes)
+      .filter((quote) => CLIENT_VISIBLE_QUOTE_STATUSES.includes(quote.status));
     dispatchData = scopeByClient(dispatchData, actor, (item) => clientScopedResolvers.dispatch_cards(item, db));
     invoicesData = scopeByClient(invoicesData, actor, (item) => clientScopedResolvers.invoices(item, db));
     purchaseOrdersData = [];
@@ -271,24 +284,55 @@ export const createLead = (req, res) => {
   // the audit log. Unauthenticated submissions are now recorded as "system".
   const actor = req.user ? getActor(req) : null;
 
-  const body = req.body;
+  const fields = canonicalLeadFields(req.body);
+  const nowMs = requestNowMs(req);
+  const idempotencyKey = req.idempotencyKey;
+  let requestHash;
+
+  if (idempotencyKey) {
+    // Runs inside the store lock: the lookup, the creation and the key record
+    // below are one atomic unit that persistenceMiddleware commits BEFORE the
+    // response is sent. A replay performs no creation, audit or notification.
+    requestHash = leadRequestHash(fields);
+    pruneExpiredKeys(req.db, nowMs);
+    const existing = findActiveKey(req.db, LEAD_CREATE_SCOPE, idempotencyKey, nowMs);
+    if (existing) {
+      if (existing.request_hash !== requestHash) {
+        return res.status(409).json({
+          success: false,
+          code: "IDEMPOTENCY_KEY_CONFLICT",
+          message: "This Idempotency-Key was already used for a different submission."
+        });
+      }
+      res.setHeader(IDEMPOTENCY_REPLAY_HEADER, "true");
+      return res.status(existing.status_code).json({ ...existing.response, idempotent_replay: true });
+    }
+  }
+
   const lead = {
     id: req.store.id("lead"),
-    company_name: body.company_name,
-    contact_name: body.contact_name,
-    email: body.email,
-    phone: String(body.phone || "").trim(),
-    mine_site: String(body.mine_site || "").trim(),
-    service_need: body.service_need,
-    urgency: String(body.urgency || "standard").trim(),
+    company_name: fields.company_name,
+    contact_name: fields.contact_name,
+    email: fields.email,
+    phone: fields.phone,
+    mine_site: fields.mine_site,
+    service_need: fields.service_need,
+    urgency: fields.urgency,
     status: "New",
-    created_at: new Date().toISOString()
+    created_at: new Date(nowMs).toISOString()
   };
 
   req.db.leads.push(lead);
   req.store.audit(req.db, actor, "lead", lead.id, "LEAD_CREATED", null, lead);
 
-  res.json({ success: true, data: lead });
+  const response = { success: true, data: lead };
+  if (idempotencyKey) {
+    req.db.idempotency_keys.push(buildKeyRecord({
+      scope: LEAD_CREATE_SCOPE, key: idempotencyKey, requestHash, leadId: lead.id,
+      statusCode: 200, response, nowMs
+    }));
+  }
+  res.json(response);
 };
 
 export const getCollection = (collectionName) => {
@@ -308,6 +352,15 @@ export const getCollection = (collectionName) => {
     const resolveClientId = clientScopedResolvers[collectionName];
     if (resolveClientId && isClientViewer(actor)) {
       data = scopeByClient(data, actor, (item) => resolveClientId(item, req.db));
+      if (collectionName === "quotes") {
+        data = data.filter((quote) => quote.status ? CLIENT_VISIBLE_QUOTE_STATUSES.includes(quote.status) : true);
+      }
+      if (collectionName === "quote_lines") {
+        data = data.filter((line) => {
+          const parent = req.db.quotes.find((q) => q.id === line.quotation_id);
+          return parent && (!parent.status || CLIENT_VISIBLE_QUOTE_STATUSES.includes(parent.status));
+        });
+      }
     }
     data = scopeOperationalData(data, collectionName, actor, req.db);
     res.json({ success: true, data: collectionResponseData(collectionName, data, req.db) });

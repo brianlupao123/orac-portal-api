@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { createStore } from "../src/store.js";
-import { transitionQuote } from "../src/stateMachine.js";
+import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { permissions } from "../src/permissions.js";
 import { recordStockMovement } from "../src/controllers/inventoryController.js";
 
@@ -41,12 +41,12 @@ test("a goods-only quote cannot be invoiced: the invoice gate needs a dispatch c
   transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
   db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-1", po_amount: 500, status: "verified", requires_amendment: false });
   transitionQuote(db, store, "q1", "PO_Verified", {}, admin);
-  assert.throws(() => transitionQuote(db, store, "q1", "Invoiced", {}, admin), /Illegal transition/, "no shortcut from PO_Verified to Invoiced");
+  assert.throws(() => issueLegacyInvoice(db, store, "q1", admin), /Illegal transition/, "no shortcut from PO_Verified to Invoiced");
   // The only way forward is a service dispatch, and even then the invoice is
   // blocked until a supervisor approves a field worksheet. A goods-only sale
   // has neither, which is exactly the gap the joint contract must close.
   transitionQuote(db, store, "q1", "Field_Dispatch", {}, db.users[1]);
-  assert.throws(() => transitionQuote(db, store, "q1", "Invoiced", {}, admin), /supervisor-approved worksheet is required/);
+  assert.throws(() => issueLegacyInvoice(db, store, "q1", admin), /supervisor-approved worksheet is required/);
   assert.equal(db.invoices.length, 0);
 });
 

@@ -88,7 +88,12 @@ export const DESTINATIONS = Object.freeze({
   lead: {
     collection: "leads",
     label: "Leads",
-    routes: {}
+    // The current D: portal surfaces new leads in its Sales quotation workspace.
+    // Management is intentionally omitted: that route permits quote mutations.
+    routes: {
+      [ADMIN]: { path: "/quotations" },
+      [SALES]: { path: "/quotations" }
+    }
   }
 });
 

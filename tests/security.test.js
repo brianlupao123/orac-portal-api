@@ -30,3 +30,39 @@ test("development fallback secret remains non-production only", () => {
 test("runtime config validates current demo environment", () => {
   assert.doesNotThrow(() => validateRuntimeConfig());
 });
+
+test("production runtime refuses RATE_LIMIT_DISABLED=true", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e",
+    `import { validateRuntimeConfig } from ${JSON.stringify(new URL("../src/config.js", import.meta.url).href)}; validateRuntimeConfig()`],
+    {
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        STORE_DRIVER: "postgres",
+        DATABASE_URL: "postgres://not-connected.invalid/orac-test",
+        JWT_SECRET: "test-secret-which-is-long-enough-for-production-validation",
+        RATE_LIMIT_DISABLED: "true"
+      },
+      encoding: "utf8"
+    });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /RATE_LIMIT_DISABLED=true is not permitted in production/);
+});
+
+test("runtime config rejects malformed TRUST_PROXY_HOPS and accepts zero", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const run = (trustProxyHops) => spawnSync(process.execPath, ["--input-type=module", "-e",
+    `import { validateRuntimeConfig } from ${JSON.stringify(new URL("../src/config.js", import.meta.url).href)}; validateRuntimeConfig()`],
+    {
+      env: { ...process.env, TRUST_PROXY_HOPS: trustProxyHops },
+      encoding: "utf8"
+    });
+  for (const value of ["abc", "1.5", "-1", "9007199254740992"]) {
+    const result = run(value);
+    assert.notEqual(result.status, 0, `expected ${value} to be rejected`);
+    assert.match(result.stderr, /Invalid TRUST_PROXY_HOPS/);
+  }
+  assert.equal(run("0").status, 0);
+  assert.equal(run("2").status, 0);
+});

@@ -4,6 +4,7 @@ import {
   V5_MASTER_FLAG, getV5Policy, hoursToHundredths, hundredthsToHours,
   signatureHash, signatureRefusal, sheetIsVerified, validateV5PolicyPatch
 } from "../src/v5CommercialWorkflow.js";
+import { V5_INVOICE_JSON_ACKNOWLEDGEMENT, V5_INVOICE_WRITER_FLAG, v5InvoiceWriterRefusal } from "../src/v5InvoiceWriterPolicy.js";
 
 const db = { company_profile: { v5_commercial_policy: { client_signature_methods: ["paper_attested"] } } };
 const sheet = { sheet_id: "sheet-1", dispatch_card_id: "dispatch-1", worker_id: "worker-1", work_date: "2026-10-12", hours_hundredths: 800, buckets: { normal: 800 } };
@@ -48,4 +49,24 @@ test("V5 policy only accepts explicit pilot values", () => {
   assert.deepEqual(validateV5PolicyPatch({ client_signature_methods: ["paper_attested"], tax_rate: null }), []);
   assert.equal(validateV5PolicyPatch({ client_signature_methods: ["email"] }).length, 1);
   assert.equal(validateV5PolicyPatch({ invoice_self_approval: "anything" }).length, 1);
+});
+
+test("V5 invoice writing needs two flags and refuses JSON without an explicit single-process acknowledgement", () => {
+  const prior = Object.fromEntries([V5_MASTER_FLAG, V5_INVOICE_WRITER_FLAG, V5_INVOICE_JSON_ACKNOWLEDGEMENT].map((key) => [key, process.env[key]]));
+  try {
+    process.env[V5_MASTER_FLAG] = "enabled";
+    delete process.env[V5_INVOICE_WRITER_FLAG];
+    delete process.env[V5_INVOICE_JSON_ACKNOWLEDGEMENT];
+    assert.equal(v5InvoiceWriterRefusal({ storeDriver: "postgres" })?.code, "FEATURE_DISABLED");
+    process.env[V5_INVOICE_WRITER_FLAG] = "enabled";
+    assert.equal(v5InvoiceWriterRefusal({ storeDriver: "json" })?.code, "V5_INVOICE_JSON_STORE_UNSUPPORTED");
+    process.env[V5_INVOICE_JSON_ACKNOWLEDGEMENT] = "acknowledged";
+    assert.equal(v5InvoiceWriterRefusal({ storeDriver: "json" }), null);
+    assert.equal(v5InvoiceWriterRefusal({ storeDriver: "postgres" }), null);
+    assert.equal(v5InvoiceWriterRefusal({ storeDriver: "other" })?.code, "V5_INVOICE_STORE_UNSUPPORTED");
+  } finally {
+    for (const [key, value] of Object.entries(prior)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
 });

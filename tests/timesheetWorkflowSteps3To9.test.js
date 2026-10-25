@@ -6,7 +6,7 @@ import * as W from "../src/timesheetWorkflow.js";
 import * as C from "../src/controllers/timesheetWorkflowController.js";
 import { acknowledgeWorksheet } from "../src/controllers/timesheetAcknowledgementController.js";
 import { isEligibleForDb } from "../src/timesheetEligibility.js";
-import { transitionQuote } from "../src/stateMachine.js";
+import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { makeRes, makeReq } from "./_http.js";
 
 const ALL = ["TIMESHEET_ELIGIBILITY_CUTOVER", "TIMESHEET_CLIENT_RETURN", ...Object.values(W.FLAGS)];
@@ -24,7 +24,7 @@ function makeDb(sheets = [], extra = {}) {
       u("t1", "Technician"), u("ca", "Client Viewer", { client_id: "c1" }), u("cb", "Client Viewer", { client_id: "c1" }), u("cx", "Client Viewer", { client_id: "c2" })],
     clients: [{ id: "c1", name: "C1", timesheet_cutover_date: "2026-03-01" }, { id: "c2", name: "C2" }],
     quotes: [{ id: "q1", client_id: "c1", total_amount: 100, status: "Field_Dispatch" }], dispatch_cards: [{ id: "d1", quotation_id: "q1", scheduled_start: "2026-03-01", scheduled_end: "2026-03-31" }],
-    purchase_orders: [{ id: "po1", quotation_id: "q1", status: "verified", po_reference: "PO-1", date_received: "2026-03-01" }], invoices: [], invoice_lines: [], material_usage: [],
+    purchase_orders: [{ id: "po1", quotation_id: "q1", status: "verified", po_reference: "PO-1", po_amount: 1000, date_received: "2026-03-01" }], invoices: [], invoice_lines: [], material_usage: [],
     field_worksheets: sheets, timesheets: [], stock_movements: [], timesheet_authorities: [], timesheet_paper_custody: [], timesheet_variance_overrides: [], notifications: [], audit_logs: [],
     company_profile: {}, mine_sites: [], plants: [], plant_sections: [], equipment_tags: [], ...extra };
 }
@@ -194,7 +194,7 @@ test("step 7: invoice is blocked, an override needs a different second approver,
 test("step 7: createInvoice is gated, locks included Timesheets, and is unchanged with the flag off", async () => {
   const attempt = (billed) => {
     const db = makeDb([eligSheet("a", 8)]); db.timesheets = [bill("b1", billed, { approved: true })];
-    let err = null; try { transitionQuote(db, store(), "q1", "Invoiced", {}, db.users.find((x) => x.id === "fin1")); } catch (e) { err = e; }
+    let err = null; try { issueLegacyInvoice(db, store(), "q1", db.users.find((x) => x.id === "fin1")); } catch (e) { err = e; }
     return { db, err };
   };
   await withFlags([], () => { const { db, err } = attempt(9); assert.equal(err, null, err?.message); assert.equal(db.invoices.length, 1); assert.equal(db.field_worksheets[0].invoice_locked, undefined); })();

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
-import { getAiHealth, getChatResponse, getWorkflowGuide } from "../src/controllers/aiController.js";
+import { getAiHealth, getChatResponse, getWorkflowGuide, getRecordAnalysis } from "../src/controllers/aiController.js";
 import { buildScopedSummary } from "../src/controllers/coreController.js";
 import { permissions, roles } from "../src/permissions.js";
 import {
@@ -70,6 +70,16 @@ function dbSnapshot(req) {
   return JSON.stringify(rest);
 }
 
+function withRecordTrailEnabled(fn) {
+  const before = process.env.ORAC_RECORD_TRAIL_V1;
+  process.env.ORAC_RECORD_TRAIL_V1 = "enabled";
+  try { return fn(); }
+  finally {
+    if (before === undefined) delete process.env.ORAC_RECORD_TRAIL_V1;
+    else process.env.ORAC_RECORD_TRAIL_V1 = before;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Role coverage: an allowed and a denied question for every one of the eight roles.
 // ---------------------------------------------------------------------------
@@ -115,6 +125,11 @@ for (const role of ALL_ROLES) {
     getAiHealth(req, res);
     assert.equal(res.body.data.mode, "deterministic-read-only");
     assert.equal(res.body.data.provider, null);
+    const expectedTypes = {
+      Admin: ["quote", "dispatch", "invoice", "purchase_order", "supplier", "maintenance_schedule", "equipment_tag", "material_usage", "field_worksheet", "catalog_item", "stock_item", "worksheet_register", "daily_timesheet", "contractor_log_sheet"], Management: ["quote", "dispatch", "invoice", "purchase_order", "supplier", "maintenance_schedule", "equipment_tag", "field_worksheet", "catalog_item", "stock_item", "worksheet_register", "daily_timesheet", "contractor_log_sheet"], Sales: ["quote", "service_request"], Finance: ["quote", "invoice", "purchase_order"],
+      Operations: ["quote", "dispatch", "purchase_order", "supplier", "maintenance_schedule", "equipment_tag", "material_usage", "field_worksheet", "stock_item", "worksheet_register", "service_request", "daily_timesheet", "contractor_log_sheet"], Supervisor: ["dispatch", "material_usage", "field_worksheet", "worksheet_register", "daily_timesheet", "contractor_log_sheet"], Technician: ["dispatch", "material_usage", "field_worksheet", "daily_timesheet"], "Client Viewer": ["invoice", "maintenance_schedule", "service_request"]
+    }[role];
+    assert.deepEqual(res.body.data.record_analysis.supported_types, expectedTypes);
     assert.deepEqual(res.body.data.workflow_topics.map((item) => item.id), articlesForRole(role).map((item) => item.id));
     assert.ok(res.body.data.workflow_topics.length > 0);
   });
@@ -305,14 +320,18 @@ test("walk-in, cash and direct sales are stated as outside the pilot for every r
 // ---------------------------------------------------------------------------
 // Truthful statements about known gaps.
 // ---------------------------------------------------------------------------
-test("kiosk guidance states the owner rule is not yet enforced and who can submit", () => {
+test("kiosk guidance accurately explains the enforced review gate and role boundaries", () => {
   const ops = ask("Operations", "How do kiosk time entries work and who reviews them?").data;
   assert.equal(ops.guidance.articleId, "kiosk-timesheets");
-  assert.match(ops.message, /require Supervisor review/);
-  assert.match(ops.message, /not yet enforced by the application/);
-  assert.match(ops.message, /Do not treat kiosk hours as Supervisor-approved/);
+  assert.match(ops.message, /waits for review by a Supervisor assigned to the dispatch/i);
+  assert.match(ops.message, /Pending and rejected kiosk entries do not count as approved hours/i);
+  assert.match(ops.message, /cannot approve or reject entries/i);
+  assert.doesNotMatch(ops.message, /not yet enforced by the application/i);
   const sup = ask("Supervisor", "How do kiosk time entries work?").data;
-  assert.match(sup.message, /does not let Supervisor submit a kiosk batch/);
+  assert.match(sup.message, /only for dispatches assigned to them/i);
+  assert.match(sup.message, /cannot submit kiosk batches or review their own or recorded entries/i);
+  const management = ask("Management", "How do kiosk time entries work?").data;
+  assert.match(management.message, /does not have permission to submit, list, or review/i);
   const tech = ask("Technician", "How do kiosk time entries work?").data;
   assert.equal(tech.label, "Declined");
 });
@@ -330,6 +349,195 @@ test("Management is told it cannot review, and Client Viewer is not sent to a sc
   const client = ask("Client Viewer", "What happens to a timesheet after the client acknowledges it?").data;
   assert.ok(!client.links.some((link) => link.path === "/worksheets"));
   assert.ok(client.links.some((link) => link.path === "/documents"));
+});
+
+test("record analysis cites only role-visible quote stages and audits identifiers, not record contents", () => {
+  const req = request("Sales", { record_type: "quote", record_id: "quote-a" });
+  const res = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(req, res));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.mode, "deterministic-evidence-summary");
+  assert.deepEqual(res.body.data.evidenceRefs.map((ref) => ref.targetId), ["quote-a"]);
+  assert.deepEqual(res.body.data.findings.map((finding) => finding.code), ["LEAD_NOT_LINKED", "CLIENT_ACCEPTANCE_NOT_RECORDED"]);
+  assert.ok(res.body.data.limitations.some((item) => /does not verify attachments, field evidence, invoice payment/i.test(item)));
+  assert.equal(req.auditEntries.length, 1);
+  assert.equal(req.auditEntries[0].action, "AI_RECORD_ANALYSIS");
+  assert.deepEqual(req.auditEntries[0].newValues.target_ids, ["quote-a"]);
+  assert.equal(Object.hasOwn(req.auditEntries[0].newValues, "record_contents"), false);
+  assert.equal(JSON.stringify(req.db).includes(CLIENT_B_MARKER), true, "fixture still contains the other client; analysis must not return it");
+  assert.equal(JSON.stringify(res.body).includes(CLIENT_B_MARKER), false);
+
+  const deniedReq = request("Technician", { record_type: "quote", record_id: "quote-a" });
+  const deniedRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(deniedReq, deniedRes));
+  assert.equal(deniedRes.statusCode, 404, "denied roles receive the same non-confirming response as missing records");
+  assert.equal(deniedReq.auditEntries.length, 0);
+
+  const adminReq = request("Admin", { record_type: "quote", record_id: "quote-a" });
+  const adminRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(adminReq, adminRes));
+  assert.ok(adminRes.body.data.findings.some((finding) => finding.code === "PO_DOCUMENT_EVIDENCE_NOT_STORED"));
+  assert.ok(adminRes.body.data.evidenceRefs.some((ref) => ref.targetId === "po-a"));
+  assert.equal(JSON.stringify(adminRes.body).includes("po_amount"), false);
+});
+
+test("dispatch analysis follows assignment scope, hides restricted fields, and marks unapproved kiosk hours", () => {
+  const marker = "PRIVATE_TIMESHEET_NOTE_SHOULD_NOT_ESCAPE";
+  const fixture = {
+    quotes: [{ id: "quote-a", client_id: "client-a", status: "Field_Dispatch" }],
+    purchase_orders: [{ id: "po-a", quotation_id: "quote-a", status: "pending_verification", po_amount: 999999 }],
+    dispatch_cards: [
+      { id: "dispatch-a", quotation_id: "quote-a", assigned_technician_id: "actor-1", assigned_supervisor_id: "actor-1", status: "In_Progress" },
+      { id: "dispatch-b", quotation_id: "quote-b", assigned_technician_id: "other", assigned_supervisor_id: "other", status: "In_Progress" }
+    ],
+    field_worksheets: [
+      { id: "ws-own", dispatch_card_id: "dispatch-a", technician_id: "actor-1", supervisor_id: "actor-1", status: "Supervisor_Approved", work_date: "2026-10-10", hourly_rate: 999, notes: marker },
+      { id: "ws-other", dispatch_card_id: "dispatch-a", technician_id: "other", supervisor_id: "actor-1", status: "Submitted", work_date: "2026-10-11" }
+    ],
+    timesheets: [
+      { id: "ts-own", dispatch_card_id: "dispatch-a", technician_id: "actor-1", work_date: "2026-10-10", entry_source: "kiosk", review_status: "pending_review", hours_logged: 8, hourly_rate: 999, notes: marker },
+      { id: "ts-other", dispatch_card_id: "dispatch-a", technician_id: "other", work_date: "2026-10-11", entry_source: "kiosk", hours_logged: 4, notes: marker }
+    ]
+  };
+  const techReq = request("Technician", { record_type: "dispatch", record_id: "dispatch-a" }, fixture);
+  const techRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(techReq, techRes));
+  assert.equal(techRes.statusCode, 200);
+  assert.deepEqual(techRes.body.data.evidence.field_worksheets.map((item) => item.id), ["ws-own"]);
+  assert.deepEqual(techRes.body.data.evidence.timesheets.map((item) => item.id), ["ts-own"]);
+  assert.equal(techRes.body.data.evidence.timesheets[0].counts_as_approved, false);
+  assert.ok(techRes.body.data.findings.some((item) => item.code === "KIOSK_PENDING_REVIEW"));
+  assert.equal(JSON.stringify(techRes.body).includes(marker), false);
+  assert.equal(JSON.stringify(techRes.body).includes("hourly_rate"), false);
+  assert.equal(techRes.body.data.purchase_order.status, "not_available_to_role");
+  assert.equal(techReq.auditEntries[0].action, "AI_RECORD_ANALYSIS");
+  assert.deepEqual(techReq.auditEntries[0].newValues.target_ids, ["dispatch-a", "ws-own", "ts-own"]);
+
+  const managementReq = request("Management", { record_type: "dispatch", record_id: "dispatch-a" }, fixture);
+  const managementRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(managementReq, managementRes));
+  assert.equal(managementRes.statusCode, 200);
+  assert.deepEqual(managementRes.body.data.evidence.timesheets, [], "Management cannot use this route to bypass the dedicated Timesheet permission");
+  assert.deepEqual(managementRes.body.data.evidence.field_worksheets.map((item) => item.id), ["ws-own", "ws-other"]);
+  assert.equal(managementRes.body.data.purchase_order.status, "pending_verification");
+  assert.ok(managementRes.body.data.findings.some((item) => item.code === "PURCHASE_ORDER_NOT_VERIFIED"));
+  assert.equal(JSON.stringify(managementRes.body).includes("po_amount"), false);
+
+  const unassignedReq = request("Technician", { record_type: "dispatch", record_id: "dispatch-b" }, fixture);
+  const unassignedRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(unassignedReq, unassignedRes));
+  assert.equal(unassignedRes.statusCode, 404);
+  assert.equal(unassignedReq.auditEntries.length, 0);
+});
+
+test("record analysis rejects unsupported types, malformed ids and disabled feature without auditing", () => {
+  for (const body of [
+    { record_type: "timesheet", record_id: "ts-a" },
+    { record_type: "payment", record_id: "payment-a" },
+    { record_type: "quote", record_id: "" },
+    { record_type: "quote", record_id: "x".repeat(129) }
+  ]) {
+    const req = request("Admin", body);
+    const res = response();
+    withRecordTrailEnabled(() => getRecordAnalysis(req, res));
+    assert.equal(res.statusCode, 400);
+    assert.equal(req.auditEntries.length, 0);
+  }
+  const req = request("Admin", { record_type: "quote", record_id: "quote-a" });
+  const res = response();
+  delete process.env.ORAC_RECORD_TRAIL_V1;
+  getRecordAnalysis(req, res);
+  assert.equal(res.statusCode, 404);
+  assert.equal(req.auditEntries.length, 0);
+});
+
+test("service request analysis audits only evidence IDs and scopes clients to their own request", () => {
+  const serviceRequest = {
+    id: "sr-a", client_id: "client-a", status: "Accepted", urgency: "standard",
+    title: "PRIVATE_TITLE", service_need: "PRIVATE_SERVICE_NEED", triage_note: "PRIVATE_TRIAGE_NOTE",
+    requested_date: "2026-10-25", mine_site_id: "site-a", equipment_tag_id: "equipment-a"
+  };
+  const requestWith = (role, rows = [serviceRequest]) => {
+    const req = request(role, { record_type: "service_request", record_id: "sr-a" }, {
+      service_requests: structuredClone(rows),
+      mine_sites: [{ id: "site-a", client_id: "client-a", name: "PRIVATE_SITE" }],
+      equipment_tags: [{ id: "equipment-a", client_id: "client-a", tag_code: "PRIVATE_TAG" }]
+    });
+    const res = response();
+    withRecordTrailEnabled(() => getRecordAnalysis(req, res));
+    return { req, res };
+  };
+
+  const { req: clientReq, res: clientRes } = requestWith("Client Viewer");
+  assert.equal(clientRes.statusCode, 200);
+  assert.equal(clientRes.body.data.evidence.request.requested_date, "2026-10-25");
+  assert.equal(Object.hasOwn(clientRes.body.data.evidence, "conversion"), false);
+  const clientOutput = JSON.stringify(clientRes.body);
+  for (const secret of ["PRIVATE_TITLE", "PRIVATE_SERVICE_NEED", "PRIVATE_TRIAGE_NOTE", "PRIVATE_SITE", "PRIVATE_TAG", "client-a"]) assert.equal(clientOutput.includes(secret), false, secret);
+  const auditValues = clientReq.auditEntries[0].newValues;
+  assert.deepEqual(auditValues.target_ids, ["sr-a", "site-a", "equipment-a"]);
+  assert.equal(Object.hasOwn(auditValues, "requested_date"), false, "requested_date must not be a property of the audit payload");
+  assert.equal(typeof auditValues.generated_at, "string");
+  assert.ok(auditValues.generated_at.length > 0, "generated_at exists without exposing requested_date");
+  assert.equal(
+    [auditValues.record_type, ...(auditValues.target_ids || []), ...(auditValues.finding_codes || [])]
+      .some((val) => String(val).includes(serviceRequest.requested_date)),
+    false,
+    "requested_date is absent from permitted audit values"
+  );
+
+  const { res: salesRes } = requestWith("Sales");
+  assert.equal(salesRes.statusCode, 200);
+  assert.equal(salesRes.body.data.evidence.conversion.status, "not_converted");
+  const { res: financeRes } = requestWith("Finance");
+  assert.equal(financeRes.statusCode, 404);
+
+  const crossClient = { ...serviceRequest, client_id: "client-b" };
+  const { res: crossClientRes } = requestWith("Client Viewer", [crossClient]);
+  assert.equal(crossClientRes.statusCode, 404);
+});
+
+test("Daily Time Sheet analysis is role-scoped, redacts private fields, and audits evidence IDs only", () => {
+  const sheet = {
+    id: "dts-own", technician_id: "actor-1", status: "Submitted", name_on_form: "PRIVATE NAME", cell_number: "PRIVATE PHONE",
+    supervisor_comment: "PRIVATE COMMENT", entries: [{ date: "2026-10-10", start_time: "08:00", end_time: "16:00", description: "PRIVATE DETAIL" }],
+    signatures: { employee: { name: "PRIVATE SIGNER", date: "2026-10-10", method: "on_device" }, site_foreman: { name: "PRIVATE FOREMAN", date: "2026-10-10", method: "on_device" } }
+  };
+  const fixture = { daily_timesheets: [sheet], worksheet_registers: [] };
+  const req = request("Technician", { record_type: "daily_timesheet", record_id: sheet.id }, fixture);
+  const res = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(req, res));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.daily_timesheet.validation, "valid");
+  assert.equal(res.body.data.daily_timesheet.signoff.complete, true);
+  assert.deepEqual(req.auditEntries[0].newValues.target_ids, [sheet.id]);
+  for (const marker of ["PRIVATE NAME", "PRIVATE PHONE", "PRIVATE COMMENT", "PRIVATE DETAIL", "PRIVATE SIGNER", "PRIVATE FOREMAN"]) assert.equal(JSON.stringify(res.body).includes(marker), false, marker);
+
+  const denied = request("Technician", { record_type: "daily_timesheet", record_id: sheet.id }, { daily_timesheets: [{ ...sheet, technician_id: "another-user" }] });
+  const deniedRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(denied, deniedRes));
+  assert.equal(deniedRes.statusCode, 404);
+  assert.equal(denied.auditEntries.length, 0);
+});
+
+test("Contractor Log analysis uses existing staff roles and audits only the record ID", () => {
+  const log = {
+    id: "cl-own", status: "Supervisor_Approved", log_date: "2026-10-10", contractor_name: "PRIVATE CONTRACTOR",
+    rows: [{ worker_name: "PRIVATE WORKER", normal: 8 }], signatures: { foreman: { name: "PRIVATE SIGNER", date: "2026-10-10" } }
+  };
+  const req = request("Operations", { record_type: "contractor_log_sheet", record_id: log.id }, { contractor_log_sheets: [log] });
+  const res = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(req, res));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.contractor_log_sheet.recorded_hours_total, 8);
+  assert.deepEqual(req.auditEntries[0].newValues.target_ids, [log.id]);
+  for (const marker of ["PRIVATE CONTRACTOR", "PRIVATE WORKER", "PRIVATE SIGNER"]) assert.equal(JSON.stringify(res.body).includes(marker), false, marker);
+
+  const denied = request("Technician", { record_type: "contractor_log_sheet", record_id: log.id }, { contractor_log_sheets: [log] });
+  const deniedRes = response();
+  withRecordTrailEnabled(() => getRecordAnalysis(denied, deniedRes));
+  assert.equal(deniedRes.statusCode, 404);
+  assert.equal(denied.auditEntries.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -382,7 +590,7 @@ test("audit stores structured outcome data only, never the question or answer te
   assert.equal(audit.newValues.outcome, "answered");
   assert.deepEqual(audit.newValues.article_versions, ["1.0"]);
   assert.ok(Array.isArray(audit.newValues.link_ids));
-  assert.equal(audit.newValues.catalog_version, "1.0.0");
+  assert.equal(audit.newValues.catalog_version, "1.0.1");
 });
 
 // ---------------------------------------------------------------------------
@@ -409,6 +617,8 @@ test("every article names valid roles, sources that exist, and only links its ro
   }
   assert.ok(article("timesheet-lifecycle").knownLimits.length > 0, "known gap must stay documented until the UI exists");
   assert.ok(article("kiosk-timesheets").knownLimits.length > 0);
+  assert.match(article("service-requests").knownLimits.join(" "), /requested date is only the client's preference/i);
+  assert.match(article("service-requests").knownLimits.join(" "), /'Accepted' means accepted for follow-up, not booked/i);
 });
 
 function article(id) { return ARTICLES.find((item) => item.id === id); }
@@ -434,6 +644,7 @@ const ROUTE_CONTRACT = {
   "/kiosk": ["Admin", "Management", "Operations", "Supervisor"],
   "/inventory": ["Admin", "Management", "Operations"],
   "/reports": ["Admin", "Management", "Operations", "Supervisor", "Sales", "Finance"],
+  "/job-cards": ["Admin", "Management", "Operations", "Supervisor", "Technician"],
   "/operational-data": ["Admin", "Management", "Operations", "Supervisor", "Technician", "Sales", "Finance"],
   "/documents": ALL_ROLES,
   "/contracts": ["Admin", "Management", "Operations", "Client Viewer"],

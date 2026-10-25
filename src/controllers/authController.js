@@ -13,7 +13,10 @@ const INVALID_LOGIN = { success: false, message: "Invalid credentials." };
 export const loginDemoUser = async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = req.body.password;
-  const user = req.db.users.find((item) => item.email.toLowerCase() === email && item.is_active);
+  // A malformed/incomplete stored record must not turn a login attempt into a
+  // 500. Treat missing email values as non-matches and continue with the same
+  // generic invalid-credentials response.
+  const user = req.db.users.find((item) => String(item?.email || "").trim().toLowerCase() === email && item.is_active);
 
   if (config.requirePassword || password) {
     if (!password) {
@@ -60,7 +63,7 @@ export const getMe = (req, res) => {
 
 function findUserByEmail(req, email) {
   const normalized = String(email || "").trim().toLowerCase();
-  return req.db.users.find((u) => u.email.toLowerCase() === normalized);
+  return req.db.users.find((u) => String(u?.email || "").trim().toLowerCase() === normalized);
 }
 
 export const requestPasswordReset = (req, res) => {

@@ -1,3 +1,6 @@
+import jwt from "jsonwebtoken";
+import { config } from "../config.js";
+
 // In-memory, per-process rate limiting for the unauthenticated API surface.
 //
 // WHY THIS RUNS BEFORE persistenceMiddleware (see server.js): that middleware
@@ -28,6 +31,7 @@ export function readLimitConfig(env = process.env) {
   return {
     disabled: env.RATE_LIMIT_DISABLED === "true",
     windowMs: positiveInt(env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    apiWritesPerIp: positiveInt(env.RATE_LIMIT_API_WRITE_MAX, 300),
     loginFailuresPerEmail: positiveInt(env.RATE_LIMIT_LOGIN_FAILURES_MAX, 10),
     loginAttemptsPerIp: positiveInt(env.RATE_LIMIT_LOGIN_ATTEMPTS_MAX, 300),
     publicWritesPerIp: positiveInt(env.RATE_LIMIT_PUBLIC_WRITE_MAX, 30),
@@ -122,11 +126,33 @@ export function createPublicEndpointLimits({ env = process.env, now = Date.now }
   const emailWrites = new WindowCounter({ windowMs: cfg.windowMs, now });
   const loginAttemptsByIp = new WindowCounter({ windowMs: cfg.windowMs, now });
   const loginFailuresByEmail = new WindowCounter({ windowMs: cfg.windowMs, now });
+  const apiWritesByIp = new WindowCounter({ windowMs: cfg.windowMs, now });
 
   const middleware = (req, res, next) => {
-    if (cfg.disabled) return next();
     const route = `${req.method} ${req.path}`;
     const ip = req.ip || "unknown-ip";
+    const isWrite = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+    const isPublicWrite = route === "POST /auth/login" || PUBLIC_WRITE_ROUTES.includes(route);
+
+    // Reject unknown/protected writes before persistenceMiddleware acquires the
+    // global store lock. Verify the signature here; authMiddleware still checks
+    // that the account is active and applies role and record-scope permissions.
+    if (isWrite && !isPublicWrite) {
+      if (!cfg.disabled) {
+        const attempt = apiWritesByIp.hit(ip);
+        if (attempt.count > cfg.apiWritesPerIp) return tooMany(res, attempt.resetAt, now);
+      }
+      const match = /^Bearer ([^\s]+)$/.exec(req.headers?.authorization || "");
+      if (!match) return res.status(401).json({ success: false, message: "Unauthorized. Token missing or invalid." });
+      try {
+        jwt.verify(match[1], config.jwtSecret, { algorithms: ["HS256"] });
+      } catch {
+        return res.status(401).json({ success: false, message: "Unauthorized. Token missing or invalid." });
+      }
+      return next();
+    }
+
+    if (cfg.disabled) return next();
 
     if (route === "POST /auth/login") {
       const attempts = loginAttemptsByIp.hit(ip);

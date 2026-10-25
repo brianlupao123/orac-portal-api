@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createStore } from "../src/store.js";
-import { transitionQuote } from "../src/stateMachine.js";
+import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { submitKioskTimesheets } from "../src/controllers/kioskController.js";
 import { reviewKioskTimesheet, listKioskReviewQueue } from "../src/controllers/timesheetReviewController.js";
 import { assignDispatchSupervisor, getDispatchRoster } from "../src/controllers/dispatchController.js";
@@ -46,7 +46,7 @@ function submit(w, body, userId = "u_ops") { const r = response(); submitKioskTi
 function entry(over = {}) { return { technician_id: "u_t1", hours_logged: 4, hourly_rate: TEST_ONLY_RATE, ...over }; }
 function batch(over = {}, entries = [entry()]) { return { work_date: "2026-09-21", entries, ...over }; }
 function review(w, userId, id, body) { const r = response(); reviewKioskTimesheet(rq(w, userId, { params: { id }, body }), r); return r; }
-function invoice(w) { return () => transitionQuote(w.db, w.store, "q1", "Invoiced", {}, w.admin); }
+function invoice(w) { return () => issueLegacyInvoice(w.db, w.store, "q1", w.admin); }
 
 test("retry with the same batch_key replays the original result and creates nothing new", () => {
   const w = world();
@@ -136,7 +136,8 @@ test("invoice-block path (real store): pending blocks, reason names the missing 
   assert.equal(review(w, "u_sup", t1.id, { decision: "approve" }).statusCode, 200);
   assert.equal(review(w, "u_sup", t2.id, { decision: "reject", comment: "Not on site" }).statusCode, 200);
   const result = invoice(w)();
-  assert.equal(result.quote.status, "Invoiced");
+  assert.equal(result.status, "sent");
+  assert.equal(w.db.quotes[0].status, "Invoiced");
   assert.equal(w.db.invoices.length, 1);
   assert.equal(w.db.invoices[0].total_amount, 2 * TEST_ONLY_RATE); // rejected 3h excluded
 });

@@ -29,8 +29,8 @@ function makeDb(worksheets, client = {}) {
   return {
     users: [{ id: "cu", role: "Client Viewer", is_active: true, client_id: "c1", name: "Client Person" }, { id: "t1", role: "Technician", is_active: true }],
     clients: [{ id: "c1", name: "C1", ...client }, { id: "c2", name: "C2" }],
-    quotes: [{ id: "q1", client_id: "c1" }], dispatch_cards: [{ id: "d1", quotation_id: "q1" }, { id: "d2", quotation_id: "qx" }],
-    purchase_orders: [{ quotation_id: "q1", status: "verified" }], invoices: [], field_worksheets: worksheets,
+    quotes: [{ id: "q1", client_id: "c1", status: "Field_Dispatch", total_amount: 100 }], dispatch_cards: [{ id: "d1", quotation_id: "q1" }, { id: "d2", quotation_id: "qx" }],
+    purchase_orders: [{ quotation_id: "q1", po_reference: "PO-1", po_amount: 100, status: "verified" }], invoices: [], field_worksheets: worksheets,
     mine_sites: [], plants: [], plant_sections: [], equipment_tags: [], audit_logs: []
   };
 }

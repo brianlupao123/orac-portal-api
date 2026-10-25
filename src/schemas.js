@@ -6,24 +6,68 @@ import {
   INTERNAL_WORK_REQUEST_TYPE_CODES, RELATED_ENTITY_TYPE_CODES
 } from "./internalWorkRequestRules.js";
 import { TECHNICIAN_TRADES } from "./trades.js";
+import {
+  APPROVED_UNITS_OF_MEASURE,
+  COST_TYPES,
+  ITEM_TYPES,
+  TAX_STATUSES
+} from "./quoteCalculation.js";
 
 export const QuoteLineSchema = z.object({
   catalog_item_id: z.string().nullable().optional(),
   description: z.string().min(1, "Description is required"),
   quantity: z.number().positive("Quantity must be positive"),
-  unit_price: z.number().min(0, "Unit price cannot be negative")
+  unit_price: z.number().min(0, "Unit price cannot be negative"),
+  work_package_id: z.string().trim().min(1).optional(),
+  cost_type: z.enum(COST_TYPES).optional(),
+  resource_role: z.string().trim().max(80).nullable().optional(),
+  unit_of_measure: z.enum(APPROVED_UNITS_OF_MEASURE).optional(),
+  item_type: z.enum(ITEM_TYPES).optional(),
+  is_provisional: z.boolean().optional()
 });
+
+export const WorkPackageSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().optional(),
+  title: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  sequence: z.number().int().min(1).optional(),
+  description: z.string().max(2000).optional()
+}).refine((wp) => Boolean(wp.title || wp.name), {
+  message: "Work package title is required",
+  path: ["title"]
+}).transform((wp) => ({
+  ...wp,
+  title: wp.title || wp.name,
+  name: wp.name || wp.title
+}));
 
 export const CreateQuoteSchema = z.object({
   client_id: z.string().min(1, "Client is required"),
   equipment_tag_id: z.string().nullable().optional(),
-  lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required")
+  source_lead_id: z.string().trim().max(128).nullable().optional(),
+  lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required"),
+  currency: z.literal("USD").optional(),
+  tax_status: z.enum(TAX_STATUSES).optional(),
+  applied_tax_rate: z.number().min(0).max(1).nullable().optional(),
+  discount_percent: z.number().min(0).max(100).optional(),
+  validity_days: z.number().int().optional(),
+  scope_summary: z.string().max(2000).nullable().optional(),
+  assumptions: z.string().max(2000).nullable().optional(),
+  work_packages: z.array(WorkPackageSchema).optional()
 });
 
 export const UpdateQuoteSchema = z.object({
   description: z.string().optional(),
   equipment_tag_id: z.string().nullable().optional(),
-  lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required").optional()
+  lines: z.array(QuoteLineSchema).min(1, "At least one quote line is required").optional(),
+  tax_status: z.enum(TAX_STATUSES).optional(),
+  applied_tax_rate: z.number().min(0).max(1).nullable().optional(),
+  discount_percent: z.number().min(0).max(100).optional(),
+  validity_days: z.number().int().optional(),
+  scope_summary: z.string().max(2000).nullable().optional(),
+  assumptions: z.string().max(2000).nullable().optional(),
+  work_packages: z.array(WorkPackageSchema).optional()
 });
 
 const V5QuoteLineSchema = z.object({
@@ -57,11 +101,20 @@ export const TransitionQuoteSchema = z.object({
   urgent_reason: z.string().optional()
 });
 
+export const DocumentReferenceSchema = z.string().trim()
+  .min(3, "Document reference must be at least 3 characters")
+  .max(100, "Document reference cannot exceed 100 characters")
+  .regex(/^[A-Za-z0-9._:-]+$/, "Document reference must contain only letters, numbers, dots, underscores, colons, or hyphens");
+
 export const VerifyPoSchema = z.object({
-  po_reference: z.string().min(1, "PO reference is required"),
+  po_reference: z.string().trim().min(1, "PO reference is required").max(100),
   po_amount: z.number().positive("PO amount must be greater than zero"),
+  currency: z.literal("USD").optional(),
   started_before_po: z.boolean().optional(),
-  date_received: z.string().optional()
+  date_received: z.string().optional(),
+  po_issue_date: z.string().optional(),
+  document_reference: DocumentReferenceSchema.optional(),
+  verification_notes: z.string().trim().max(1000).optional()
 });
 
 export const AddTimesheetSchema = z.object({
@@ -250,6 +303,10 @@ export const ApproveAmendmentSchema = z.object({
   reason: z.string().optional()
 });
 
+export const ApproveV5AmendmentSchema = z.object({
+  approval_note: z.string().optional()
+});
+
 export const CreateLeadSchema = z.object({
   company_name: z.string().min(1, "Company name is required"),
   contact_name: z.string().min(1, "Contact name is required"),
@@ -391,9 +448,17 @@ export const AdminCompanyProfileSchema = z.object({
 });
 
 export const ClientSubmitPoSchema = z.object({
-  po_reference: z.string().min(1, "PO reference is required"),
+  po_reference: z.string().trim().min(1, "PO reference is required").max(100),
   po_amount: z.number().positive("PO amount must be greater than zero"),
-  date_received: z.string().optional()
+  currency: z.literal("USD").optional(),
+  date_received: z.string().optional(),
+  po_issue_date: z.string().optional(),
+  document_reference: DocumentReferenceSchema.optional(),
+  idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/).optional()
+});
+
+export const RejectPoSchema = z.object({
+  reason: z.string().trim().min(3, "Rejection reason must be at least 3 characters").max(1000)
 });
 
 // ── Inventory & Procurement (Phase 07) ─────────────────────────────────────
@@ -578,3 +643,82 @@ export const UpdateMaintenanceScheduleSchema = z.object({
   (value) => Object.keys(value).length > 0,
   "At least one schedule field is required"
 );
+
+export const V5MaterialAllocationSchema = z.object({
+  material_usage_id: z.string().min(1),
+  quote_line_id: z.string().min(1)
+});
+
+export const V5AmendmentDispatchLinkSchema = z.object({
+  amendment_quote_id: z.string().min(1)
+});
+
+export const V5AmendmentEvidenceAllocationSchema = z.object({
+  amendment_quote_id: z.string().min(1),
+  amendment_quote_line_id: z.string().min(1),
+  source_type: z.enum(["field_worksheet", "material_usage"]),
+  source_id: z.string().min(1),
+  quantity: z.number().positive(),
+  reason: z.string().min(3)
+});
+
+export const CreateV5InvoiceDraftSchema = z.object({
+  idempotency_key: z.string().min(1),
+  lines: z.array(z.object({
+    quote_line_id: z.string().min(1),
+    sources: z.array(z.object({
+      source_type: z.enum(["field_worksheet", "material_usage"]),
+      source_id: z.string().min(1),
+      quantity: z.number().positive().refine((v) => Math.abs(v * 1000000 - Math.round(v * 1000000)) < 1e-7, "Invalid decimal precision")
+    })).optional()
+  })).min(1)
+}).strict();
+
+export const IssueV5InvoiceDraftSchema = z.object({
+  idempotency_key: z.string().min(1)
+}).strict();
+
+// The legacy commercial path uses a separate draft/issue lifecycle. These
+// payloads intentionally carry no money: the server recalculates from
+// approved field evidence at preparation and again at issue.
+export const CreateLegacyInvoiceDraftSchema = z.object({
+  idempotency_key: z.string().min(1)
+}).strict();
+
+export const IssueLegacyInvoiceDraftSchema = z.object({
+  idempotency_key: z.string().min(1)
+}).strict();
+
+export const V5LineCompletionSchema = z.object({
+  quote_line_id: z.string().min(1),
+  reason: z.string().min(1),
+  idempotency_key: z.string().min(1)
+}).strict();
+
+export const V5AmendmentSupersessionSchema = z.object({
+  superseded_amendment_quote_id: z.string().min(1),
+  replacement_amendment_quote_id: z.string().min(1),
+  reason: z.string().min(1),
+  idempotency_key: z.string().min(1)
+}).strict().refine((data) => data.superseded_amendment_quote_id !== data.replacement_amendment_quote_id, {
+  message: "Cannot supersede an amendment with itself"
+});
+
+export const V5AllocationRemapSchema = z.object({
+  allocation_id: z.string().min(1),
+  replacement_amendment_quote_line_id: z.string().min(1),
+  reason: z.string().min(1),
+  idempotency_key: z.string().min(1)
+}).strict();
+
+export const RecordInvoicePaymentSchema = z.object({
+  amount: z.number().positive(),
+  payment_method: z.string().min(1),
+  reference: z.string().min(1),
+  received_on: z.string().min(1),
+  notes: z.string().nullable().optional()
+});
+
+export const VoidInvoicePaymentSchema = z.object({
+  reason: z.string().min(1)
+});
