@@ -51,7 +51,7 @@ describe("Controlled Quotation PDF endpoint", () => {
         status: "Draft",
         currency: "USD",
         tax_status: "provisional",
-        applied_tax_rate: 0.15,
+        applied_tax_rate: 0.155,
         discount_percent: 5,
         validity_days: 30,
         scope_summary: "Substation transformer maintenance and oil sampling.",
@@ -59,9 +59,9 @@ describe("Controlled Quotation PDF endpoint", () => {
         pre_tax_total_cents: 100000,
         discount_cents: 5000,
         net_subtotal_cents: 95000,
-        tax_total_cents: 14250,
-        grand_total_cents: 109250,
-        total_amount: 1092.50,
+        tax_total_cents: 14725,
+        grand_total_cents: 109725,
+        total_amount: 1097.25,
         work_packages: [
           { id: "wp_01", name: "Engineering & Diagnostics" },
           { id: "wp_02", name: "Site Execution" }
@@ -79,7 +79,7 @@ describe("Controlled Quotation PDF endpoint", () => {
           quantity: 4,
           unit_of_measure: "hours",
           unit_price_cents: 12500,
-          line_total_cents: 50000
+          line_total: 450
         },
         {
           id: "ql_2",
@@ -91,7 +91,7 @@ describe("Controlled Quotation PDF endpoint", () => {
           quantity: 2,
           unit_of_measure: "set",
           unit_price_cents: 25000,
-          line_total_cents: 50000
+          line_total_cents: 55000
         }
       ],
       equipment_tags: [],
@@ -123,6 +123,8 @@ describe("Controlled Quotation PDF endpoint", () => {
     assert.ok(pdfText.includes("Anglo American Platinum"), "Must contain client name");
     assert.ok(pdfText.includes("USD"), "Must indicate USD currency");
     assert.ok(pdfText.includes("Commercial Summary"), "Must include Commercial Summary");
+    assert.ok(pdfText.includes("VAT @ 15.5%"), "Fractional VAT rates must not be rounded to whole percentages");
+    assert.equal((pdfText.match(/450\.00/g) || []).length, 2, "Work-package subtotal must match the recorded line total");
     assert.ok(pdfText.includes("Commercial Terms"), "Must include Commercial Terms");
     assert.ok(pdfText.includes("Authorised Signatory"), "Must include signature blocks");
   });

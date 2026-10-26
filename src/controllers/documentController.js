@@ -416,7 +416,9 @@ export const getQuotePdf = (req, res) => {
 
     const wpSubtotalCents = wpLines.reduce((sum, l) => {
       if (Number.isInteger(l.line_total_cents)) return sum + l.line_total_cents;
-      return sum + Math.round(((Number(l.quantity) || 0) * (Number(l.unit_price) || 0)) * 100);
+      const unitPrice = Number.isInteger(l.unit_price_cents) ? fromCents(l.unit_price_cents) : Number(l.unit_price || 0);
+      const lineTotal = Number(l.line_total ?? (Number(l.quantity) || 0) * unitPrice);
+      return sum + Math.round(lineTotal * 100);
     }, 0);
 
     sections.push({
@@ -461,7 +463,7 @@ export const getQuotePdf = (req, res) => {
 
   // Tax line
   if (taxStatus === "taxable" || taxStatus === "provisional") {
-    const rateLabel = appliedTaxRate != null ? `${(appliedTaxRate * 100).toFixed(0)}%` : "TBD";
+    const rateLabel = appliedTaxRate != null ? `${Number((appliedTaxRate * 100).toFixed(6))}%` : "TBD";
     summaryItems.push({ label: `VAT @ ${rateLabel}`, value: formatCurrency(taxTotalCents / 100) });
   } else if (taxStatus === "zero-rated") {
     summaryItems.push({ label: "VAT (Zero-Rated)", value: formatCurrency(0) });
