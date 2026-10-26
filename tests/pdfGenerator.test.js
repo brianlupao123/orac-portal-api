@@ -228,3 +228,18 @@ test("renderPdfFromLayout never breaks on an empty pages array", () => {
   assert.ok(Buffer.isBuffer(buf));
   assert.equal(buf.toString("latin1").slice(0, 5), "%PDF-");
 });
+
+test("renderPdfFromLayout resets text colour after a warning and normalizes signoff punctuation", () => {
+  const buf = generateControlledPdf(baseModel({
+    sections: [
+      { type: "notice", tone: "warning", text: "Provisional - accountant confirmation required" },
+      { type: "paragraph", heading: "Commercial Terms", text: "Standard terms apply." },
+      { type: "signoff", boxes: [{ label: "Orac Systems — Authorised Signatory" }] }
+    ]
+  }));
+  const text = buf.toString("latin1");
+  assert.match(text, /0\.600 0\.420 0\.020 rg/, "warning text must use its warning colour");
+  assert.match(text, /0\.000 0\.000 0\.000 rg[\s\S]*\(Standard terms apply\.\) Tj/, "ordinary text must reset to black after a warning");
+  assert.match(text, /Orac Systems - Authorised Signatory/, "signoff punctuation must be PDF-safe ASCII");
+  assert.ok(!text.includes("Orac Systems ? Authorised Signatory"), "unsupported punctuation must not become question marks");
+});

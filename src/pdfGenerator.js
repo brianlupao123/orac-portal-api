@@ -269,7 +269,7 @@ function newPage() {
 }
 
 function text(page, x, y, str, style, colorOverride) {
-  const value = str === null || str === undefined ? "" : String(str);
+  const value = sanitizeForPdfText(str);
   if (!value) return;
   page.ops.push({
     type: "text",
@@ -630,7 +630,10 @@ function contentStreamFor(page) {
     if (op.type === "text") {
       const [r, g, b] = op.color || COLOR.black;
       cmds.push("BT");
-      if (r !== 0 || g !== 0 || b !== 0) cmds.push(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
+      // PDF graphics state persists between text objects. Always write the
+      // fill colour, including black, so a warning or status colour cannot
+      // leak into the next ordinary paragraph.
+      cmds.push(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
       cmds.push(`/${op.font} ${op.size} Tf`);
       cmds.push(`1 0 0 1 ${op.x.toFixed(2)} ${op.y.toFixed(2)} Tm`);
       cmds.push(`(${pdfEscapeText(op.text)}) Tj`);
