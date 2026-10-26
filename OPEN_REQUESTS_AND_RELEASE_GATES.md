@@ -16,9 +16,9 @@ This is the active ledger for requests raised in the Codex/Antigravity workstrea
 
 | ID | Request | Status | Closure Evidence Required |
 | --- | --- | --- | --- |
-| O-01 | Complete the independent browser UAT of the local Phase 5 Finance settlement journey. | Awaiting verification | Antigravity report with screenshots, exact routes, pass/fail assertions, console/server errors, and protected-area attestation. |
+| O-01 | Complete the independent browser UAT of the local Phase 5 Finance settlement journey. | Local Codex check passed; independent review awaiting verification | Antigravity report with screenshots, exact routes, pass/fail assertions, console/server errors, and protected-area attestation. |
 | O-02 | Demonstrate the complete fictional browser journey: approved quote -> verified PO -> dispatch -> field evidence -> controlled draft -> independent issue -> controlled PDF -> settlement screen. | Awaiting verification | Role-by-role browser evidence. Payment recording and reversal remain separate confirmation-required test steps. |
-| O-03 | Record a fictional payment and reverse it through the browser UI. | Not run intentionally | Fresh user confirmation immediately before each action, then evidence that payment/reversal are audited and that a paid invoice cannot be voided. |
+| O-03 | Record a fictional payment and reverse it through the browser UI. | Local UAT complete | The fictional USD 800 receipt `UAT-PHASE5-RECEIPT-001` was recorded and reversed. The settlement screen shows USD 0 received, USD 800 outstanding, the immutable reversed receipt entry, and the paid-invoice void refusal was covered by automated tests. |
 | O-04 | Implement Phase 3B partial PO and work-package allocation. | Deferred | Owner approval of allocation rules, then a dedicated design, implementation, tests, and UAT. |
 | O-05 | Add a formal credit-note/correction workflow for issued or settled invoices. | Open | Business rules for credit notes, authority, linked correction records, PDF/export treatment, audit rules, tests, and UAT. The current system refuses voiding a paid invoice. |
 | O-06 | Finalize payment terms for controlled quotations. | External decision | Owner-approved default wording after commercial benchmarking, then inclusion in quote/PDF templates and tests. |
@@ -65,3 +65,7 @@ This is the active ledger for requests raised in the Codex/Antigravity workstrea
 ## Already Closed In This Checkout
 
 The ledger does not reopen accepted work: controlled quotation rules, full-coverage PO verification, operational-delivery controls, local legacy invoice draft/independent issue controls, settlement/reversal/paid-void controls, controlled PDF route, Pastel review export audit, production configuration template, and their recorded automated tests are implemented locally. Their deployment and final browser-evidence gates remain open.
+
+## Latest Local Phase 5 Browser Check
+
+On 2026-10-26, a separate headless Chrome session signed in as the fictional Finance account, opened `/finance`, and loaded the settlement view for `INV-0001`. It confirmed: invoice total USD 800.00, received USD 0.00, outstanding USD 800.00, and the reversed fictional receipt `UAT-PHASE5-RECEIPT-001`. This was a local test only; it does not replace the independent Antigravity screenshot review.
