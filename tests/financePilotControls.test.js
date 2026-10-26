@@ -5,6 +5,7 @@ import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { exportInvoicesCsv } from "../src/exporter.js";
 import { getInvoicePdf } from "../src/controllers/documentController.js";
 import { capturePo } from "../src/controllers/quoteController.js";
+import { exportPastel } from "../src/controllers/coreController.js";
 
 function makeCtx(clientName = "Zimplats") {
   const store = createStore(":memory:");
@@ -110,6 +111,21 @@ test("Pastel export falls back to created_at for invoices without generated_at",
   inv.created_at = "2026-08-01T00:00:00.000Z";
   delete inv.generated_at;
   assert.equal(exportInvoicesCsv(ctx.db).split("\n")[1].split(",")[1], "2026-08-01");
+});
+
+test("Pastel export records an audit event but never claims accounting posting", () => {
+  const ctx = makeCtx();
+  invoiceJob(ctx, { hours: 10, rate: 50 });
+  const response = {
+    headers: {},
+    header(key, value) { this.headers[key] = value; return this; },
+    send(body) { this.body = body; return this; }
+  };
+  exportPastel({ db: ctx.db, store: ctx.store, user: { id: "u_fin" } }, response);
+  const audit = ctx.db.audit_logs.at(-1);
+  assert.match(response.body, /transaction_id/);
+  assert.equal(audit.action, "PASTEL_EXPORT_GENERATED");
+  assert.deepEqual(audit.new_values, { export_type: "invoices", accounting_posted: false, row_count: 1 });
 });
 
 test("Sales cannot verify a client-submitted PO before dispatch; Finance can verify", () => {

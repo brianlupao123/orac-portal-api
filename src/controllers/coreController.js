@@ -273,6 +273,11 @@ export const exportPastel = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "exportPastel");
   const csv = exportInvoicesCsv(req.db);
+  req.store.audit(req.db, actor, "pastel_export", "invoices", "PASTEL_EXPORT_GENERATED", null, {
+    export_type: "invoices",
+    accounting_posted: false,
+    row_count: Math.max(0, csv.split("\n").length - 1)
+  });
   res.header("Content-Type", "text/csv; charset=utf-8");
   res.header("Content-Disposition", "attachment; filename=orac-pastel-export.csv");
   res.send(csv);
