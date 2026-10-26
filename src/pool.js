@@ -48,6 +48,9 @@ export function sslConfig(databaseUrl) {
 
 export const pool = new Pool({
   connectionString: secureConnectionString(process.env.DATABASE_URL),
+  // A separate password is useful for local PostgreSQL passwords containing
+  // URL-reserved characters. Hosted deployments continue to use DATABASE_URL.
+  ...(process.env.PGPASSWORD ? { password: process.env.PGPASSWORD } : {}),
   // Keep certificate and hostname validation enabled for hosted PostgreSQL.
   // See sslConfig() above for the exact policy; the function is exported
   // so tests can exercise it behaviourally without reading source text.
