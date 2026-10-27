@@ -118,6 +118,29 @@ test("layoutControlledDocument produces a single page for short content", () => 
   assert.equal(layout.pages.length, 1);
 });
 
+test("controlled table and footer typography stays readable in printed documents", () => {
+  const layout = layoutControlledDocument(baseModel({
+    sections: [{
+      type: "table",
+      heading: "Line items",
+      columns: [{ label: "Description", weight: 2 }, { label: "Total", weight: 1, align: "right" }],
+      rows: [["Fictional inspection activity", "$125.00"]],
+      totalsRow: ["Total", "$125.00"]
+    }]
+  }));
+  const operations = layout.pages.flatMap((page) => page.ops);
+  const header = operations.find((op) => op.type === "text" && op.text === "Description");
+  const cell = operations.find((op) => op.type === "text" && op.text === "Fictional inspection activity");
+  const totalSize = Math.max(...operations
+    .filter((op) => op.type === "text" && op.text === "Total")
+    .map((op) => op.size));
+  const footer = operations.find((op) => op.type === "text" && /^Page 1 of 1$/.test(op.text));
+  assert.ok(header?.size >= 9, "table headers must be at least 9pt");
+  assert.ok(cell?.size >= 9, "table cells must be at least 9pt");
+  assert.ok(totalSize >= 10, "totals must remain visually stronger than table cells");
+  assert.ok(footer?.size >= 8, "footer text must remain readable when printed");
+});
+
 test("layoutControlledDocument shows an explicit empty-state row for a table with no rows, not a silent blank", () => {
   const layout = layoutControlledDocument(baseModel({
     sections: [{

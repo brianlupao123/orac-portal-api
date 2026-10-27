@@ -223,8 +223,8 @@ const FOOTER_RULE_Y = 58;
 const FONT = { regular: "F1", bold: "F2", italic: "F3" };
 
 const STYLE = {
-  brandName: { font: FONT.bold, size: 15, lineHeight: 18 },
-  brandLegal: { font: FONT.regular, size: 8, lineHeight: 11 },
+  brandName: { font: FONT.bold, size: 16, lineHeight: 19 },
+  brandLegal: { font: FONT.regular, size: 8.5, lineHeight: 11.5 },
   docType: { font: FONT.bold, size: 12, lineHeight: 15 },
   docNumber: { font: FONT.regular, size: 10, lineHeight: 13 },
   statusPill: { font: FONT.bold, size: 8, lineHeight: 11 },
@@ -232,14 +232,17 @@ const STYLE = {
   sectionHeading: { font: FONT.bold, size: 9.5, lineHeight: 13 },
   kvLabel: { font: FONT.bold, size: 8, lineHeight: 11 },
   kvValue: { font: FONT.regular, size: 9.5, lineHeight: 12.5 },
-  tableHeader: { font: FONT.bold, size: 8, lineHeight: 11 },
-  tableCell: { font: FONT.regular, size: 8.5, lineHeight: 11.5 },
-  tableTotal: { font: FONT.bold, size: 8.5, lineHeight: 11.5 },
+  // Controlled commercial documents are frequently printed or read at a
+  // distance during site and finance reviews. Keep table text in the 9-10pt
+  // range rather than treating the A4 document as a dense application grid.
+  tableHeader: { font: FONT.bold, size: 9, lineHeight: 12 },
+  tableCell: { font: FONT.regular, size: 9.5, lineHeight: 12.5 },
+  tableTotal: { font: FONT.bold, size: 10, lineHeight: 13 },
   paragraphHeading: { font: FONT.bold, size: 9, lineHeight: 12 },
-  paragraphText: { font: FONT.regular, size: 9, lineHeight: 12.5 },
+  paragraphText: { font: FONT.regular, size: 9.5, lineHeight: 13 },
   notice: { font: FONT.bold, size: 10.5, lineHeight: 14 },
-  footer: { font: FONT.regular, size: 7.5, lineHeight: 10 },
-  signoffLabel: { font: FONT.regular, size: 8, lineHeight: 11 }
+  footer: { font: FONT.regular, size: 8, lineHeight: 10.5 },
+  signoffLabel: { font: FONT.regular, size: 8.5, lineHeight: 11.5 }
 };
 
 const COLOR = {
