@@ -119,6 +119,8 @@ test("Pastel export labor_hours counts only approved kiosk rows", () => {
     { id: "c", dispatch_card_id: "d1", entry_source: "kiosk", review_status: "pending_review", hours_logged: 5 },
     { id: "d", dispatch_card_id: "d1", entry_source: "kiosk", review_status: "rejected", hours_logged: 7 }
   ];
-  const row = exportInvoicesCsv(db).split("\n")[1].split(",");
-  assert.equal(row[9], "10");
+  const [headerLine, rowLine] = exportInvoicesCsv(db).split("\n");
+  const headers = headerLine.split(",");
+  const row = rowLine.split(",");
+  assert.equal(row[headers.indexOf("labor_hours")], "10");
 });

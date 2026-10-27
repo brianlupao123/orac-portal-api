@@ -147,7 +147,17 @@ test("invoice analysis is role-scoped, read-only, and exposes the manual settlem
   const finance = buildInvoiceAnalysis(db, "inv1", users.fin, { now: new Date("2026-02-01T00:00:00.000Z") });
   assert.equal(finance.ok, true);
   assert.deepEqual(finance.data.payment_assessment, "not_determined");
-  assert.deepEqual(finance.data.settlement, { status: "recorded_manual_ledger", currency: "USD", total_amount: 9999, paid_amount: 0, outstanding_amount: 9999, payment_count: 0 });
+  assert.deepEqual(finance.data.settlement, {
+    status: "recorded_manual_ledger",
+    currency: "USD",
+    total_amount: 9999,
+    paid_amount: 0,
+    credited_amount: 0,
+    effective_total_amount: 9999,
+    outstanding_amount: 9999,
+    payment_count: 0,
+    credit_note_count: 0
+  });
   assert.deepEqual(finance.data.purchase_order, { id: "po1", status: "pending" });
   const serialized = JSON.stringify(finance.data);
   for (const secret of ["777", "private line", "private reason", "po_amount"]) assert.equal(serialized.includes(secret), false, secret);

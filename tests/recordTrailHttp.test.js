@@ -242,7 +242,17 @@ test("invoice record analysis enforces the existing invoice scope and audits onl
         const financeResult = await call(base, "/ai/record-analysis", finance, { method: "POST", body });
         assert.equal(financeResult.status, 200);
         assert.equal(financeResult.body.data.payment_assessment, "not_determined");
-        assert.deepEqual(financeResult.body.data.settlement, { status: "recorded_manual_ledger", currency: "USD", total_amount: 7000, paid_amount: 2500, outstanding_amount: 4500, payment_count: 1 });
+        assert.deepEqual(financeResult.body.data.settlement, {
+          status: "recorded_manual_ledger",
+          currency: "USD",
+          total_amount: 7000,
+          paid_amount: 2500,
+          credited_amount: 0,
+          effective_total_amount: 7000,
+          outstanding_amount: 4500,
+          payment_count: 1,
+          credit_note_count: 0
+        });
         const serialized = JSON.stringify(financeResult.body.data);
         for (const secret of ["8000", "private", "po_amount", "PRIVATE-KEY", "PRIVATE-HASH"]) assert.equal(serialized.includes(secret), false, secret);
         const clientResult = await call(base, "/ai/record-analysis", client, { method: "POST", body });
