@@ -25,7 +25,7 @@ import {
   CreateSupplierSchema, UpdateSupplierSchema,
   CreateStockItemSchema, UpdateStockItemSchema,
   StockMovementSchema, DirectSaleStockIssueSchema,
-  RecordInvoicePaymentSchema, VoidInvoicePaymentSchema, CreateLegacyInvoiceDraftSchema, IssueLegacyInvoiceDraftSchema,
+  RecordInvoicePaymentSchema, VoidInvoicePaymentSchema, CreateInvoiceCreditNoteSchema, IssueInvoiceCreditNoteSchema, CreateLegacyInvoiceDraftSchema, IssueLegacyInvoiceDraftSchema,
   CreateServiceRequestSchema, TriageServiceRequestSchema,
   CreateInternalWorkRequestSchema, TransitionInternalWorkRequestSchema,
   ClientAcknowledgeWorksheetSchema, ClientReturnWorksheetSchema, ReviseWorksheetSchema,
@@ -71,7 +71,7 @@ import {
   getTimesheetPeriodPack, getTimesheetPeriodPackPdf, getTimesheetPeriodSummary
 } from "./controllers/timesheetAcknowledgementController.js";
 import { getSummary, exportPastel, createLead, getCollection, reactivateEntity, deactivateEntity, voidInvoice } from "./controllers/coreController.js";
-import { getInvoiceSettlement, recordInvoicePayment, voidInvoicePayment } from "./controllers/invoiceSettlementController.js";
+import { getInvoiceSettlement, recordInvoicePayment, voidInvoicePayment, createInvoiceCreditNote, issueInvoiceCreditNote } from "./controllers/invoiceSettlementController.js";
 import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft, listLegacyInvoiceDrafts } from "./controllers/legacyInvoiceDraftController.js";
 import { getQuoteTrail } from "./controllers/trailController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
@@ -159,6 +159,8 @@ router.post("/invoices/:id/void", voidInvoice);
 router.get("/invoices/:id/settlement", getInvoiceSettlement);
 router.post("/invoices/:id/payments", idempotencyKeyMiddleware, validate(RecordInvoicePaymentSchema), recordInvoicePayment);
 router.post("/invoices/:id/payments/:paymentId/void", validate(VoidInvoicePaymentSchema), voidInvoicePayment);
+router.post("/invoices/:id/credit-notes", idempotencyKeyMiddleware, validate(CreateInvoiceCreditNoteSchema), createInvoiceCreditNote);
+router.post("/credit-notes/:creditNoteId/issue", validate(IssueInvoiceCreditNoteSchema), issueInvoiceCreditNote);
 router.get("/documents/purchase-orders/:id.pdf", getPoDocumentPdf);
 
 // Reports (Phase 04)

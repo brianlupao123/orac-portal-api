@@ -185,6 +185,9 @@ function seedData() {
     legacy_invoice_idempotency: [],
     invoice_lines: [],
     invoice_payments: [],
+    // Legacy credit notes are controlled correction records. They remain
+    // separate from V5 invoices and are never accounting-posting records.
+    invoice_credit_notes: [],
     pastel_export_batches: [],
     pastel_export_lines: [],
     suppliers: [

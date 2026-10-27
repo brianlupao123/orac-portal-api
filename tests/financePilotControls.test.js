@@ -110,7 +110,7 @@ test("Pastel export falls back to created_at for invoices without generated_at",
   const inv = invoiceJob(ctx, { hours: 10, rate: 50 });
   inv.created_at = "2026-08-01T00:00:00.000Z";
   delete inv.generated_at;
-  assert.equal(exportInvoicesCsv(ctx.db).split("\n")[1].split(",")[1], "2026-08-01");
+  assert.equal(exportInvoicesCsv(ctx.db).split("\n")[1].split(",")[2], "2026-08-01");
 });
 
 test("Pastel export records an audit event but never claims accounting posting", () => {
@@ -126,6 +126,25 @@ test("Pastel export records an audit event but never claims accounting posting",
   assert.match(response.body, /transaction_id/);
   assert.equal(audit.action, "PASTEL_EXPORT_GENERATED");
   assert.deepEqual(audit.new_values, { export_type: "invoices", accounting_posted: false, row_count: 1 });
+});
+
+test("Pastel review export includes issued credit notes as negative, non-posting correction rows", () => {
+  const ctx = makeCtx();
+  const invoice = invoiceJob(ctx, { hours: 10, rate: 50 });
+  ctx.db.invoice_credit_notes = [{
+    id: "credit-1", invoice_id: invoice.id, amount: 25, currency: "USD",
+    reason: "Approved service correction", status: "issued", prepared_at: "2026-10-27T10:00:00.000Z", issued_at: "2026-10-27T11:00:00.000Z"
+  }];
+  const response = {
+    headers: {},
+    header(key, value) { this.headers[key] = value; return this; },
+    send(body) { this.body = body; return this; }
+  };
+  exportPastel({ db: ctx.db, store: ctx.store, user: { id: "u_fin" } }, response);
+  assert.match(response.body, /transaction_type/);
+  assert.match(response.body, /credit_note,credit-1/);
+  assert.match(response.body, /-25/);
+  assert.deepEqual(ctx.db.audit_logs.at(-1).new_values, { export_type: "invoices", accounting_posted: false, row_count: 2 });
 });
 
 test("Sales cannot verify a client-submitted PO before dispatch; Finance can verify", () => {

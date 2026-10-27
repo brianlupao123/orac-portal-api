@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { getInvoiceSettlement, recordInvoicePayment, voidInvoicePayment } from "../src/controllers/invoiceSettlementController.js";
-import { RecordInvoicePaymentSchema, VoidInvoicePaymentSchema } from "../src/schemas.js";
+import { createInvoiceCreditNote, getInvoiceSettlement, issueInvoiceCreditNote, recordInvoicePayment, voidInvoicePayment } from "../src/controllers/invoiceSettlementController.js";
+import { CreateInvoiceCreditNoteSchema, IssueInvoiceCreditNoteSchema, RecordInvoicePaymentSchema, VoidInvoicePaymentSchema } from "../src/schemas.js";
 
 const finance = { id: "finance-1", role: "Finance", is_active: true };
 
@@ -42,7 +42,10 @@ test("Finance records a partial USD receipt and a later receipt settles the invo
   recordInvoicePayment(req, first);
   assert.equal(first.statusCode, 201);
   assert.equal(req.db.invoices[0].status, "partially_paid");
-  assert.deepEqual(first.body.settlement, { currency: "USD", total_amount: 100, paid_amount: 40, outstanding_amount: 60, payment_count: 1 });
+  assert.deepEqual(first.body.settlement, {
+    currency: "USD", total_amount: 100, paid_amount: 40, credited_amount: 0,
+    effective_total_amount: 100, outstanding_amount: 60, payment_count: 1, credit_note_count: 0
+  });
 
   req.body = { amount: 60, payment_method: "bank_transfer", reference: "BANK-REF-002", received_on: "2026-10-21" };
   req.idempotencyKey = "22222222-2222-4222-8222-222222222222";
@@ -110,6 +113,42 @@ test("a payment needs a retry key and cannot be recorded for a voided invoice", 
   assert.equal(voidedResponse.statusCode, 409);
 });
 
+test("a credit note is maker-checker controlled, bounded by the outstanding amount, and changes settlement without rewriting the invoice", () => {
+  const req = request({ body: { amount: 40, reason: "Approved service correction" } });
+  const prepared = response();
+  createInvoiceCreditNote(req, prepared);
+  assert.equal(prepared.statusCode, 201);
+  assert.equal(prepared.body.data.status, "prepared");
+
+  const selfIssue = response();
+  req.params.creditNoteId = prepared.body.data.id;
+  req.body = { idempotency_key: "issue-key-1" };
+  issueInvoiceCreditNote(req, selfIssue);
+  assert.equal(selfIssue.statusCode, 403);
+
+  const reviewer = { id: "finance-2", role: "Finance", is_active: true };
+  req.user = { id: reviewer.id };
+  req.db.users.push(reviewer);
+  const issued = response();
+  issueInvoiceCreditNote(req, issued);
+  assert.equal(issued.statusCode, 201);
+  assert.equal(issued.body.settlement.credited_amount, 40);
+  assert.equal(issued.body.settlement.outstanding_amount, 60);
+  assert.equal(req.db.invoices[0].total_amount, 100);
+  assert.deepEqual(req.db.audit_logs.slice(-2).map((entry) => entry.action), ["INVOICE_CREDIT_NOTE_ISSUED", "INVOICE_SETTLEMENT_UPDATED"]);
+
+  const replay = response();
+  issueInvoiceCreditNote(req, replay);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.idempotent_replay, true);
+
+  const overLimit = request({ body: { amount: 101, reason: "Too large" } });
+  const rejected = response();
+  createInvoiceCreditNote(overLimit, rejected);
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(rejected.body.code, "CREDIT_EXCEEDS_OUTSTANDING");
+});
+
 test("settlement routes are authenticated, validated, idempotent on record, and not generic collection endpoints", async () => {
   const validPayment = RecordInvoicePaymentSchema.safeParse({
     amount: 12.5,
@@ -121,10 +160,15 @@ test("settlement routes are authenticated, validated, idempotent on record, and 
   assert.equal(RecordInvoicePaymentSchema.safeParse({ ...validPayment.data, amount: 0 }).success, false);
   assert.equal(VoidInvoicePaymentSchema.safeParse({ reason: "Wrong statement line" }).success, true);
   assert.equal(VoidInvoicePaymentSchema.safeParse({ reason: "" }).success, false);
+  assert.equal(CreateInvoiceCreditNoteSchema.safeParse({ amount: 12.5, reason: "Correction" }).success, true);
+  assert.equal(CreateInvoiceCreditNoteSchema.safeParse({ amount: 0, reason: "Correction" }).success, false);
+  assert.equal(IssueInvoiceCreditNoteSchema.safeParse({ idempotency_key: "issue-123" }).success, true);
 
   const router = await readFile(new URL("../src/router.js", import.meta.url), "utf8");
   assert.match(router, /router\.post\("\/invoices\/:id\/payments", idempotencyKeyMiddleware, validate\(RecordInvoicePaymentSchema\), recordInvoicePayment\)/);
   assert.match(router, /router\.post\("\/invoices\/:id\/payments\/:paymentId\/void", validate\(VoidInvoicePaymentSchema\), voidInvoicePayment\)/);
+  assert.match(router, /router\.post\("\/invoices\/:id\/credit-notes", idempotencyKeyMiddleware, validate\(CreateInvoiceCreditNoteSchema\), createInvoiceCreditNote\)/);
+  assert.match(router, /router\.post\("\/credit-notes\/:creditNoteId\/issue", validate\(IssueInvoiceCreditNoteSchema\), issueInvoiceCreditNote\)/);
   assert.match(router, /router\.get\("\/invoices\/:id\/settlement", getInvoiceSettlement\)/);
   assert.doesNotMatch(router, /"invoice_payments"/);
 });

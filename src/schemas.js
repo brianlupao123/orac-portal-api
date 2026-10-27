@@ -722,3 +722,12 @@ export const RecordInvoicePaymentSchema = z.object({
 export const VoidInvoicePaymentSchema = z.object({
   reason: z.string().min(1)
 });
+
+export const CreateInvoiceCreditNoteSchema = z.object({
+  amount: z.number().positive(),
+  reason: z.string().min(1)
+});
+
+export const IssueInvoiceCreditNoteSchema = z.object({
+  idempotency_key: z.string().min(1)
+});

@@ -9,6 +9,7 @@ function csvEscape(value) {
 
 export function exportInvoicesCsv(db) {
   const headers = [
+    "transaction_type",
     "transaction_id",
     "date",
     "client_id",
@@ -39,6 +40,7 @@ export function exportInvoicesCsv(db) {
 
     for (const line of lines) {
       rows.push([
+        "invoice",
         invoice.invoice_number,
         (invoice.generated_at || invoice.created_at)?.slice(0, 10) || "",
         client?.id || "",
@@ -51,6 +53,24 @@ export function exportInvoicesCsv(db) {
         laborHours,
         materialCost,
         invoice.total_amount
+      ]);
+    }
+
+    for (const creditNote of (db.invoice_credit_notes || []).filter((item) => item.invoice_id === invoice.id && item.status === "issued")) {
+      rows.push([
+        "credit_note",
+        creditNote.id,
+        (creditNote.issued_at || creditNote.prepared_at || "").slice(0, 10),
+        client?.id || "",
+        client?.name || "",
+        po?.po_reference || "",
+        equipment?.tag_code || "",
+        "",
+        "",
+        `Credit note: ${creditNote.reason}`,
+        0,
+        0,
+        -Math.abs(Number(creditNote.amount || 0))
       ]);
     }
   }
