@@ -1,6 +1,6 @@
 # ORAC Open Requests And Release Gates
 
-Last reconciled: 2026-10-26
+Last reconciled: 2026-10-28 (local implementation evidence; release gates still open)
 
 This is the active ledger for requests raised in the Codex/Antigravity workstream that are not yet implemented, not yet independently verified, or intentionally deferred. It is a planning and release-control document; it does not authorize a deployment.
 
@@ -20,7 +20,7 @@ This is the active ledger for requests raised in the Codex/Antigravity workstrea
 | O-02 | Demonstrate the complete fictional browser journey: approved quote -> verified PO -> dispatch -> field evidence -> controlled draft -> independent issue -> controlled PDF -> settlement screen. | Awaiting verification | Role-by-role browser evidence. Payment recording and reversal remain separate confirmation-required test steps. |
 | O-03 | Record a fictional payment and reverse it through the browser UI. | Local UAT complete | The fictional USD 800 receipt `UAT-PHASE5-RECEIPT-001` was recorded and reversed. The settlement screen shows USD 0 received, USD 800 outstanding, the immutable reversed receipt entry, and the paid-invoice void refusal was covered by automated tests. |
 | O-04 | Implement Phase 3B partial PO and work-package allocation. | Deferred | Owner approval of allocation rules, then a dedicated design, implementation, tests, and UAT. |
-| O-05 | Add a formal credit-note/correction workflow for issued or settled invoices. | Open | Business rules for credit notes, authority, linked correction records, PDF/export treatment, audit rules, tests, and UAT. The current system refuses voiding a paid invoice. |
+| O-05 | Add a formal credit-note/correction workflow for issued or settled invoices. | Implemented and locally verified; staging review open | Backend `832bf46`, portal `e1b23ab`, and `release-evidence/phase5-credit-note-uat/PHASE5_CREDIT_NOTE_UAT_REPORT.md` record independent Finance issue, USD 100 correction, audit and Pastel review export behaviour. Production accounting sign-off and staging verification remain. |
 | O-06 | Finalize payment terms for controlled quotations. | External decision | Owner-approved default wording after commercial benchmarking, then inclusion in quote/PDF templates and tests. |
 | O-07 | Confirm final VAT treatment with the company accountant. | External decision | Approved VAT rate/exemptions and evidence process. The current 15% value is development-only provisional configuration, not a production tax decision. |
 
@@ -28,9 +28,9 @@ This is the active ledger for requests raised in the Codex/Antigravity workstrea
 
 | ID | Request | Status | Closure Evidence Required |
 | --- | --- | --- | --- |
-| W-01 | Replace the public "Formal Tender & RFQ" acknowledgement PDF with **Enquiry & Technical Intake Receipt (Non-Binding)**. | Open | Reviewed public-site implementation, focused tests, build, browser UAT, and wording review. It must not show commercial totals, VAT, approval stamps, tender language, or final-quotation claims. |
-| W-02 | Update public quotation-confirmation actions and WhatsApp wording from RFQ dossier language to technical-enquiry wording. | Open | Narrow public-site patch and browser evidence. |
-| W-03 | Complete the public website visual/UI quality pass requested by the owner: typography, font weight/size, spacing, alignment, information hierarchy, content distribution, responsive layouts, control consistency, accessibility, and document presentation. | Open | Page-by-page UX audit, approved implementation scope, desktop/tablet/mobile screenshots, accessibility checks, build and browser evidence. |
+| W-01 | Replace the public "Formal Tender & RFQ" acknowledgement PDF with **Enquiry & Technical Intake Receipt (Non-Binding)**. | Implemented locally; final release review open | Public-site commits through `4e450fa` supply the receipt and approved branding. Focused tests and build passed locally. Reconfirm document wording and PDF appearance in final independent review. |
+| W-02 | Update public quotation-confirmation actions and WhatsApp wording from RFQ dossier language to technical-enquiry wording. | Implemented locally; final release review open | Public-site commits through `4e450fa` cover confirmation and WhatsApp wording. Browser delivery-path review remains part of release acceptance. |
+| W-03 | Complete the public website visual/UI quality pass requested by the owner: typography, font weight/size, spacing, alignment, information hierarchy, content distribution, responsive layouts, control consistency, accessibility, and document presentation. | In progress | Public-site commits `b49781c` and `d1a75c3` improve enquiry drawer and header touch targets. Mobile header check passed: all menu controls at least 44 px, no horizontal overflow or JavaScript errors. Finish page-by-page desktop/tablet/mobile review, accessibility and document presentation evidence. |
 | W-04 | Decide and implement site-survey booking, if it is still wanted. | Design-only / not implemented | Owner-approved architecture decision and a separate guarded implementation plan. |
 | W-05 | Configure the deployed public-site CORS origin and verify the public API integration. | Deployment gate | Staging/production runtime configuration, not a source-code-only change. |
 | W-06 | Deploy the reviewed public idempotency integration. | Not deployed | Staging verification, deployment approval, and post-deploy evidence. |
@@ -68,4 +68,4 @@ The ledger does not reopen accepted work: controlled quotation rules, full-cover
 
 ## Latest Local Phase 5 Browser Check
 
-On 2026-10-26, a separate headless Chrome session signed in as the fictional Finance account, opened `/finance`, and loaded the settlement view for `INV-0001`. It confirmed: invoice total USD 800.00, received USD 0.00, outstanding USD 800.00, and the reversed fictional receipt `UAT-PHASE5-RECEIPT-001`. This was a local test only; it does not replace the independent Antigravity screenshot review.
+On 2026-10-26, a separate headless Chrome session signed in as the fictional Finance account, opened `/finance`, and loaded the settlement view for `INV-0001`. It confirmed: invoice total USD 800.00, received USD 0.00, outstanding USD 800.00, and the reversed fictional receipt `UAT-PHASE5-RECEIPT-001`. On 2026-10-27, the separate local credit-note UAT issued a USD 100 correction with an independent Finance reviewer, leaving USD 700 outstanding. These local checks do not replace independent release review or staging UAT.
