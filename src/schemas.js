@@ -444,7 +444,37 @@ export const AdminCompanyProfileSchema = z.object({
   phone: z.string().optional(),
   email: z.string().optional(),
   brand_primary: z.string().optional(),
-  brand_slate: z.string().optional()
+  brand_slate: z.string().optional(),
+  // This is the only production authority for quotation tax.  A Sales quote
+  // request must never be able to declare itself taxable or approved.
+  quotation_tax_configuration: z.object({
+    tax_status: z.enum(["taxable", "zero-rated", "exempt"]),
+    applied_tax_rate: z.number().min(0).max(1).nullable(),
+    approved: z.boolean(),
+    approval_reference: z.string().trim().min(1).max(256).optional()
+  }).superRefine((configuration, context) => {
+    if (configuration.tax_status === "taxable" && !(configuration.applied_tax_rate > 0)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["applied_tax_rate"],
+        message: "A taxable quotation tax configuration requires a positive applied tax rate."
+      });
+    }
+    if (configuration.tax_status !== "taxable" && configuration.applied_tax_rate !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["applied_tax_rate"],
+        message: "Zero-rated and exempt quotation tax configurations require a 0 tax rate."
+      });
+    }
+    if (configuration.approved && !configuration.approval_reference) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["approval_reference"],
+        message: "An approved quotation tax configuration requires an accountant approval reference."
+      });
+    }
+  }).optional()
 });
 
 export const ClientSubmitPoSchema = z.object({

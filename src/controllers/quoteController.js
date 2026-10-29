@@ -10,6 +10,43 @@ function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
 
+function requiresApprovedTaxConfiguration() {
+  return (process.env.NODE_ENV || "development") === "production"
+    || process.env.ORAC_REQUIRE_APPROVED_TAX === "true";
+}
+
+// Development and test fixtures deliberately retain the provisional 15% value
+// supplied by the local UAT form.  Once approved-tax mode is enabled, however,
+// the request body is not commercial authority: only the audited company
+// profile configuration may determine a quote's tax treatment.
+function resolveQuoteTaxConfiguration(db, body) {
+  if (!requiresApprovedTaxConfiguration()) {
+    return {
+      taxStatus: body.tax_status ?? "provisional",
+      appliedTaxRate: body.applied_tax_rate,
+      taxApproved: false,
+      taxApprovalReference: null
+    };
+  }
+
+  const configuration = db.company_profile?.quotation_tax_configuration;
+  if (!configuration?.approved) {
+    return {
+      taxStatus: "unconfigured",
+      appliedTaxRate: null,
+      taxApproved: false,
+      taxApprovalReference: null
+    };
+  }
+
+  return {
+    taxStatus: configuration.tax_status,
+    appliedTaxRate: configuration.applied_tax_rate,
+    taxApproved: true,
+    taxApprovalReference: configuration.approval_reference || null
+  };
+}
+
 export const createQuote = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "createQuote");
@@ -26,11 +63,12 @@ export const createQuote = (req, res) => {
   const leadLink = validateLeadLink(req.db, { leadId: body.source_lead_id, clientId: client.id });
   if (!leadLink.ok) return res.status(leadLink.status).json({ success: false, code: leadLink.code, message: leadLink.message });
 
+  const taxConfiguration = resolveQuoteTaxConfiguration(req.db, body);
   const financials = calculateQuoteFinancials({
     lines: body.lines,
     discountPercent: body.discount_percent ?? 0,
-    taxStatus: body.tax_status ?? "provisional",
-    appliedTaxRate: body.applied_tax_rate
+    taxStatus: taxConfiguration.taxStatus,
+    appliedTaxRate: taxConfiguration.appliedTaxRate
   });
 
   const lines = financials.lines.map((line) => {
@@ -67,6 +105,8 @@ export const createQuote = (req, res) => {
     net_subtotal_cents: financials.net_subtotal_cents,
     tax_status: financials.tax_status,
     applied_tax_rate: financials.applied_tax_rate,
+    tax_approved: taxConfiguration.taxApproved,
+    tax_approval_reference: taxConfiguration.taxApprovalReference,
     tax_total_cents: financials.tax_total_cents,
     grand_total_cents: financials.grand_total_cents,
     validity_days: body.validity_days || 30,
@@ -243,19 +283,18 @@ export const updateQuote = (req, res) => {
   if (body.assumptions !== undefined) quote.assumptions = body.assumptions;
   if (body.work_packages !== undefined) quote.work_packages = body.work_packages;
   if (body.validity_days !== undefined) quote.validity_days = body.validity_days;
-  if (body.tax_status !== undefined) quote.tax_status = body.tax_status;
-  if (body.applied_tax_rate !== undefined) quote.applied_tax_rate = body.applied_tax_rate;
   if (body.discount_percent !== undefined) quote.discount_percent = body.discount_percent;
 
   const currentLines = body.lines && Array.isArray(body.lines)
     ? body.lines
     : req.db.quote_lines.filter(l => l.quotation_id === quote.id);
 
+  const taxConfiguration = resolveQuoteTaxConfiguration(req.db, body);
   const financials = calculateQuoteFinancials({
     lines: currentLines,
     discountPercent: quote.discount_percent ?? 0,
-    taxStatus: quote.tax_status ?? "provisional",
-    appliedTaxRate: quote.applied_tax_rate
+    taxStatus: taxConfiguration.taxStatus,
+    appliedTaxRate: taxConfiguration.appliedTaxRate
   });
 
   if (body.lines && Array.isArray(body.lines)) {
@@ -290,6 +329,10 @@ export const updateQuote = (req, res) => {
   quote.grand_total_cents = financials.grand_total_cents;
   quote.total_amount = financials.total_amount;
   quote.currency = "USD";
+  quote.tax_status = financials.tax_status;
+  quote.applied_tax_rate = financials.applied_tax_rate;
+  quote.tax_approved = taxConfiguration.taxApproved;
+  quote.tax_approval_reference = taxConfiguration.taxApprovalReference;
 
   req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_UPDATED", before, quote);
   res.json({ success: true, data: quote });
