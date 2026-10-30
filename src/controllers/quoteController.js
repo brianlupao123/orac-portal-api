@@ -392,6 +392,9 @@ export const transition = (req, res) => {
   const quote = req.db.quotes.find((item) => item.id === req.params.id);
   if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
   if (req.body.target_state === "Sent" && quote.status === "Draft") {
+    // Do not let an authenticated but unauthorised caller trigger an audited
+    // tax refresh or mutate a Draft by attempting issue.
+    requirePermission(actor, "sendQuote");
     refreshTaxConfigurationForIssue(req, quote, actor);
   }
   const result = transitionQuote(req.db, req.store, req.params.id, req.body.target_state, req.body, actor);

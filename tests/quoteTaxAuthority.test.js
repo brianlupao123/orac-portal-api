@@ -129,6 +129,26 @@ test("approved-tax mode refuses issue when a previously approved configuration h
   assert.equal(created.body.data.tax_approved, false);
 }));
 
+test("an actor without send authority cannot refresh a Draft tax configuration by attempting issue", () => withApprovedTaxMode(() => {
+  const db = database({ quotation_tax_configuration: {
+    tax_status: "taxable", applied_tax_rate: 0.155, approved: true, approval_reference: "ACCOUNTANT-OLD"
+  } });
+  const created = create(db);
+  db.company_profile.quotation_tax_configuration = {
+    tax_status: "zero-rated", applied_tax_rate: 0, approved: true, approval_reference: "ZERO-RATED-CURRENT"
+  };
+  db.users.push({ id: "viewer-1", role: "Client Viewer", is_active: true });
+  const res = response();
+
+  assert.throws(
+    () => transition({ user: { id: "viewer-1" }, db, store: store(), params: { id: created.body.data.id }, body: { target_state: "Sent" } }, res),
+    /cannot perform sendQuote/i
+  );
+  assert.equal(created.body.data.status, "Draft");
+  assert.equal(created.body.data.tax_status, "taxable");
+  assert.equal(created.body.data.tax_approval_reference, "ACCOUNTANT-OLD");
+}));
+
 test("development keeps the labelled provisional fixture and does not claim approval", () => {
   const previous = process.env.ORAC_REQUIRE_APPROVED_TAX;
   delete process.env.ORAC_REQUIRE_APPROVED_TAX;

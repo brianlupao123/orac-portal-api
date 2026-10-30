@@ -98,7 +98,11 @@ export const RecordAmendedPoEvidenceSchema = z.object({
 export const TransitionQuoteSchema = z.object({
   target_state: z.string().min(1, "Target state is required"),
   started_before_po: z.boolean().optional(),
-  urgent_reason: z.string().optional()
+  urgent_reason: z.string().optional(),
+  // Used only for the documented Admin fallback when the Admin approving the
+  // quote is also its sender.  All other server-owned transition fields stay
+  // excluded by this schema.
+  approval_exception_reason: z.string().trim().min(10, "Admin fallback approval reason must be at least 10 characters").max(500).optional()
 });
 
 export const DocumentReferenceSchema = z.string().trim()
