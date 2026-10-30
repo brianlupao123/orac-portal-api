@@ -47,6 +47,38 @@ function resolveQuoteTaxConfiguration(db, body) {
   };
 }
 
+// A Draft cannot retain an obsolete tax approval simply because the company
+// profile changed after it was created.  Immediately before issue, derive the
+// commercial tax state again from the current approved company configuration
+// and recalculate the stored totals from the persisted lines.
+function refreshTaxConfigurationForIssue(req, quote, actor) {
+  if (!requiresApprovedTaxConfiguration()) return;
+
+  const before = { ...quote };
+  const taxConfiguration = resolveQuoteTaxConfiguration(req.db, {});
+  const lines = req.db.quote_lines.filter((line) => line.quotation_id === quote.id);
+  const financials = calculateQuoteFinancials({
+    lines,
+    discountPercent: quote.discount_percent ?? 0,
+    taxStatus: taxConfiguration.taxStatus,
+    appliedTaxRate: taxConfiguration.appliedTaxRate
+  });
+
+  quote.currency = "USD";
+  quote.pre_tax_total_cents = financials.pre_tax_total_cents;
+  quote.discount_cents = financials.discount_cents;
+  quote.net_subtotal_cents = financials.net_subtotal_cents;
+  quote.tax_total_cents = financials.tax_total_cents;
+  quote.grand_total_cents = financials.grand_total_cents;
+  quote.total_amount = financials.total_amount;
+  quote.tax_status = financials.tax_status;
+  quote.applied_tax_rate = financials.applied_tax_rate;
+  quote.tax_approved = taxConfiguration.taxApproved;
+  quote.tax_approval_reference = taxConfiguration.taxApprovalReference;
+
+  req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_TAX_CONFIGURATION_REFRESHED_FOR_ISSUE", before, quote);
+}
+
 export const createQuote = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "createQuote");
@@ -357,6 +389,11 @@ export const cancelQuote = (req, res) => {
 
 export const transition = (req, res) => {
   const actor = getActor(req);
+  const quote = req.db.quotes.find((item) => item.id === req.params.id);
+  if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
+  if (req.body.target_state === "Sent" && quote.status === "Draft") {
+    refreshTaxConfigurationForIssue(req, quote, actor);
+  }
   const result = transitionQuote(req.db, req.store, req.params.id, req.body.target_state, req.body, actor);
   res.json({ success: true, data: result });
 };

@@ -48,8 +48,12 @@ function validateTransition(db, quote, targetState, payload, actor) {
 
   if (targetState === "Approved_Pending_PO") {
     requirePermission(actor, "approveQuote");
-    if (actor.role === "Sales" && quote.sent_by && quote.sent_by === actor.id) {
+    const selfApproval = quote.sent_by && quote.sent_by === actor.id;
+    if (actor.role === "Sales" && selfApproval) {
       throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague, Operations, or Admin must approve it."), { status: 403 });
+    }
+    if (actor.role === "Admin" && selfApproval && String(payload.approval_exception_reason || "").trim().length < 10) {
+      throw Object.assign(new Error("Admin fallback approval requires a recorded reason explaining why Sales could not complete the approval."), { status: 400 });
     }
     const totalCents = Number.isInteger(quote.grand_total_cents)
       ? quote.grand_total_cents
@@ -208,6 +212,14 @@ export function transitionQuote(db, store, quoteId, targetState, payload, actor)
   const before = { ...quote };
   quote.status = targetState;
   quote.updated_at = new Date().toISOString();
+  if (targetState === "Approved_Pending_PO" && actor.role === "Admin" && quote.sent_by === actor.id) {
+    quote.approval_exception = {
+      type: "admin_sales_fallback",
+      reason: String(payload.approval_exception_reason).trim(),
+      approved_by: actor.id,
+      approved_at: quote.updated_at
+    };
+  }
   if (targetState === "Sent") {
     quote.sent_by = actor.id;
     quote.sent_at = new Date().toISOString();

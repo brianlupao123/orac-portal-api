@@ -236,6 +236,26 @@ describe("Self-approval prevention", () => {
     const result = transitionQuote(db, makeStore(), "q1", "Approved_Pending_PO", {}, sales2Actor);
     assert.equal(result.quote.status, "Approved_Pending_PO");
   });
+
+  it("Admin fallback self-approval requires a recorded Sales-unavailability reason", () => {
+    const quote = makeQuote({ status: "Sent", grand_total_cents: 200000, discount_percent: 0, sent_by: adminActor.id });
+    const db = makeDb({ quotes: [quote], quote_lines: [makeLine()] });
+    assert.throws(
+      () => transitionQuote(db, makeStore(), "q1", "Approved_Pending_PO", {}, adminActor),
+      /fallback approval requires a recorded reason/i
+    );
+
+    const result = transitionQuote(db, makeStore(), "q1", "Approved_Pending_PO", {
+      approval_exception_reason: "Sales approver unavailable during client operational deadline."
+    }, adminActor);
+    assert.equal(result.quote.status, "Approved_Pending_PO");
+    assert.deepEqual(result.quote.approval_exception, {
+      type: "admin_sales_fallback",
+      reason: "Sales approver unavailable during client operational deadline.",
+      approved_by: adminActor.id,
+      approved_at: result.quote.updated_at
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

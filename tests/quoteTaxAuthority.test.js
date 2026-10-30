@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createQuote, updateQuote } from "../src/controllers/quoteController.js";
+import { createQuote, updateQuote, transition } from "../src/controllers/quoteController.js";
 import { AdminCompanyProfileSchema } from "../src/schemas.js";
 
 function response() {
@@ -91,6 +91,42 @@ test("approved-tax mode re-resolves a draft from company tax authority instead o
   assert.equal(res.body.data.tax_status, "zero-rated");
   assert.equal(res.body.data.applied_tax_rate, 0);
   assert.equal(res.body.data.tax_approval_reference, "ZERO-RATED-CASE");
+}));
+
+test("approved-tax mode refreshes an outdated approved draft from the current company configuration before it is sent", () => withApprovedTaxMode(() => {
+  const db = database({ quotation_tax_configuration: {
+    tax_status: "taxable", applied_tax_rate: 0.155, approved: true, approval_reference: "ACCOUNTANT-OLD"
+  } });
+  const created = create(db);
+  db.company_profile.quotation_tax_configuration = {
+    tax_status: "zero-rated", applied_tax_rate: 0, approved: true, approval_reference: "ZERO-RATED-CURRENT"
+  };
+  const res = response();
+
+  transition({ user: { id: "sales-1" }, db, store: store(), params: { id: created.body.data.id }, body: { target_state: "Sent" } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.quote.status, "Sent");
+  assert.equal(res.body.data.quote.tax_status, "zero-rated");
+  assert.equal(res.body.data.quote.tax_total_cents, 0);
+  assert.equal(res.body.data.quote.tax_approval_reference, "ZERO-RATED-CURRENT");
+}));
+
+test("approved-tax mode refuses issue when a previously approved configuration has been withdrawn", () => withApprovedTaxMode(() => {
+  const db = database({ quotation_tax_configuration: {
+    tax_status: "taxable", applied_tax_rate: 0.155, approved: true, approval_reference: "ACCOUNTANT-OLD"
+  } });
+  const created = create(db);
+  db.company_profile.quotation_tax_configuration = { tax_status: "taxable", applied_tax_rate: 0.155, approved: false };
+  const res = response();
+
+  assert.throws(
+    () => transition({ user: { id: "sales-1" }, db, store: store(), params: { id: created.body.data.id }, body: { target_state: "Sent" } }, res),
+    /unconfigured tax status/
+  );
+  assert.equal(created.body.data.status, "Draft");
+  assert.equal(created.body.data.tax_status, "unconfigured");
+  assert.equal(created.body.data.tax_approved, false);
 }));
 
 test("development keeps the labelled provisional fixture and does not claim approval", () => {
