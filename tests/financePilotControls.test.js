@@ -29,7 +29,7 @@ function makeCtx(clientName = "Zimplats") {
 function invoiceJob(ctx, { poAmount = 5000, materials = 0, hours = 0, rate = 0, zeroHourTimesheet = false } = {}) {
   const { db, store, admin } = ctx;
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-77", po_amount: poAmount, status: "verified", requires_amendment: false });
   transitionQuote(db, store, "q1", "PO_Verified", {}, admin);
   transitionQuote(db, store, "q1", "Field_Dispatch", {}, admin);
@@ -46,7 +46,7 @@ function invoiceJob(ctx, { poAmount = 5000, materials = 0, hours = 0, rate = 0, 
 function seedLegacyPrePoDispatch(ctx) {
   const { db, store, admin } = ctx;
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({
     id: "legacy-po-1", quotation_id: "q1", po_reference: "", po_amount: 0,
     status: "pending", started_before_po: true, requires_amendment: false

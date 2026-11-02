@@ -644,7 +644,7 @@ const ROUTE_CONTRACT = {
   "/kiosk": ["Admin", "Management", "Operations", "Supervisor"],
   "/inventory": ["Admin", "Management", "Operations"],
   "/reports": ["Admin", "Management", "Operations", "Supervisor", "Sales", "Finance"],
-  "/job-cards": ["Admin", "Management", "Operations", "Supervisor", "Technician"],
+  "/job-cards": ["Admin", "Management", "Operations", "Supervisor", "Technician", "Sales"],
   "/operational-data": ["Admin", "Management", "Operations", "Supervisor", "Technician", "Sales", "Finance"],
   "/documents": ALL_ROLES,
   "/contracts": ["Admin", "Management", "Operations", "Client Viewer"],

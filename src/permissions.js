@@ -12,7 +12,7 @@ export const roles = {
 export const permissions = {
   createQuote: [roles.ADMIN, roles.SALES],
   sendQuote: [roles.ADMIN, roles.SALES],
-  approveQuote: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.OPERATIONS],
+  approveQuote: [roles.ADMIN, roles.MANAGEMENT, roles.SALES],
   verifyPo: [roles.ADMIN, roles.FINANCE],
   rejectPo: [roles.ADMIN, roles.FINANCE],
   recordPo: [roles.ADMIN, roles.FINANCE, roles.SALES],
@@ -26,10 +26,10 @@ export const permissions = {
   // Assigning the Supervisor who reviews a dispatch's kiosk entries. Not a Supervisor self-service action.
   assignDispatchSupervisor: [roles.ADMIN, roles.OPERATIONS],
   viewKioskTimesheetReview: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
-  viewDispatchTimesheets: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  viewDispatchTimesheets: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   // Read-only operational summary. Management may read every Job Card; field
   // roles remain restricted to dispatches they are assigned to.
-  viewDispatchJobCard: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  viewDispatchJobCard: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   addMaterials: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
@@ -62,11 +62,11 @@ export const permissions = {
   invoice: [roles.ADMIN, roles.FINANCE],
   // Legacy controlled invoicing mirrors the two-person control used by the
   // separate V5 writer. Preparing a calculation never creates an invoice.
-  manageLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE],
+  manageLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE, roles.SALES],
   issueLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE],
   // Read-only explanation of the same evidence and PO controls used by the
   // Invoice Ready report. This does not grant invoice creation.
-  viewInvoiceReadiness: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
+  viewInvoiceReadiness: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.SALES],
   exportPastel: [roles.ADMIN, roles.FINANCE],
   viewAudit: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   manageUsers: [roles.ADMIN],
@@ -96,7 +96,8 @@ export const permissions = {
   viewInternalWorkRequestInbox: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
   workInternalWorkRequest: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
   // Read-only, by id. Never grants any mutation.
-  auditInternalWorkRequests: [roles.ADMIN]
+  auditInternalWorkRequests: [roles.ADMIN],
+  manageCommercialOwnership: [roles.ADMIN, roles.MANAGEMENT]
 };
 
 // Timesheet workflow packet (contract steps 3-9). Every overlay is DARK: with its

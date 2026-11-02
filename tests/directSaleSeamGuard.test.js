@@ -38,7 +38,7 @@ test("a goods-only quote cannot be invoiced: the invoice gate needs a dispatch c
   const { db, store } = makeDb();
   const admin = db.users[0];
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-1", po_amount: 500, status: "verified", requires_amendment: false });
   transitionQuote(db, store, "q1", "PO_Verified", {}, admin);
   assert.throws(() => issueLegacyInvoice(db, store, "q1", admin), /Illegal transition/, "no shortcut from PO_Verified to Invoiced");

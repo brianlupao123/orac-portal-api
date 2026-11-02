@@ -762,6 +762,21 @@ export const CreateInvoiceCreditNoteSchema = z.object({
   reason: z.string().min(1)
 });
 
+const COMMERCIAL_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export const AssignCommercialOwnershipSchema = z.object({
+  target_entity: z.enum(["client", "quote"]),
+  target_id: z.string().regex(COMMERCIAL_ID_REGEX, "Invalid target_id format"),
+  owner_id: z.string().regex(COMMERCIAL_ID_REGEX, "Invalid owner_id format"),
+  account_team_user_ids: z.array(z.string().regex(COMMERCIAL_ID_REGEX, "Invalid account_team_user_id format"))
+    .default([])
+    .transform((ids) => [...new Set(ids)]),
+  reason: z.string().trim().min(10, "A valid business reason (at least 10 characters) is required for ownership assignment.")
+}).refine((data) => !data.account_team_user_ids.includes(data.owner_id), {
+  message: "Primary owner cannot also appear in account_team_user_ids",
+  path: ["account_team_user_ids"]
+});
+
 export const IssueInvoiceCreditNoteSchema = z.object({
   idempotency_key: z.string().min(1)
 });

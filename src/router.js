@@ -76,7 +76,8 @@ import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft, listLegacyInvoiceDra
 import { getQuoteTrail } from "./controllers/trailController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
-import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile } from "./controllers/adminController.js";
+import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile, assignCommercialOwnership } from "./controllers/adminController.js";
+import { getSalesPortfolioDispatches, getSalesDispatchProgress, getSalesApprovedWorkSummary, getSalesMaterialsSummary, getSalesPortfolioInvoices } from "./controllers/salesPortfolioController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport, getInventoryReconciliation } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, getRecordAnalysis, flagAiResponse } from "./controllers/aiController.js";
@@ -361,6 +362,21 @@ router.patch("/contracts/:id", updateContract);
 router.get("/maintenance-schedules", listMaintenanceSchedules);
 router.post("/maintenance-schedules", createMaintenanceSchedule);
 router.patch("/maintenance-schedules/:id", updateMaintenanceSchedule);
+
+// Dedicated Sales Portfolio Endpoints
+router.get("/sales/portfolio/dispatches", getSalesPortfolioDispatches);
+router.get("/sales-portfolio/dispatches", getSalesPortfolioDispatches);
+router.get("/sales/portfolio/dispatches/:id/progress", getSalesDispatchProgress);
+router.get("/sales-portfolio/dispatches/:id/progress", getSalesDispatchProgress);
+router.get("/sales/portfolio/dispatches/:id/approved-work", getSalesApprovedWorkSummary);
+router.get("/sales-portfolio/dispatches/:id/approved-work", getSalesApprovedWorkSummary);
+router.get("/sales/portfolio/dispatches/:id/materials", getSalesMaterialsSummary);
+router.get("/sales-portfolio/dispatches/:id/materials", getSalesMaterialsSummary);
+router.get("/sales/portfolio/invoices", getSalesPortfolioInvoices);
+router.get("/sales-portfolio/invoices", getSalesPortfolioInvoices);
+
+// Admin / Management Commercial Ownership Assignment
+router.post("/admin/commercial-ownership/assign", assignCommercialOwnership);
 
 // Generic GET endpoints for collections
 const collections = [

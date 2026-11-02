@@ -28,7 +28,7 @@ test("full workflow on the seeded ORAC data writes the central audit trail, exac
     assert.ok(sales && operations && finance, "seed must provide Sales, Operations and Finance users");
 
     // Seed has no quotes; add one and a stock item snapshot to prove they are untouched.
-    db.quotes.push({ id: "q_real", quote_number: "Q-0001", client_id: db.clients[0].id, status: "Sent" });
+    db.quotes.push({ id: "q_real", quote_number: "Q-0001", client_id: db.clients[0].id, status: "Sent", sales_owner_id: sales.id });
     const stockBefore = JSON.stringify(db.stock_items);
     const before = {
       notifications: db.notifications.length, quotes: JSON.stringify(db.quotes), purchase_orders: db.purchase_orders.length,

@@ -165,7 +165,74 @@ function isSupervisorAssignedToDispatch(dispatch, actor, db) {
     );
 }
 
+export function isQuoteInSalesPortfolio(quote, actor, db) {
+  if (!quote || !actor || actor.role !== roles.SALES) return false;
+  if (quote.sales_owner_id === actor.id) return true;
+  if (Array.isArray(quote.account_team_user_ids) && quote.account_team_user_ids.includes(actor.id)) return true;
+  if (quote.client_id && db?.clients) {
+    const client = db.clients.find((c) => c.id === quote.client_id);
+    if (client) {
+      if (client.primary_sales_owner_id === actor.id) return true;
+      if (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id)) return true;
+    }
+  }
+  return false;
+}
+
+export function isDispatchInSalesPortfolio(dispatch, actor, db) {
+  if (!dispatch || !actor || actor.role !== roles.SALES) return false;
+  if (dispatch.quotation_id && db?.quotes) {
+    const quote = db.quotes.find((q) => q.id === dispatch.quotation_id);
+    if (quote && isQuoteInSalesPortfolio(quote, actor, db)) return true;
+  }
+  if (dispatch.client_id && db?.clients) {
+    const client = db.clients.find((c) => c.id === dispatch.client_id);
+    if (client) {
+      if (client.primary_sales_owner_id === actor.id) return true;
+      if (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id)) return true;
+    }
+  }
+  return false;
+}
+
+export function isInvoiceInSalesPortfolio(invoice, actor, db) {
+  if (!invoice || !actor || actor.role !== roles.SALES) return false;
+  if (invoice.quotation_id && db?.quotes) {
+    const quote = db.quotes.find((q) => q.id === invoice.quotation_id);
+    if (quote && isQuoteInSalesPortfolio(quote, actor, db)) return true;
+  }
+  if (invoice.dispatch_card_id && db?.dispatch_cards) {
+    const dispatch = db.dispatch_cards.find((d) => d.id === invoice.dispatch_card_id);
+    if (dispatch && isDispatchInSalesPortfolio(dispatch, actor, db)) return true;
+  }
+  if (invoice.client_id && db?.clients) {
+    const client = db.clients.find((c) => c.id === invoice.client_id);
+    if (client) {
+      if (client.primary_sales_owner_id === actor.id) return true;
+      if (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id)) return true;
+    }
+  }
+  return false;
+}
+
 export function scopeOperationalData(data, collectionName, actor, db) {
+  if (actor?.role === roles.SALES) {
+    if (collectionName === "quotes") {
+      return data.filter((quote) => isQuoteInSalesPortfolio(quote, actor, db));
+    }
+    if (collectionName === "quote_lines") {
+      return data.filter((line) => {
+        const quote = (db?.quotes || []).find((q) => q.id === line.quotation_id);
+        return quote && isQuoteInSalesPortfolio(quote, actor, db);
+      });
+    }
+    if (collectionName === "clients") {
+      return data.filter((client) =>
+        client.primary_sales_owner_id === actor.id ||
+        (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id))
+      );
+    }
+  }
   if (actor?.role === roles.TECHNICIAN) {
     if (collectionName === "dispatch_cards") {
       return data.filter((dispatch) => isTechnicianAssignedToDispatch(dispatch, actor, db));

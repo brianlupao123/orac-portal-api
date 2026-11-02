@@ -45,7 +45,7 @@ function publicDraft(draft, db) {
     id: draft.id, dispatch_card_id: draft.dispatch_card_id, quotation_id: draft.quotation_id,
     purchase_order_id: draft.purchase_order_id, status: invoice ? "issued" : draft.status,
     prepared_by: draft.prepared_by, prepared_at: draft.prepared_at, candidate: copy(draft.candidate),
-    ...(invoice ? { issued_invoice_id: invoice.id, issued_at: draft.issued_at } : {})
+    ...(invoice ? { issued_invoice_id: invoice.id, issued_by: draft.issued_by, issued_at: draft.issued_at } : {})
   };
 }
 

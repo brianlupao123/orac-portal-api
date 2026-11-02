@@ -8,8 +8,8 @@ import { config, validateRuntimeConfig } from "./src/config.js";
 validateRuntimeConfig();
 
 import { ensureTableExists } from "./src/pool.js";
-import { createStore as createJsonStore } from "./src/store.js";
-import { createStore as createPostgresStore } from "./src/postgresStore.js";
+import { store } from "./src/configuredStore.js";
+
 import { persistenceMiddleware } from "./src/persistenceMiddleware.js";
 import { securityHeaders } from "./src/middleware/securityHeaders.js";
 import { createPublicEndpointLimits } from "./src/middleware/rateLimit.js";
@@ -18,9 +18,9 @@ import { createCors } from "./src/middleware/cors.js";
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const publicDir = join(__dirname, "public");
 
-export const store = config.storeDriver === "postgres" 
-  ? createPostgresStore(join(__dirname, "data", "db.json")) 
-  : createJsonStore(config.jsonDbPath);
+export { store };
+
+
 
 if (config.storeDriver === "postgres") {
   await ensureTableExists();

@@ -48,9 +48,9 @@ function validateTransition(db, quote, targetState, payload, actor) {
 
   if (targetState === "Approved_Pending_PO") {
     requirePermission(actor, "approveQuote");
-    const selfApproval = quote.sent_by && quote.sent_by === actor.id;
+    const selfApproval = (quote.sent_by && quote.sent_by === actor.id) || (quote.created_by && quote.created_by === actor.id);
     if (actor.role === "Sales" && selfApproval) {
-      throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague, Operations, or Admin must approve it."), { status: 403 });
+      throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague or Management must approve it."), { status: 403 });
     }
     if (actor.role === "Admin" && selfApproval && String(payload.approval_exception_reason || "").trim().length < 10) {
       throw Object.assign(new Error("Admin fallback approval requires a recorded reason explaining why Sales could not complete the approval."), { status: 400 });
@@ -146,6 +146,7 @@ export function createLegacyInvoice(db, store, quote, actor) {
     total_amount: total,
     status: "sent",
     generated_by: actor.id,
+    issued_by: actor.id,
     generated_at: new Date().toISOString()
   };
 

@@ -32,7 +32,7 @@ function world() {
   };
   const admin = db.users[0];
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-1", po_amount: 100000, status: "verified", requires_amendment: false });
   transitionQuote(db, store, "q1", "PO_Verified", {}, admin);
   transitionQuote(db, store, "q1", "Field_Dispatch", {}, admin);

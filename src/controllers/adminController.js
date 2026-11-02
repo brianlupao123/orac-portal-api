@@ -1,4 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
+import { AssignCommercialOwnershipSchema } from "../schemas.js";
 import bcrypt from "bcrypt";
 import {
   validateParentAssignment,
@@ -332,4 +333,63 @@ export const updateCompanyProfile = (req, res) => {
   req.db.company_profile = { ...req.db.company_profile, ...req.body };
   req.store.audit(req.db, actor, "company_profile", "company_profile", "ADMIN_COMPANY_PROFILE_UPDATED", before, req.db.company_profile);
   res.json({ success: true, data: req.db.company_profile });
+};
+
+export function assignCommercialOwnership(req, res) {
+  const actor = (req.db.users || []).find((u) => u.id === req.user?.id);
+  if (!actor || ![roles.ADMIN, roles.MANAGEMENT].includes(actor.role)) {
+    return res.status(403).json({ success: false, message: "Only Admin or Management can assign commercial ownership." });
+  }
+
+  const parsed = AssignCommercialOwnershipSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, message: parsed.error.issues?.[0]?.message || "Invalid payload" });
+  }
+
+  const { target_entity, target_id, owner_id, account_team_user_ids, reason } = parsed.data;
+
+  // Validate primary owner is an active Sales user
+  const primaryOwner = (req.db.users || []).find((u) => u.id === owner_id);
+  if (!primaryOwner || primaryOwner.role !== roles.SALES || primaryOwner.is_active === false) {
+    return res.status(400).json({ success: false, message: "Target owner must be an active Sales user." });
+  }
+
+  // Validate every account-team member is an active Sales user
+  for (const teamUserId of account_team_user_ids) {
+    const teamUser = (req.db.users || []).find((u) => u.id === teamUserId);
+    if (!teamUser || teamUser.role !== roles.SALES || teamUser.is_active === false) {
+      return res.status(400).json({ success: false, message: `Account team member ${teamUserId} must be an active Sales user.` });
+    }
+  }
+
+  let targetRecord = null;
+  let previous = null;
+
+  if (target_entity === "client") {
+    targetRecord = (req.db.clients || []).find((c) => c.id === target_id);
+    if (!targetRecord) return res.status(404).json({ success: false, message: "Client not found." });
+    previous = {
+      primary_sales_owner_id: targetRecord.primary_sales_owner_id || null,
+      account_team_user_ids: targetRecord.account_team_user_ids || []
+    };
+    targetRecord.primary_sales_owner_id = owner_id;
+    targetRecord.account_team_user_ids = account_team_user_ids;
+  } else if (target_entity === "quote") {
+    targetRecord = (req.db.quotes || []).find((q) => q.id === target_id);
+    if (!targetRecord) return res.status(404).json({ success: false, message: "Quote not found." });
+    previous = {
+      sales_owner_id: targetRecord.sales_owner_id || null,
+      account_team_user_ids: targetRecord.account_team_user_ids || []
+    };
+    targetRecord.sales_owner_id = owner_id;
+    targetRecord.account_team_user_ids = account_team_user_ids;
+  }
+
+  const current = target_entity === "client"
+    ? { primary_sales_owner_id: owner_id, account_team_user_ids, reason }
+    : { sales_owner_id: owner_id, account_team_user_ids, reason };
+
+  req.store.audit(req.db, actor, target_entity, target_id, "COMMERCIAL_OWNERSHIP_ASSIGNED", previous, current);
+
+  res.json({ success: true, data: targetRecord });
 };

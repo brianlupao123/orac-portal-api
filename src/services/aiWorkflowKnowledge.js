@@ -45,7 +45,7 @@ export const DESTINATIONS = Object.freeze({
   kiosk: { path: "/kiosk", label: "Kiosk Mode", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR] },
   inventory: { path: "/inventory", label: "Inventory", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS], requires: "manageInventory" },
   reports: { path: "/reports", label: "Reports", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.SALES, R.FINANCE] },
-  jobCards: { path: "/job-cards", label: "Job Cards", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.TECHNICIAN], requires: "viewDispatchJobCard" },
+  jobCards: { path: "/job-cards", label: "Job Cards", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.TECHNICIAN, R.SALES], requires: "viewDispatchJobCard" },
   operationalData: { path: "/operational-data", label: "Operational Data", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.TECHNICIAN, R.SALES, R.FINANCE] },
   documents: { path: "/documents", label: "Documents", roles: ALL_ROLES },
   contracts: { path: "/contracts", label: "Contracts", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.CLIENT_VIEWER], requires: "viewContracts" },

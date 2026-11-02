@@ -1,16 +1,22 @@
 import { roles } from "../permissions.js";
 import { activeInvoicePayments, creditNoteRequestHash, invoiceTotalCents, paymentRequestHash, refreshSettlementStatus, settlementSummary } from "../invoiceSettlement.js";
+import { isInvoiceInSalesPortfolio } from "./coreController.js";
 
 function getActor(req) {
-  return req.db.users.find((user) => user.id === req.user.id);
+  return (req.db.users || []).find((user) => user.id === req.user?.id);
 }
 
 function canSettle(actor) {
   return actor && [roles.ADMIN, roles.FINANCE].includes(actor.role);
 }
 
-function canViewSettlement(actor) {
-  return actor && [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT].includes(actor.role);
+function canViewSettlement(actor, invoice, db) {
+  if (!actor || actor.is_active === false) return false;
+  if ([roles.ADMIN, roles.FINANCE, roles.MANAGEMENT].includes(actor.role)) return true;
+  if (actor.role === roles.SALES && invoice) {
+    return isInvoiceInSalesPortfolio(invoice, actor, db);
+  }
+  return false;
 }
 
 function cents(value) {
@@ -32,11 +38,34 @@ function findInvoice(req, res) {
 
 export const getInvoiceSettlement = (req, res) => {
   const actor = getActor(req);
-  if (!canViewSettlement(actor)) {
-    return res.status(403).json({ success: false, message: "Only Admin, Finance, or Management can view invoice settlement evidence." });
-  }
   const invoice = findInvoice(req, res);
   if (!invoice) return;
+
+  if (!canViewSettlement(actor, invoice, req.db)) {
+    return res.status(403).json({ success: false, message: "You are not authorized to view settlement details for this invoice." });
+  }
+
+  const summary = settlementSummary(req.db, invoice);
+
+  // STRICT SALES REDACTION:
+  // Returns only the 5 aggregate fields + identifiers/currency.
+  // Completely suppresses payments and credit_notes arrays.
+  if (actor.role === roles.SALES) {
+    return res.json({
+      success: true,
+      data: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        currency: "USD",
+        invoice_total: summary?.total_amount ?? 0,
+        credit_note_total: summary?.credited_amount ?? 0,
+        received_total: summary?.paid_amount ?? 0,
+        outstanding_total: summary?.outstanding_amount ?? 0,
+        settlement_status: invoice.status
+      }
+    });
+  }
+
   const payments = (req.db.invoice_payments || [])
     .filter((payment) => payment.invoice_id === invoice.id)
     .map(({ id, amount, currency, payment_method, reference, received_on, notes, recorded_by, recorded_at, voided_by, voided_at, void_reason }) => ({
@@ -54,7 +83,7 @@ export const getInvoiceSettlement = (req, res) => {
       invoice_id: invoice.id,
       invoice_number: invoice.invoice_number,
       status: invoice.status,
-      settlement: settlementSummary(req.db, invoice),
+      settlement: summary,
       payments,
       credit_notes: creditNotes
     }

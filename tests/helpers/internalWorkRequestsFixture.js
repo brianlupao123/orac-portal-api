@@ -22,10 +22,10 @@ export function makeDb() {
       person("u_client_a", "Client Viewer", { client_id: "c_a" }),
       person("u_client_b", "Client Viewer", { client_id: "c_b" })
     ],
-    clients: [{ id: "c_a", name: "Client A" }, { id: "c_b", name: "Client B" }],
+    clients: [{ id: "c_a", name: "Client A", primary_sales_owner_id: "u_sales", account_team_user_ids: ["u_sales2"] }, { id: "c_b", name: "Client B", primary_sales_owner_id: "u_sales2", account_team_user_ids: ["u_sales"] }],
     quotes: [
-      { id: "q_a", quote_number: "Q-0001", client_id: "c_a", status: "Sent", total_amount: 1000 },
-      { id: "q_b", quote_number: "Q-0002", client_id: "c_b", status: "Sent", total_amount: 2000 }
+      { id: "q_a", quote_number: "Q-0001", client_id: "c_a", sales_owner_id: "u_sales", account_team_user_ids: ["u_sales2"], status: "Sent", total_amount: 1000 },
+      { id: "q_b", quote_number: "Q-0002", client_id: "c_b", sales_owner_id: "u_sales2", account_team_user_ids: ["u_sales"], status: "Sent", total_amount: 2000 }
     ],
     quote_lines: [{ id: "ql_1", quotation_id: "q_a", description: "Liner", quantity: 2, unit_price: 500 }],
     purchase_orders: [
