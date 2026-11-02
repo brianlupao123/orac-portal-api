@@ -1,4 +1,4 @@
-import { requirePermission, roles } from "../permissions.js";
+import { hasPermission, requirePermission, roles } from "../permissions.js";
 import { dispatchHasActiveInvoice, INVOICED_DISPATCH_MESSAGE } from "../dispatchFreeze.js";
 import { applyStockChange, readIdempotencyKey, requestFingerprint, findIdempotentRecord, publicMovement } from "../inventoryLedger.js";
 import { dispatchSupervisors, reviewBlockedReason } from "../timesheetReview.js";
@@ -9,6 +9,8 @@ import {
 } from "../timesheetModel.js";
 import { v5Enabled } from "../v5CommercialWorkflow.js";
 import { v5SupervisorAssignmentRefusal } from "../v5SignatureEvidence.js";
+import { calculatePurchaseOrderEvidenceValue } from "../store.js";
+import { invoiceReadinessBlock, invoiceReadinessSummary } from "../invoiceReadiness.js";
 
 const STAFF_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR];
 const normName = (v) => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -85,6 +87,104 @@ export function isAssignedToDispatch(actor, dispatch, db) {
   return false;
 }
 
+const safePerson = (user) => user ? { id: user.id, name: user.name || null, trade: user.trade || null } : null;
+
+function canReadDispatchJobCard(actor, dispatch, db) {
+  if (!hasPermission(actor, "viewDispatchJobCard")) return false;
+  if ([roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS].includes(actor.role)) return true;
+  return isAssignedToDispatch(actor, dispatch, db);
+}
+
+function worksheetSummary(db, dispatchId) {
+  const worksheets = (db.field_worksheets || []).filter((item) => item.dispatch_card_id === dispatchId && !item.superseded_by);
+  return {
+    total: worksheets.length,
+    draft: worksheets.filter((item) => item.status === "Draft").length,
+    awaiting_client: worksheets.filter((item) => item.status === "Submitted").length,
+    awaiting_supervisor: worksheets.filter((item) => item.status === "Client_Acknowledged").length,
+    approved: worksheets.filter((item) => isEligibleForDb(db, item)).length,
+    returned: worksheets.filter((item) => item.status === "Returned_For_Correction").length,
+    attachments: worksheets.reduce((total, item) => total + (Array.isArray(item.evidence_files) ? item.evidence_files.length : 0) + (item.signed_copy_image ? 1 : 0), 0)
+  };
+}
+
+// A field-safe, read-only projection for the future Job Card screen. It does
+// not broaden existing mutation permissions or calculate financial values in
+// the UI. Amounts, stock costs, supplier data and audit event bodies stay out
+// of this response.
+export const getDispatchJobCard = (req, res) => {
+  const actor = getActor(req);
+  const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  if (!canReadDispatchJobCard(actor, job, req.db)) {
+    return res.status(403).json({ success: false, message: "This role may view only an authorized dispatch job card." });
+  }
+
+  const quote = (req.db.quotes || []).find((item) => item.id === job.quotation_id) || null;
+  const po = (req.db.purchase_orders || []).find((item) => item.id === job.purchase_order_id) ||
+    (req.db.purchase_orders || []).find((item) => item.quotation_id === job.quotation_id) || null;
+  const client = quote ? (req.db.clients || []).find((item) => item.id === quote.client_id) || null : null;
+  const materials = (req.db.material_usage || []).filter((item) => item.dispatch_card_id === job.id);
+  const trackedMaterialIds = new Set(materials.map((item) => item.catalog_item_id).filter(Boolean));
+  const trackedItems = (req.db.stock_items || []).filter((item) => trackedMaterialIds.has(item.catalog_item_id));
+  const auditAllowed = hasPermission(actor, "viewAudit");
+  const assignedTechnicianIds = new Set([job.assigned_technician_id, ...(job.assigned_technician_ids || [])].filter(Boolean));
+  const roster = (req.db.users || []).filter((item) => assignedTechnicianIds.has(item.id) && item.role === roles.TECHNICIAN && item.is_active !== false);
+  const invoiceBlock = invoiceReadinessBlock(req.db, job);
+
+  res.json({
+    success: true,
+    data: {
+      identity: {
+        id: job.id,
+        dispatch_number: job.dispatch_number || null,
+        status: job.status || null,
+        scheduled_start: job.scheduled_start || null,
+        site_id: job.site_id || null,
+        client: client ? { id: client.id, name: client.name || null } : null
+      },
+      workflow: {
+        quotation: quote ? { id: quote.id, quote_number: quote.quote_number || null, status: quote.status || null } : null,
+        purchase_order: po ? { id: po.id, po_reference: po.po_reference || null, status: po.status || null } : null
+      },
+      assignment: {
+        assigned_supervisor: safePerson((req.db.users || []).find((item) => item.id === job.assigned_supervisor_id)),
+        roster_count: roster.length,
+        roster: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR].includes(actor.role) ? roster.map(safePerson) : []
+      },
+      evidence_summary: {
+        timesheets: worksheetSummary(req.db, job.id),
+        material_usage: {
+          count: materials.length,
+          tracked_item_count: trackedItems.length,
+          low_stock_count: trackedItems.filter((item) => Number(item.quantity_on_hand) <= Number(item.reorder_level ?? 0)).length
+        },
+        audit: auditAllowed ? { available: true, event_count: (req.db.audit_logs || []).filter((item) => item.entity_type === "dispatch_card" && item.entity_id === job.id).length } : { available: false }
+      },
+      exceptions: {
+        started_before_po: Boolean(job.started_before_po || po?.started_before_po),
+        invoice_readiness: invoiceBlock ? { code: invoiceBlock.code, message: invoiceBlock.message } : null
+      },
+      capabilities: {
+        can_create_timesheet: hasPermission(actor, "createWorksheet"),
+        can_log_material_usage: hasPermission(actor, "addMaterials"),
+        can_manage_roster: hasPermission(actor, "dispatch"),
+        can_assign_supervisor: hasPermission(actor, "assignDispatchSupervisor")
+      }
+    }
+  });
+};
+
+// Commercial read model: it explains the server's existing invoice gate but
+// never creates, amends, or issues an invoice.
+export const getDispatchInvoiceReadiness = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "viewInvoiceReadiness");
+  const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  return res.json({ success: true, data: invoiceReadinessSummary(req.db, job) });
+};
+
 // Roster assignment (Chat D continuation). Source-proven gap: nothing in the
 // runtime code path ever wrote assigned_technician_id/assigned_technician_ids
 // — it was only ever populated in curated demo data. Every real technician
@@ -150,7 +250,7 @@ export const assignDispatchSupervisor = (req, res) => {
 
 export const getDispatchRoster = (req, res) => {
   const actor = getActor(req);
-  requirePermission(actor, "dispatch");
+  requirePermission(actor, "viewDispatchRoster");
   const job = req.db.dispatch_cards.find((item) => item.id === req.params.id);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
   if (!requireAssignedDispatch(actor, job, req.db, res)) return;
@@ -696,8 +796,21 @@ export const approveAmendment = (req, res) => {
   }
 
   const newAmount = req.body.new_amount;
+  const evidencedValue = calculatePurchaseOrderEvidenceValue(req.db, po.id);
+  if (evidencedValue <= Number(po.po_amount)) {
+    return res.status(409).json({
+      success: false,
+      message: "No recorded PO overrun requires an amendment. Record the additional work or materials first, then approve it during monthly reconciliation."
+    });
+  }
   if (newAmount <= po.po_amount) {
     return res.status(400).json({ success: false, message: "Amended PO amount must be greater than current PO amount." });
+  }
+  if (newAmount < evidencedValue) {
+    return res.status(400).json({
+      success: false,
+      message: "Amended PO amount must cover the recorded work and materials before invoice readiness can be restored."
+    });
   }
 
   const amendment = {

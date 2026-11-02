@@ -1,0 +1,239 @@
+import { roles } from "../permissions.js";
+import { activeInvoicePayments, creditNoteRequestHash, invoiceTotalCents, paymentRequestHash, refreshSettlementStatus, settlementSummary } from "../invoiceSettlement.js";
+import { isInvoiceInSalesPortfolio } from "./coreController.js";
+
+function getActor(req) {
+  return (req.db.users || []).find((user) => user.id === req.user?.id);
+}
+
+function canSettle(actor) {
+  return actor && [roles.ADMIN, roles.FINANCE].includes(actor.role);
+}
+
+function canViewSettlement(actor, invoice, db) {
+  if (!actor || actor.is_active === false) return false;
+  if ([roles.ADMIN, roles.FINANCE, roles.MANAGEMENT].includes(actor.role)) return true;
+  if (actor.role === roles.SALES && invoice) {
+    return isInvoiceInSalesPortfolio(invoice, actor, db);
+  }
+  return false;
+}
+
+function cents(value) {
+  return Math.round(Number(value) * 100);
+}
+
+function rejectUnauthorized(res) {
+  return res.status(403).json({ success: false, message: "Only Admin or Finance can record or reverse invoice payments." });
+}
+
+function findInvoice(req, res) {
+  const invoice = req.db.invoices.find((item) => item.id === req.params.id);
+  if (!invoice) {
+    res.status(404).json({ success: false, message: "Invoice not found." });
+    return null;
+  }
+  return invoice;
+}
+
+export const getInvoiceSettlement = (req, res) => {
+  const actor = getActor(req);
+  const invoice = findInvoice(req, res);
+  if (!invoice) return;
+
+  if (!canViewSettlement(actor, invoice, req.db)) {
+    return res.status(403).json({ success: false, message: "You are not authorized to view settlement details for this invoice." });
+  }
+
+  const summary = settlementSummary(req.db, invoice);
+
+  // STRICT SALES REDACTION:
+  // Returns only the 5 aggregate fields + identifiers/currency.
+  // Completely suppresses payments and credit_notes arrays.
+  if (actor.role === roles.SALES) {
+    return res.json({
+      success: true,
+      data: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        currency: "USD",
+        invoice_total: summary?.total_amount ?? 0,
+        credit_note_total: summary?.credited_amount ?? 0,
+        received_total: summary?.paid_amount ?? 0,
+        outstanding_total: summary?.outstanding_amount ?? 0,
+        settlement_status: invoice.status
+      }
+    });
+  }
+
+  const payments = (req.db.invoice_payments || [])
+    .filter((payment) => payment.invoice_id === invoice.id)
+    .map(({ id, amount, currency, payment_method, reference, received_on, notes, recorded_by, recorded_at, voided_by, voided_at, void_reason }) => ({
+      id, amount, currency, payment_method, reference, received_on, notes,
+      recorded_by, recorded_at, voided_by, voided_at, void_reason
+    }));
+  const creditNotes = (req.db.invoice_credit_notes || [])
+    .filter((note) => note.invoice_id === invoice.id)
+    .map(({ id, amount, currency, reason, status, prepared_by, prepared_at, issued_by, issued_at }) => ({
+      id, amount, currency, reason, status, prepared_by, prepared_at, issued_by, issued_at
+    }));
+  return res.json({
+    success: true,
+    data: {
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      status: invoice.status,
+      settlement: summary,
+      payments,
+      credit_notes: creditNotes
+    }
+  });
+};
+
+export const createInvoiceCreditNote = (req, res) => {
+  const actor = getActor(req);
+  if (!canSettle(actor)) return rejectUnauthorized(res);
+  const invoice = findInvoice(req, res);
+  if (!invoice) return;
+  if (String(invoice.status || "").toLowerCase() === "voided") {
+    return res.status(409).json({ success: false, code: "VOIDED_INVOICE", message: "A credit note cannot be prepared for a voided invoice." });
+  }
+  if (!req.idempotencyKey) {
+    return res.status(400).json({ success: false, code: "IDEMPOTENCY_KEY_REQUIRED", message: "Send an Idempotency-Key header when preparing a credit note." });
+  }
+  const requestHash = creditNoteRequestHash(invoice.id, actor.id, req.body);
+  req.db.invoice_credit_notes ||= [];
+  const replay = req.db.invoice_credit_notes.find((note) => note.idempotency_key === req.idempotencyKey && note.prepared_by === actor.id);
+  if (replay) {
+    if (replay.request_hash !== requestHash) return res.status(409).json({ success: false, code: "IDEMPOTENCY_KEY_REUSED", message: "This Idempotency-Key was already used for a different credit-note request." });
+    return res.json({ success: true, data: replay, idempotent_replay: true });
+  }
+  const amount = cents(req.body.amount) / 100;
+  const summary = settlementSummary(req.db, invoice);
+  if (amount > summary.outstanding_amount) {
+    return res.status(409).json({ success: false, code: "CREDIT_EXCEEDS_OUTSTANDING", message: "A credit note cannot exceed the invoice outstanding balance." });
+  }
+  const note = {
+    id: req.store.id("credit"), invoice_id: invoice.id, amount, currency: "USD", reason: req.body.reason.trim(),
+    status: "prepared", prepared_by: actor.id, prepared_at: new Date().toISOString(),
+    idempotency_key: req.idempotencyKey, request_hash: requestHash
+  };
+  req.db.invoice_credit_notes.push(note);
+  req.store.audit(req.db, actor, "invoice_credit_note", note.id, "INVOICE_CREDIT_NOTE_PREPARED", null, note);
+  return res.status(201).json({ success: true, data: note });
+};
+
+export const issueInvoiceCreditNote = (req, res) => {
+  const actor = getActor(req);
+  if (!canSettle(actor)) return rejectUnauthorized(res);
+  const note = (req.db.invoice_credit_notes || []).find((item) => item.id === req.params.creditNoteId);
+  if (!note) return res.status(404).json({ success: false, message: "Invoice credit note not found." });
+  const issueFingerprint = creditNoteRequestHash(note.id, actor.id, { amount: note.amount, reason: req.body.idempotency_key });
+  if (note.issue_idempotency_key === req.body.idempotency_key && note.issued_by === actor.id) {
+    if (note.issue_fingerprint !== issueFingerprint) return res.status(409).json({ success: false, code: "IDEMPOTENCY_KEY_REUSED", message: "This Idempotency-Key was already used for a different credit-note issue request." });
+    return res.json({ success: true, data: note, settlement: settlementSummary(req.db, req.db.invoices.find((item) => item.id === note.invoice_id)), idempotent_replay: true });
+  }
+  if (note.prepared_by === actor.id) return res.status(403).json({ success: false, code: "CREDIT_NOTE_TWO_PERSON_REQUIRED", message: "The user who prepared a credit note cannot issue it." });
+  if (note.status === "issued") return res.status(409).json({ success: false, code: "CREDIT_NOTE_ALREADY_ISSUED", message: "Credit note is already issued." });
+  const invoice = req.db.invoices.find((item) => item.id === note.invoice_id);
+  if (!invoice || String(invoice.status || "").toLowerCase() === "voided") return res.status(409).json({ success: false, code: "CREDIT_NOTE_STALE", message: "The credit note no longer has an eligible invoice." });
+  const summary = settlementSummary(req.db, invoice);
+  if (note.amount > summary.outstanding_amount) return res.status(409).json({ success: false, code: "CREDIT_EXCEEDS_OUTSTANDING", message: "The credit note now exceeds the invoice outstanding balance." });
+  const before = { ...invoice };
+  note.status = "issued";
+  note.issued_by = actor.id;
+  note.issued_at = new Date().toISOString();
+  note.issue_idempotency_key = req.body.idempotency_key;
+  note.issue_fingerprint = issueFingerprint;
+  const settlement = refreshSettlementStatus(req.db, invoice);
+  req.store.audit(req.db, actor, "invoice_credit_note", note.id, "INVOICE_CREDIT_NOTE_ISSUED", null, note);
+  req.store.audit(req.db, actor, "invoice", invoice.id, "INVOICE_SETTLEMENT_UPDATED", before, invoice);
+  return res.status(201).json({ success: true, data: note, settlement });
+};
+
+export const recordInvoicePayment = (req, res) => {
+  const actor = getActor(req);
+  if (!canSettle(actor)) return rejectUnauthorized(res);
+  const invoice = findInvoice(req, res);
+  if (!invoice) return;
+  if (String(invoice.status || "").toLowerCase() === "voided") {
+    return res.status(409).json({ success: false, message: "A payment cannot be recorded against a voided invoice." });
+  }
+  if (!req.idempotencyKey) {
+    return res.status(400).json({ success: false, code: "IDEMPOTENCY_KEY_REQUIRED", message: "Send an Idempotency-Key header when recording a payment." });
+  }
+
+  if (!Array.isArray(req.db.invoice_payments)) req.db.invoice_payments = [];
+  const requestHash = paymentRequestHash(invoice.id, actor.id, req.body);
+  const existingKey = req.db.invoice_payments.find((payment) =>
+    payment.idempotency_key === req.idempotencyKey && payment.recorded_by === actor.id
+  );
+  if (existingKey) {
+    if (existingKey.request_hash !== requestHash) {
+      return res.status(409).json({ success: false, code: "IDEMPOTENCY_KEY_REUSED", message: "This Idempotency-Key was already used for a different payment request." });
+    }
+    return res.set("Idempotency-Replayed", "true").json({
+      success: true,
+      data: existingKey,
+      settlement: settlementSummary(req.db, invoice),
+      idempotent_replay: true
+    });
+  }
+
+  const totalCents = invoiceTotalCents(invoice);
+  if (totalCents === null) {
+    return res.status(409).json({ success: false, code: "INVOICE_TOTAL_INVALID", message: "Invoice payment is blocked because the invoice total is invalid." });
+  }
+  const summary = settlementSummary(req.db, invoice);
+  const amountCents = cents(req.body.amount);
+  if (amountCents > cents(summary.outstanding_amount)) {
+    return res.status(409).json({ success: false, code: "PAYMENT_EXCEEDS_OUTSTANDING", message: "Payment exceeds the invoice outstanding balance." });
+  }
+  const duplicateReference = req.db.invoice_payments.find((payment) =>
+    !payment.voided_at && payment.reference.toLowerCase() === req.body.reference.trim().toLowerCase()
+  );
+  if (duplicateReference) {
+    return res.status(409).json({ success: false, code: "PAYMENT_REFERENCE_EXISTS", message: "An active payment already uses this receipt reference." });
+  }
+
+  const before = { ...invoice };
+  const payment = {
+    id: req.store.id("pay"),
+    invoice_id: invoice.id,
+    amount: amountCents / 100,
+    currency: "USD",
+    payment_method: req.body.payment_method,
+    reference: req.body.reference.trim(),
+    received_on: req.body.received_on,
+    notes: req.body.notes?.trim() || null,
+    recorded_by: actor.id,
+    recorded_at: new Date().toISOString(),
+    idempotency_key: req.idempotencyKey,
+    request_hash: requestHash
+  };
+  req.db.invoice_payments.push(payment);
+  const settlement = refreshSettlementStatus(req.db, invoice);
+  req.store.audit(req.db, actor, "invoice_payment", payment.id, "INVOICE_PAYMENT_RECORDED", null, payment);
+  req.store.audit(req.db, actor, "invoice", invoice.id, "INVOICE_SETTLEMENT_UPDATED", before, invoice);
+  return res.status(201).json({ success: true, data: payment, settlement });
+};
+
+export const voidInvoicePayment = (req, res) => {
+  const actor = getActor(req);
+  if (!canSettle(actor)) return rejectUnauthorized(res);
+  const invoice = findInvoice(req, res);
+  if (!invoice) return;
+  const payment = (req.db.invoice_payments || []).find((item) => item.id === req.params.paymentId && item.invoice_id === invoice.id);
+  if (!payment) return res.status(404).json({ success: false, message: "Invoice payment not found." });
+  if (payment.voided_at) return res.status(409).json({ success: false, message: "Invoice payment is already reversed." });
+
+  const beforePayment = { ...payment };
+  const beforeInvoice = { ...invoice };
+  payment.voided_at = new Date().toISOString();
+  payment.voided_by = actor.id;
+  payment.void_reason = req.body.reason.trim();
+  const settlement = refreshSettlementStatus(req.db, invoice);
+  req.store.audit(req.db, actor, "invoice_payment", payment.id, "INVOICE_PAYMENT_REVERSED", beforePayment, payment);
+  req.store.audit(req.db, actor, "invoice", invoice.id, "INVOICE_SETTLEMENT_UPDATED", beforeInvoice, invoice);
+  return res.json({ success: true, data: payment, settlement });
+};

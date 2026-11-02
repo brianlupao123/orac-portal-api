@@ -13,7 +13,8 @@ export const V5_POLICY_DEFAULTS = Object.freeze({
   unbilled_age_days: 30,
   variance_warning_percent: 80,
   currency: "USD",
-  tax_rate: null
+  tax_rate: null,
+  tax_status: "unconfigured"
 });
 
 export function getV5Policy(db) {
@@ -30,7 +31,8 @@ export function validateV5PolicyPatch(patch) {
     else if (key === "unbilled_age_days" && (!Number.isInteger(value) || value < 1 || value > 365)) errors.push("unbilled_age_days must be an integer from 1 to 365.");
     else if (key === "variance_warning_percent" && (typeof value !== "number" || value < 0 || value > 100)) errors.push("variance_warning_percent must be from 0 to 100.");
     else if (key === "currency" && value !== "USD") errors.push("currency must be USD for the V5 pilot.");
-    else if (key === "tax_rate" && value !== null && (typeof value !== "number" || value < 0 || value > 100)) errors.push("tax_rate must be null or a percentage from 0 to 100.");
+    else if (key === "tax_rate" && value !== null) errors.push("tax_rate must remain null until tax is configured.");
+    else if (key === "tax_status" && value !== "unconfigured") errors.push("tax_status must remain unconfigured until tax is configured.");
   }
   return errors;
 }
@@ -87,4 +89,33 @@ export function canonicalHoursByQuoteLine(db, dispatchId) {
     byQuoteLine[sheet.quote_line_id] = current;
   }
   return { by_quote_line: byQuoteLine, unmapped };
+}
+
+// Material usage is operational evidence, not a client price. A separate,
+// append-only allocation links one recorded usage to one accepted V5 material
+// line. Unallocated usage remains visible as an exception rather than being
+// guessed into a future invoice.
+export function allocatedMaterialsByQuoteLine(db, dispatchId) {
+  const allocations = db?.v5_material_allocations || [];
+  const by_quote_line = {};
+  const unallocated = [];
+  for (const usage of db?.material_usage || []) {
+    if (usage.dispatch_card_id !== dispatchId) continue;
+    const allocation = allocations.find((item) => item.material_usage_id === usage.id);
+    if (!allocation) {
+      unallocated.push({
+        material_usage_id: usage.id,
+        catalog_item_id: usage.catalog_item_id || null,
+        description: usage.description,
+        quantity_used: usage.quantity_used,
+        unit_of_measure: usage.unit_of_measure || null
+      });
+      continue;
+    }
+    const current = by_quote_line[allocation.quote_line_id] || { quantity: 0, source_material_usage_ids: [] };
+    current.quantity = Number((current.quantity + Number(allocation.quantity_used || 0)).toFixed(6));
+    current.source_material_usage_ids.push(usage.id);
+    by_quote_line[allocation.quote_line_id] = current;
+  }
+  return { by_quote_line, unallocated };
 }

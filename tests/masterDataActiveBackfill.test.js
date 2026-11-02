@@ -44,3 +44,13 @@ test("normalizeDb backfill is idempotent across repeated calls", () => {
   db = normalizeDb(db);
   assert.equal(db.mine_sites[0].is_active, false, "a second normalize pass must not resurrect an archived record");
 });
+
+test("normalizeDb can preserve an intentionally empty user collection without adding demo accounts", () => {
+  const db = normalizeDb(dbWithout({ users: [] }), { seedDemoRecords: false });
+  assert.deepEqual(db.users, []);
+});
+
+test("normalizeDb still seeds demo users by default for local JSON/demo compatibility", () => {
+  const db = normalizeDb(dbWithout({}));
+  assert.ok(db.users.some((user) => user.id === "u_admin"));
+});

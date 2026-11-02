@@ -13,7 +13,7 @@ import {
   poPosition, paperSamplingPlan, businessDaysBetween, reminderStage, anyActiveAuthority, workDateValidity, swapRevisionIfEligible, resolveAuthorityGate
 } from "../timesheetWorkflow.js";
 import { createHash } from "node:crypto";
-import { v5Enabled } from "../v5CommercialWorkflow.js";
+import { v5Enabled, allocatedMaterialsByQuoteLine } from "../v5CommercialWorkflow.js";
 import { v5VerifiedHoursByQuoteLine } from "../v5SignatureEvidence.js";
 
 const off = (res, name) => res.status(409).json({ success: false, code: "FEATURE_DISABLED", message: `${name} is not enabled yet.` });
@@ -111,6 +111,7 @@ export function getV5BillingReadiness(req, res) {
   }
   // Only V5-verified Timesheets count: paper evidence AND assigned ORAC Supervisor confirmation on the same current hash.
   const hours = v5VerifiedHoursByQuoteLine(req.db, dispatch.id);
+  const materials = allocatedMaterialsByQuoteLine(req.db, dispatch.id);
   const lines = (req.db.quote_lines || [])
     .filter((line) => line.quotation_id === quote.id)
     .map((line) => ({
@@ -118,20 +119,26 @@ export function getV5BillingReadiness(req, res) {
       description: line.description,
       pricing_basis: line.pricing_basis || null,
       canonical_hours: hours.by_quote_line[line.id]?.hours || 0,
-      source_timesheet_ids: hours.by_quote_line[line.id]?.source_ids || []
+      source_timesheet_ids: hours.by_quote_line[line.id]?.source_ids || [],
+      allocated_material_quantity: materials.by_quote_line[line.id]?.quantity || 0,
+      source_material_usage_ids: materials.by_quote_line[line.id]?.source_material_usage_ids || []
     }));
   const mappedHours = lines.reduce((sum, line) => sum + line.canonical_hours, 0);
   const blockers = [];
   if (hours.unmapped.hours > 0) blockers.push("Verified Timesheets have no quotation-line link.");
   if (mappedHours <= 0) blockers.push("No V5-verified canonical Timesheet hours are available.");
+  if (quote.commercial_acceptance_status !== "po_verified") blockers.push("The V5 quotation is not accepted by a verified purchase order.");
+  if (materials.unallocated.length > 0) blockers.push("Material usage requires a controlled material-line allocation or amendment.");
   res.json({
     success: true,
     data: {
       dispatch_card_id: dispatch.id,
       quotation_id: quote.id,
       quotation_number: quote.quote_number || quote.id,
+      commercial_acceptance_status: quote.commercial_acceptance_status || "pending",
       lines,
       unmapped: hours.unmapped,
+      unallocated_material_usage: materials.unallocated,
       verification: {
         definition: "paper_evidence_and_assigned_supervisor_confirmation_on_same_current_hash",
         unverified_hours: hours.unverified.hours,

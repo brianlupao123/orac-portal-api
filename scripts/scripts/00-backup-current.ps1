@@ -15,13 +15,17 @@ $backupPath = Join-Path $backupRoot "$projectName-$timestamp"
 
 New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 
+if (Test-Path -LiteralPath $backupPath) {
+  throw "Backup destination already exists; refusing to reuse or overwrite it: $backupPath"
+}
+
 $excludeDirs = @("node_modules", ".git", "_orac-ios-backups")
 
 Write-Host "Creating backup..."
 Write-Host "From: $ProjectRoot"
 Write-Host "To:   $backupPath"
 
-New-Item -ItemType Directory -Force -Path $backupPath | Out-Null
+New-Item -ItemType Directory -Path $backupPath | Out-Null
 
 Get-ChildItem -LiteralPath $ProjectRoot -Force | ForEach-Object {
   if ($_.PSIsContainer -and $excludeDirs -contains $_.Name) {

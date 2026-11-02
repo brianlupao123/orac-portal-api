@@ -24,6 +24,14 @@ function sendCsv(res, filename, headers, rows) {
   res.send(csv);
 }
 
+function auditPastelReviewExport(req, actor, exportType, rowCount) {
+  req.store.audit(req.db, actor, "pastel_export", exportType, "PASTEL_REVIEW_EXPORT_GENERATED", null, {
+    export_type: exportType,
+    accounting_posted: false,
+    row_count: rowCount
+  });
+}
+
 export function getPastelReviewQuotes(req, res) {
   const actor = getActor(req);
   requirePermission(actor, "exportPastel");
@@ -35,6 +43,7 @@ export function getPastelReviewQuotes(req, res) {
       status: quote.status,
       total_amount: Number(quote.total_amount || 0).toFixed(2)
     }));
+  auditPastelReviewExport(req, actor, "quotes", rows.length);
   return sendCsv(res, "orac-pastel-review-quotes.csv", ["quote_number", "client_id", "status", "total_amount"], rows);
 }
 
@@ -44,6 +53,7 @@ export function getPastelReviewInvoiceReady(req, res) {
   const rows = computeInvoiceReadyReport(req.db)
     .sort((a, b) => String(a.dispatch_number || a.id).localeCompare(String(b.dispatch_number || b.id)))
     .map((item) => ({ dispatch_number: item.dispatch_number || item.id, quotation_id: item.quotation_id }));
+  auditPastelReviewExport(req, actor, "invoice_ready", rows.length);
   return sendCsv(res, "orac-pastel-review-invoice-ready.csv", ["dispatch_number", "quotation_id"], rows);
 }
 

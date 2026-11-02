@@ -12,9 +12,12 @@ export const roles = {
 export const permissions = {
   createQuote: [roles.ADMIN, roles.SALES],
   sendQuote: [roles.ADMIN, roles.SALES],
-  approveQuote: [roles.ADMIN, roles.SALES, roles.OPERATIONS],
-  verifyPo: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS],
-  dispatch: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  approveQuote: [roles.ADMIN, roles.MANAGEMENT, roles.SALES],
+  verifyPo: [roles.ADMIN, roles.FINANCE],
+  rejectPo: [roles.ADMIN, roles.FINANCE],
+  recordPo: [roles.ADMIN, roles.FINANCE, roles.SALES],
+  dispatch: [roles.ADMIN, roles.OPERATIONS],
+  viewDispatchRoster: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   addTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitKioskTimesheets: [roles.ADMIN, roles.OPERATIONS],
   // Task 03: kiosk entries need Supervisor review. Only a Supervisor decides;
@@ -23,7 +26,10 @@ export const permissions = {
   // Assigning the Supervisor who reviews a dispatch's kiosk entries. Not a Supervisor self-service action.
   assignDispatchSupervisor: [roles.ADMIN, roles.OPERATIONS],
   viewKioskTimesheetReview: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
-  viewDispatchTimesheets: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  viewDispatchTimesheets: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
+  // Read-only operational summary. Management may read every Job Card; field
+  // roles remain restricted to dispatches they are assigned to.
+  viewDispatchJobCard: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   addMaterials: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
   submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
@@ -54,6 +60,13 @@ export const permissions = {
   viewTimesheetPeriodSummary: [roles.ADMIN, roles.OPERATIONS, roles.MANAGEMENT],
   approveAmendment: [roles.ADMIN, roles.FINANCE],
   invoice: [roles.ADMIN, roles.FINANCE],
+  // Legacy controlled invoicing mirrors the two-person control used by the
+  // separate V5 writer. Preparing a calculation never creates an invoice.
+  manageLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE, roles.SALES],
+  issueLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE],
+  // Read-only explanation of the same evidence and PO controls used by the
+  // Invoice Ready report. This does not grant invoice creation.
+  viewInvoiceReadiness: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.SALES],
   exportPastel: [roles.ADMIN, roles.FINANCE],
   viewAudit: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   manageUsers: [roles.ADMIN],
@@ -72,7 +85,7 @@ export const permissions = {
   viewContracts: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.CLIENT_VIEWER],
   manageContracts: [roles.ADMIN, roles.MANAGEMENT],
   manageMaintenanceSchedules: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
-  submitClientPo: [roles.CLIENT_VIEWER],
+  submitClientPo: [roles.CLIENT_VIEWER, roles.SALES, roles.ADMIN],
   manageInventory: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   // Internal Work Requests (staff to staff). Client Viewer holds none of these.
   // These lists only gate the endpoints; which sender may send which request
@@ -83,7 +96,8 @@ export const permissions = {
   viewInternalWorkRequestInbox: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
   workInternalWorkRequest: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS],
   // Read-only, by id. Never grants any mutation.
-  auditInternalWorkRequests: [roles.ADMIN]
+  auditInternalWorkRequests: [roles.ADMIN],
+  manageCommercialOwnership: [roles.ADMIN, roles.MANAGEMENT]
 };
 
 // Timesheet workflow packet (contract steps 3-9). Every overlay is DARK: with its
@@ -93,6 +107,20 @@ const NEW_PERMISSIONS = {
   // Always-defined but only reachable through flag-guarded endpoints.
   viewTimesheetsRateFree: [A, M, S, O, V, F],
   viewV5BillingReadiness: [A, M, S, F],
+  // Read-only commercial calculation preview. It cannot create an invoice.
+  viewV5InvoicePreview: [A, M, S, F],
+  manageV5MaterialAllocation: [A, S],
+  approveV5Amendment: [A, F],
+  manageV5AmendmentLink: [A, S],
+  manageV5AmendmentCoverage: [A, S],
+  // The V5 writer is a separate, dark capability. Finance/Admin prepare
+  // commercial drafts and a different Finance/Admin user issues them.
+  manageV5InvoiceDraft: [A, F],
+  issueV5Invoice: [A, F],
+  viewV5Invoice: [A, F, M],
+  recordV5LineCompletion: [V],
+  manageV5AmendmentSupersession: [A, F],
+  manageV5AllocationRemap: [A, F],
   // V5 paper-signature evidence (dark). The client-site Supervisor has NO role; only the assigned ORAC Supervisor confirms.
   manageV5ClientSupervisorContacts: [A, S],
   recordV5PaperSignature: [A, S],

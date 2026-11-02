@@ -70,11 +70,58 @@ const call = (url, user, body, method = "POST") => fetch(url, {
 test("assistant routes require a bearer token", { skip }, async () => {
   const { store } = makeStore();
   await withServer(buildApp(store), async (base) => {
-    for (const [method, path] of [["GET", "/ai/health"], ["POST", "/ai/chat"], ["POST", "/ai/workflow"], ["POST", "/ai/briefing"], ["POST", "/ai/feedback"]]) {
+    for (const [method, path] of [["GET", "/ai/health"], ["POST", "/ai/chat"], ["POST", "/ai/workflow"], ["POST", "/ai/briefing"], ["POST", "/ai/record-analysis"], ["POST", "/ai/feedback"]]) {
       const res = await call(`${base}${path}`, null, { message: "hi" }, method);
       assert.equal(res.status, 401, `${method} ${path}`);
     }
   });
+});
+
+test("record-analysis HTTP endpoint requires the trail flag and returns role-scoped cited evidence", { skip }, async () => {
+  const { store } = makeStore();
+  const { db, release } = await store.read();
+  db.users = Object.values(USERS);
+  db.clients = [{ id: "client-a", name: "Fictional Client" }];
+  db.leads = [{ id: "lead-a", client_id: "client-a", status: "New", created_at: "2026-01-01T00:00:00.000Z" }];
+  db.quotes = [{ id: "quote-a", client_id: "client-a", source_lead_id: "lead-a", status: "Approved_Pending_PO", quote_number: "Q-SYN-1", created_at: "2026-01-02T00:00:00.000Z" }];
+  db.purchase_orders = [];
+  db.dispatch_cards = [{ id: "dispatch-a", dispatch_number: "D-SYN-1", status: "In_Progress", assigned_technician_id: "u_tech" }];
+  db.field_worksheets = [{ id: "ws-a", dispatch_card_id: "dispatch-a", technician_id: "u_tech", status: "Supervisor_Approved", work_date: "2026-10-10", hourly_rate: 900, notes: "private" }];
+  db.timesheets = [{ id: "ts-a", dispatch_card_id: "dispatch-a", technician_id: "u_tech", entry_source: "kiosk", review_status: "pending_review", work_date: "2026-10-10", hours_logged: 8, hourly_rate: 900, notes: "private" }];
+  db.audit_logs = [];
+  store.write(db, release);
+
+  const previous = process.env.ORAC_RECORD_TRAIL_V1;
+  try {
+    delete process.env.ORAC_RECORD_TRAIL_V1;
+    await withServer(buildApp(store), async (base) => {
+      const off = await call(`${base}/ai/record-analysis`, USERS.Admin, { record_type: "quote", record_id: "quote-a" });
+      assert.equal(off.status, 404);
+      process.env.ORAC_RECORD_TRAIL_V1 = "enabled";
+      const result = await call(`${base}/ai/record-analysis`, USERS.Admin, { record_type: "quote", record_id: "quote-a" });
+      assert.equal(result.status, 200);
+      const body = await result.json();
+      assert.equal(body.data.mode, "deterministic-evidence-summary");
+      assert.deepEqual(body.data.evidenceRefs.map((item) => item.targetId), ["lead-a", "quote-a"]);
+      const denied = await call(`${base}/ai/record-analysis`, USERS.Technician, { record_type: "quote", record_id: "quote-a" });
+      assert.equal(denied.status, 404);
+      const dispatch = await call(`${base}/ai/record-analysis`, USERS.Technician, { record_type: "dispatch", record_id: "dispatch-a" });
+      assert.equal(dispatch.status, 200);
+      const dispatchBody = await dispatch.json();
+      assert.deepEqual(dispatchBody.data.evidenceRefs.map((item) => item.targetId), ["dispatch-a", "ws-a", "ts-a"]);
+      assert.equal(dispatchBody.data.evidence.timesheets[0].counts_as_approved, false);
+      assert.equal(JSON.stringify(dispatchBody).includes("hourly_rate"), false);
+      const hiddenDispatch = await call(`${base}/ai/record-analysis`, USERS.Technician, { record_type: "dispatch", record_id: "missing-or-unassigned" });
+      assert.equal(hiddenDispatch.status, 404);
+      const invoice = await call(`${base}/ai/record-analysis`, USERS.Admin, { record_type: "invoice", record_id: "invoice-a" });
+      assert.equal(invoice.status, 404, "unknown invoices remain non-confirming, not unsupported types");
+      const unsupported = await call(`${base}/ai/record-analysis`, USERS.Admin, { record_type: "payment", record_id: "payment-a" });
+      assert.equal(unsupported.status, 400);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ORAC_RECORD_TRAIL_V1;
+    else process.env.ORAC_RECORD_TRAIL_V1 = previous;
+  }
 });
 
 test("every seeded role gets deterministic read-only health and a cited guide", { skip }, async () => {

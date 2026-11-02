@@ -1,0 +1,78 @@
+﻿{
+    "stamp":  "20261012-221850",
+    "patch_sha256":  "a9a9da9fc443e1f02702d337c462923e9060feb3f9ffd029db3e9d2892569682",
+    "files":  [
+                  {
+                      "path":  "src/controllers/dispatchController.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "7d2617af96e9d1eb2a590ef314ecd875e669809294f16968fc96f284f3a92be0",
+                      "post_sha256":  "7f7c4f49b558a35181186dd07cb20129b9c692752aad5a73294c0ab3b3a23cc6"
+                  },
+                  {
+                      "path":  "src/controllers/timesheetWorkflowController.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "eaffe39f6dd65a675c4a778ca002defba60e3e3d528ceba9fe2b8dfa92f52270",
+                      "post_sha256":  "c8cd7fc2a2a440eae38e82df79a214c1af27fc05e3493bf984018e5de0a93f69"
+                  },
+                  {
+                      "path":  "src/permissions.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "5e14eec447f0789e7ab843cc789f4434667a1abc9cea9bdb5d038887984df091",
+                      "post_sha256":  "3ee6107f26a4bd4e5ab42e789cc9fc6d2235f61df09bb5aa7ae765510b6c1d5e"
+                  },
+                  {
+                      "path":  "src/router.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "8f69da103cdbd0da798449011676274c4342e465bb28c1c1eaba3ee59781b569",
+                      "post_sha256":  "c5a097bbef4d00f7631e98c416b78f66a9b3204f650a220cdb1b48d2b3733bab"
+                  },
+                  {
+                      "path":  "src/store.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "462eadd28a5dab1ef58c87bbdd036e8bac2622f3f0fc0ea57d0bae2a112e48c9",
+                      "post_sha256":  "9ec1ad1a4e029a1e2d0e3097844ed490abe2e80419d1863bf7fe0db571979afa"
+                  },
+                  {
+                      "path":  "tests/v5BillingReadiness.test.js",
+                      "kind":  "modified",
+                      "pre_sha256":  "5eaf915a5d4eb8ec1a7fa53b706a3d10bcf59a6b5431f94e4f6735ab621232e0",
+                      "post_sha256":  "94ff076fca3d0cdffdf882a1b3b28333cf8e29aaa19eb8a1eb9c79785e4ca1f0"
+                  },
+                  {
+                      "path":  "src/controllers/v5SignatureController.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "311ed16ed10468bd5c161b181ce745619fb1525a028e38963b0bcc59bfb6ada2"
+                  },
+                  {
+                      "path":  "src/v5SignatureEvidence.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "d64c6ff852baf6460bbe9d5b43b1b7f56341629ab2edbc58886ab5a7ed9ec1b3"
+                  },
+                  {
+                      "path":  "src/v5SignatureSchemas.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "98560a51601ac7658dd7b6ea0842f84bdfca1cc5b95f601d0cbd92c82eec2828"
+                  },
+                  {
+                      "path":  "tests/helpers/v5SignatureFixture.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "e60248caaa328ad45b5c05ce8c480cee6956d4a4610280ad4c6e4787dff7934b"
+                  },
+                  {
+                      "path":  "tests/v5SignatureEvidence.test.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "98b5d2ba0f7098aaecebe7be37339fc2ad75bfa8cbefbe86bf5bf80bb06a9ef7"
+                  },
+                  {
+                      "path":  "tests/v5SupervisorAssignment.test.js",
+                      "kind":  "added",
+                      "pre_sha256":  "",
+                      "post_sha256":  "96394571efbbb33ff3cbb246ec01798d84dca3ef7167b771bf7a6c8f393837f5"
+                  }
+              ]
+}

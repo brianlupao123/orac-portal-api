@@ -92,6 +92,25 @@ test("Client Viewer A sees only client A rows; B sees only B rows; orphaned rows
   }
 });
 
+test("Client Viewer receives only its own Sent-or-later quotations and their lines", () => {
+  const d = db();
+  const viewerA = userFor(d, roles.CLIENT_VIEWER).id;
+  d.quotes = [
+    { id: "q-draft", client_id: "cA", status: "Draft" },
+    { id: "q-cancelled", client_id: "cA", status: "Cancelled" },
+    { id: "q-sent", client_id: "cA", status: "Sent" },
+    { id: "q-po-verified", client_id: "cA", status: "PO_Verified" },
+    { id: "q-other-client", client_id: "cB", status: "Sent" }
+  ];
+  d.quote_lines = d.quotes.map((quote) => ({ id: `line-${quote.id}`, quotation_id: quote.id }));
+
+  const quoteIds = call(getCollection("quotes"), d, viewerA).body.data.map((quote) => quote.id).sort();
+  const lineIds = call(getCollection("quote_lines"), d, viewerA).body.data.map((line) => line.id).sort();
+
+  assert.deepEqual(quoteIds, ["q-po-verified", "q-sent"]);
+  assert.deepEqual(lineIds, ["line-q-po-verified", "line-q-sent"]);
+});
+
 test("Technician and Supervisor only see dispatches/worksheets they are assigned to", () => {
   const d = db();
   d.dispatch_cards = [

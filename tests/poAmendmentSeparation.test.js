@@ -18,7 +18,14 @@ function setup({ actorRole = "Finance", actorId = "fin-1", verifiedBy = "fin-2",
   const audits = [];
   const actor = { id: actorId, role: actorRole, is_active: true };
   const po = { id: "po-1", quotation_id: "q-1", po_amount: 100, verified_by: verifiedBy, requires_amendment: true };
-  const db = { users: [actor], purchase_orders: [po], po_amendments: [] };
+  const db = {
+    users: [actor],
+    purchase_orders: [po],
+    po_amendments: [],
+    dispatch_cards: [{ id: "job-1", purchase_order_id: "po-1" }],
+    timesheets: [{ id: "time-1", dispatch_card_id: "job-1", hours_logged: 3, hourly_rate: 40 }],
+    material_usage: []
+  };
   const req = {
     user: { id: actorId },
     params: { id: "po-1" },
@@ -76,4 +83,29 @@ test("existing rule kept: amended amount must exceed current amount", () => {
   approveAmendment(req, res);
   assert.equal(res.statusCode, 400);
   assert.equal(po.po_amount, 100);
+});
+
+test("amendment approval waits for recorded evidence of an overrun", () => {
+  const { req, db, po, audits } = setup();
+  db.timesheets[0].hours_logged = 2;
+  db.timesheets[0].hourly_rate = 50;
+  const res = response();
+  approveAmendment(req, res);
+  assert.equal(res.statusCode, 409);
+  assert.match(res.body.message, /Record the additional work or materials first/);
+  assert.equal(po.po_amount, 100);
+  assert.equal(db.po_amendments.length, 0);
+  assert.equal(audits.length, 0);
+});
+
+test("approved amendment must cover all recorded evidence", () => {
+  const { req, db, po, audits } = setup({ newAmount: 110 });
+  const res = response();
+  approveAmendment(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /must cover the recorded work and materials/);
+  assert.equal(po.po_amount, 100);
+  assert.equal(po.requires_amendment, true);
+  assert.equal(db.po_amendments.length, 0);
+  assert.equal(audits.length, 0);
 });

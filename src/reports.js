@@ -1,4 +1,5 @@
 import { isEligibleForDb, awaitsSupervisorReview } from "./timesheetEligibility.js";
+import { invoiceReadinessBlock } from "./invoiceReadiness.js";
 
 export function computePipelineReport(db) {
   const byStatus = {};
@@ -78,11 +79,7 @@ export function computeInvoiceReadyReport(db) {
   const invoicedJobIds = new Set(db.invoices.map((inv) => inv.dispatch_card_id));
   return db.dispatch_cards
     .filter((job) => !invoicedJobIds.has(job.id))
-    .filter((job) => {
-      const po = db.purchase_orders.find((p) => p.quotation_id === job.quotation_id);
-      if (!po || po.status !== "verified" || po.requires_amendment) return false;
-      return db.field_worksheets.some((w) => w.dispatch_card_id === job.id && isEligibleForDb(db, w));
-    })
+    .filter((job) => !invoiceReadinessBlock(db, job))
     .map((job) => ({ id: job.id, dispatch_number: job.dispatch_number, quotation_id: job.quotation_id }));
 }
 

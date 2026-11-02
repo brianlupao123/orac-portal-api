@@ -1,4 +1,6 @@
 import { roles } from "../permissions.js";
+import { CLIENT_VISIBLE_QUOTE_STATUSES } from "./coreController.js";
+import { fromCents, PROVISIONAL_VAT_NOTICE, TAX_STATUSES } from "../quoteCalculation.js";
 import { isEligibleForDb } from "../timesheetEligibility.js";
 import { generateControlledPdf, humanizeTimestamp, formatCurrency } from "../pdfGenerator.js";
 
@@ -54,6 +56,11 @@ function assertQuoteAccess(req, res, doc) {
   const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER];
   if (!roleAllowed(actor, allowed)) {
     deny(res, `Role ${actor?.role || "Unknown"} cannot view quote documents.`);
+    return false;
+  }
+  // Client Viewers can only see quotes in visible statuses (Sent or later)
+  if (actor.role === roles.CLIENT_VIEWER && !CLIENT_VISIBLE_QUOTE_STATUSES.includes(doc.quote.status)) {
+    deny(res, "This quotation is not yet available for client viewing.");
     return false;
   }
   return assertClientAccess(req, res, doc.client);
@@ -337,32 +344,210 @@ export const getQuotePdf = (req, res) => {
   if (!doc) return res.status(404).json({ success: false, message: "Quote not found." });
   if (!assertQuoteAccess(req, res, doc)) return;
 
-  const lineRows = quoteLineRows(doc.lines);
+  const q = doc.quote;
+
+  // --- Build work-package-grouped line items ---
+  const workPackages = q.work_packages || [];
+  const wpMap = new Map(workPackages.map((wp) => [wp.id, wp.title || wp.name || wp.id]));
+
+  // Group lines by work_package_id
+  const linesByWp = new Map();
+  for (const line of doc.lines) {
+    const wpId = line.work_package_id || "wp_01";
+    if (!linesByWp.has(wpId)) linesByWp.set(wpId, []);
+    linesByWp.get(wpId).push(line);
+  }
+
+  // Build sections array
+  const sections = [];
+
+  // Site Reference
+  sections.push({
+    type: "keyvalue",
+    heading: "Site Reference",
+    items: [{ label: "Location", ...hierarchyValue(doc.hierarchy) }]
+  });
+
+  // Scope Summary (if present)
+  if (q.scope_summary) {
+    sections.push({
+      type: "paragraph",
+      heading: "Scope of Work",
+      text: q.scope_summary
+    });
+  }
+
+  // Assumptions (if present)
+  if (q.assumptions) {
+    sections.push({
+      type: "paragraph",
+      heading: "Assumptions & Exclusions",
+      text: q.assumptions
+    });
+  }
+
+  // Line item columns — 7-column controlled quotation layout
+  const QUOTE_LINE_COLUMNS = [
+    { label: "Type", weight: 1 },
+    { label: "Role / Resource", weight: 1.5 },
+    { label: "Description", weight: 3 },
+    { label: "Qty", weight: 0.7, align: "right" },
+    { label: "UoM", weight: 0.8 },
+    { label: "Rate (USD)", weight: 1.2, align: "right" },
+    { label: "Total (USD)", weight: 1.2, align: "right" }
+  ];
+
+  // Emit a table per work package
+  for (const [wpId, wpLines] of linesByWp) {
+    const wpName = wpMap.get(wpId) || wpId;
+    const rows = wpLines.map((l) => {
+      const unitPrice = Number.isInteger(l.unit_price_cents) ? fromCents(l.unit_price_cents) : Number(l.unit_price || 0);
+      const lineTotal = Number.isInteger(l.line_total_cents) ? fromCents(l.line_total_cents) : Number(l.line_total ?? (Number(l.quantity) || 0) * unitPrice);
+      return [
+        l.cost_type || "material",
+        l.resource_role || "-",
+        l.description || "",
+        String(l.quantity ?? ""),
+        l.unit_of_measure || "each",
+        formatCurrency(unitPrice),
+        formatCurrency(lineTotal)
+      ];
+    });
+
+    const wpSubtotalCents = wpLines.reduce((sum, l) => {
+      if (Number.isInteger(l.line_total_cents)) return sum + l.line_total_cents;
+      const unitPrice = Number.isInteger(l.unit_price_cents) ? fromCents(l.unit_price_cents) : Number(l.unit_price || 0);
+      const lineTotal = Number(l.line_total ?? (Number(l.quantity) || 0) * unitPrice);
+      return sum + Math.round(lineTotal * 100);
+    }, 0);
+
+    sections.push({
+      type: "table",
+      heading: linesByWp.size > 1 ? `Work Package: ${wpName}` : "Line Items",
+      columns: QUOTE_LINE_COLUMNS,
+      rows: rows,
+      emptyMessage: "No line items in this work package.",
+      totalsRow: rows.length ? [null, null, null, null, null, "Subtotal", formatCurrency(wpSubtotalCents / 100)] : null
+    });
+  }
+
+  // If no lines at all, show empty table
+  if (linesByWp.size === 0) {
+    sections.push({
+      type: "table",
+      heading: "Line Items",
+      columns: QUOTE_LINE_COLUMNS,
+      rows: [],
+      emptyMessage: "No line items recorded for this quotation."
+    });
+  }
+
+  // --- Commercial Summary ---
+  const preTaxCents = Number.isInteger(q.pre_tax_total_cents) ? q.pre_tax_total_cents : Math.round(Number(q.total_amount || 0) * 100);
+  const discountPercent = Number(q.discount_percent || 0);
+  const discountCents = Number.isInteger(q.discount_cents) ? q.discount_cents : Math.round(preTaxCents * (discountPercent / 100));
+  const netSubtotalCents = Number.isInteger(q.net_subtotal_cents) ? q.net_subtotal_cents : Math.max(0, preTaxCents - discountCents);
+  const taxTotalCents = Number.isInteger(q.tax_total_cents) ? q.tax_total_cents : 0;
+  const grandTotalCents = Number.isInteger(q.grand_total_cents) ? q.grand_total_cents : (netSubtotalCents + taxTotalCents);
+  const taxStatus = q.tax_status || "unconfigured";
+  const appliedTaxRate = q.applied_tax_rate;
+
+  const summaryItems = [
+    { label: "Subtotal (excl. VAT)", value: formatCurrency(preTaxCents / 100) },
+  ];
+
+  if (discountPercent > 0) {
+    summaryItems.push({ label: `Discount (${discountPercent}%)`, value: `-${formatCurrency(discountCents / 100)}` });
+    summaryItems.push({ label: "Net Subtotal", value: formatCurrency(netSubtotalCents / 100) });
+  }
+
+  // Tax line
+  if (taxStatus === "taxable" || taxStatus === "provisional") {
+    const rateLabel = appliedTaxRate != null ? `${Number((appliedTaxRate * 100).toFixed(6))}%` : "TBD";
+    summaryItems.push({ label: `VAT @ ${rateLabel}`, value: formatCurrency(taxTotalCents / 100) });
+  } else if (taxStatus === "zero-rated") {
+    summaryItems.push({ label: "VAT (Zero-Rated)", value: formatCurrency(0) });
+  } else if (taxStatus === "exempt") {
+    summaryItems.push({ label: "VAT (Exempt)", value: formatCurrency(0) });
+  } else {
+    summaryItems.push({ label: "VAT", value: "Not configured", placeholder: true });
+  }
+
+  summaryItems.push({ label: "Grand Total (USD)", value: formatCurrency(grandTotalCents / 100) });
+
+  sections.push({
+    type: "keyvalue",
+    heading: "Commercial Summary",
+    items: summaryItems
+  });
+
+  // --- Tax Treatment Notice ---
+  if (taxStatus === "provisional") {
+    sections.push({
+      type: "notice",
+      tone: "warning",
+      text: PROVISIONAL_VAT_NOTICE
+    });
+  } else if (taxStatus === "unconfigured") {
+    sections.push({
+      type: "notice",
+      tone: "warning",
+      text: "Tax treatment has not been configured for this quotation."
+    });
+  }
+
+  // --- Commercial Terms & Conditions ---
+  const validityDays = q.validity_days || 30;
+  const termsText = [
+    `This quotation is valid for ${validityDays} calendar days from the date of issue.`,
+    "All prices are quoted in United States Dollars (USD).",
+    "Payment terms are as per the governing purchase order or contract.",
+    "Scope changes after acceptance may result in a revised quotation.",
+    "This quotation is subject to the standard terms and conditions of Orac Systems."
+  ].join(" ");
+
+  sections.push({
+    type: "paragraph",
+    heading: "Commercial Terms & Conditions",
+    text: termsText
+  });
+
+  // --- Dual Signoff ---
+  sections.push({
+    type: "signoff",
+    boxes: [
+      { label: "Orac Systems — Authorised Signatory" },
+      { label: "Client Acceptance — Authorised Signatory" }
+    ]
+  });
+
+  // --- Build header meta ---
+  const taxStatusLabel = taxStatus === "provisional" ? "Provisional"
+    : taxStatus === "taxable" ? "Taxable"
+    : taxStatus === "zero-rated" ? "Zero-Rated"
+    : taxStatus === "exempt" ? "Exempt"
+    : "Not Configured";
+
+  const headerMeta = [
+    { label: "Prepared", ...(humanizeTimestamp(q.created_at) ? { value: humanizeTimestamp(q.created_at) } : { value: "Not recorded", placeholder: true }) },
+    { label: "Client", ...clientValue(doc.client) },
+    { label: "Equipment Tag", ...refValue(doc.equipment?.tag_code, "No tag") },
+    { label: "Validity", value: `${validityDays} days from issue` },
+    { label: "Currency", value: "USD" },
+    { label: "Tax Treatment", value: taxStatusLabel }
+  ];
+
   const model = {
     documentType: "QUOTATION",
-    documentTypeLabel: "Quotation",
-    documentNumber: doc.quote.quote_number || null,
-    status: doc.quote.status || "Draft",
+    documentTypeLabel: "Controlled Quotation",
+    documentNumber: q.quote_number || null,
+    status: q.status || "Draft",
     company: companyFromProfile(doc.company_profile),
     generatedAtLabel: "Generated",
     generatedAt: humanizeTimestamp(new Date().toISOString()),
     controlledNote: CONTROLLED_NOTE,
-    headerMeta: [
-      { label: "Prepared", ...(humanizeTimestamp(doc.quote.created_at) ? { value: humanizeTimestamp(doc.quote.created_at) } : { value: "Not recorded", placeholder: true }) },
-      { label: "Client", ...clientValue(doc.client) },
-      { label: "Equipment Tag", ...refValue(doc.equipment?.tag_code, "No tag") }
-    ],
-    sections: [
-      { type: "keyvalue", heading: "Site Reference", items: [{ label: "Location", ...hierarchyValue(doc.hierarchy) }] },
-      {
-        type: "table",
-        heading: "Line Items",
-        columns: LINE_ITEM_COLUMNS,
-        rows: lineRows,
-        emptyMessage: "No line items recorded for this quotation.",
-        totalsRow: lineRows.length ? [null, null, "Total", formatCurrency(doc.quote.total_amount)] : null
-      }
-    ]
+    headerMeta,
+    sections
   };
   sendControlledPdf(res, model);
 };

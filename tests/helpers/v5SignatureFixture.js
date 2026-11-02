@@ -26,7 +26,7 @@ export function database() {
       { id: "sup-2", role: "Supervisor", name: "Other Supervisor", is_active: true },
       { id: "client-1", role: "Client Viewer", name: "Client Viewer", is_active: true }
     ],
-    quotes: [{ id: "quote-1", quote_number: "Q-0001-R1", v5_commercial_workflow: true, created_by: "sales-1" }],
+    quotes: [{ id: "quote-1", quote_number: "Q-0001-R1", v5_commercial_workflow: true, commercial_acceptance_status: "po_verified", created_by: "sales-1" }],
     quote_lines: [{ id: "line-1", quotation_id: "quote-1", description: "Labour", pricing_basis: "hourly", unit_price: 25 }],
     dispatch_cards: [{ id: "job-1", quotation_id: "quote-1", assigned_supervisor_id: "sup-1", assigned_technician_id: "tech-1" }],
     field_worksheets: [sheet()],

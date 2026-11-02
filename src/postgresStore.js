@@ -22,6 +22,7 @@ export function createStore(_filePath, databasePool = pool) {
   }
 
   return {
+    driver: "postgres",
     id: helpers.id,
     audit: helpers.audit,
     recalculateVariance: helpers.recalculateVariance,
@@ -33,7 +34,7 @@ export function createStore(_filePath, databasePool = pool) {
           if (result.rowCount !== 1) {
             throw Object.assign(new Error("Database is not initialized. Run npm run seed:neon first."), { status: 503 });
           }
-          return { db: normalizeDb(result.rows[0].data), release: null };
+          return { db: normalizeDb(result.rows[0].data, { seedDemoRecords: false }), release: null };
         } finally {
           client.release();
         }
@@ -49,7 +50,7 @@ export function createStore(_filePath, databasePool = pool) {
         if (result.rowCount !== 1) {
           throw Object.assign(new Error("Database is not initialized. Run npm run seed:neon first."), { status: 503 });
         }
-        const db = normalizeDb(result.rows[0].data);
+        const db = normalizeDb(result.rows[0].data, { seedDemoRecords: false });
         return { db, release: { client, releaseLock } };
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});

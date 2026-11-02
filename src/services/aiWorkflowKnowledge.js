@@ -24,7 +24,7 @@
 
 import { hasPermission, permissions, roles } from "../permissions.js";
 
-export const CATALOG_VERSION = "1.0.0";
+export const CATALOG_VERSION = "1.0.1";
 export const CATALOG_SOURCE_BASELINE = "orac-portal-api@855620dfd95374aac3eb00248acd37450bd1cc49";
 export const APPROVAL_STATE = "Code-derived from enforcing source; owner approval pending";
 
@@ -45,6 +45,7 @@ export const DESTINATIONS = Object.freeze({
   kiosk: { path: "/kiosk", label: "Kiosk Mode", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR] },
   inventory: { path: "/inventory", label: "Inventory", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS], requires: "manageInventory" },
   reports: { path: "/reports", label: "Reports", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.SALES, R.FINANCE] },
+  jobCards: { path: "/job-cards", label: "Job Cards", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.TECHNICIAN, R.SALES], requires: "viewDispatchJobCard" },
   operationalData: { path: "/operational-data", label: "Operational Data", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.SUPERVISOR, R.TECHNICIAN, R.SALES, R.FINANCE] },
   documents: { path: "/documents", label: "Documents", roles: ALL_ROLES },
   contracts: { path: "/contracts", label: "Contracts", roles: [R.ADMIN, R.MANAGEMENT, R.OPERATIONS, R.CLIENT_VIEWER], requires: "viewContracts" },
@@ -113,25 +114,27 @@ export const ARTICLES = Object.freeze([
   },
   {
     id: "kiosk-timesheets",
-    version: "1.0",
+    version: "1.1",
     title: "Kiosk time entries",
     keywords: ["kiosk", "roster", "batch", "crew hours", "bulk hours"],
     destination: "kiosk",
-    sources: ["src/controllers/kioskController.js", "src/permissions.js (submitKioskTimesheets)"],
+    sources: ["src/controllers/kioskController.js", "src/controllers/timesheetReviewController.js", "src/timesheetReview.js", "src/permissions.js (submitKioskTimesheets, viewKioskTimesheetReview, reviewKioskTimesheet)"],
     summary: "Kiosk mode records hours for technicians on one dispatch's roster in a single batch.",
     statuses: [],
     evidence: [
       "Every entry must belong to a technician assigned to that dispatch, and a technician may appear only once per batch.",
+      "A new kiosk entry waits for review by a Supervisor assigned to the dispatch. Admin and Operations can see the review queue but cannot approve or reject entries.",
+      "Pending and rejected kiosk entries do not count as approved hours. A Supervisor cannot review an entry they recorded or their own time.",
       "Each entry and each batch is written to the audit log with who recorded it."
     ],
     roleParts: {
-      [R.ADMIN]: { do: "Admin can submit a kiosk batch for a dispatch roster.", next: "Open Kiosk Mode, choose the dispatch and enter hours.", link: "kiosk" },
-      [R.OPERATIONS]: { do: "Operations can submit a kiosk batch for a dispatch roster.", next: "Open Kiosk Mode, choose the dispatch and enter hours.", link: "kiosk" },
-      [R.SUPERVISOR]: { do: "Supervisor can open Kiosk Mode but the server does not let Supervisor submit a kiosk batch.", next: "Ask Operations or Admin to submit; review follows the Timesheet rules.", link: "kiosk" },
-      [R.MANAGEMENT]: { do: "Management can open Kiosk Mode but the server does not let Management submit a kiosk batch.", next: "Ask Operations or Admin to submit.", link: "kiosk" }
+      [R.ADMIN]: { do: "Admin can submit a kiosk batch and view the review queue, but cannot approve or reject entries.", next: "Open Kiosk Mode, enter the roster hours, then follow the queue until an assigned Supervisor reviews them.", link: "kiosk" },
+      [R.OPERATIONS]: { do: "Operations can submit a kiosk batch and view the review queue, but cannot approve or reject entries.", next: "Open Kiosk Mode, enter the roster hours, then follow the queue until an assigned Supervisor reviews them.", link: "kiosk" },
+      [R.SUPERVISOR]: { do: "Supervisor can review pending kiosk entries only for dispatches assigned to them; they cannot submit kiosk batches or review their own or recorded entries.", next: "Open the kiosk review queue for an assigned dispatch and approve accurate evidence or reject it with a correction comment.", link: "kiosk" },
+      [R.MANAGEMENT]: { do: "Management does not have permission to submit, list, or review kiosk timesheets.", next: "Ask Operations or Admin for the current queue status; an assigned Supervisor makes the review decision.", link: "dashboard" }
     },
     knownLimits: [
-      "Owner rule: kiosk-entered hours require Supervisor review before they count as approved evidence. At this release the server records kiosk entries without a review state, so that rule is not yet enforced by the application. Do not treat kiosk hours as Supervisor-approved."
+      "A kiosk entry remains pending until an assigned Supervisor approves or rejects it. Pending and rejected entries are excluded from approved hours and invoice/variance calculations. If no active Supervisor is assigned, the entry stays pending until one is assigned."
     ],
     metrics: {}
   },
@@ -270,7 +273,9 @@ export const ARTICLES = Object.freeze([
       [R.SALES]: { do: "Acknowledge, accept or decline requests. Conversion to a lead is a separate step.", next: "Open Service Requests.", link: "serviceRequests" },
       [R.OPERATIONS]: { do: "Acknowledge, accept or decline requests. Conversion to a lead is a separate step.", next: "Open Service Requests.", link: "serviceRequests" }
     },
-    knownLimits: [],
+    knownLimits: [
+      "A requested date is only the client's preference. This system has no capacity-controlled appointment booking, availability calendar, assigned booking slot, or confirmed appointment date. 'Accepted' means accepted for follow-up, not booked. Do not tell a client that a visit is scheduled; Sales or Operations must confirm it outside this workflow."
+    ],
     metrics: {}
   },
   {

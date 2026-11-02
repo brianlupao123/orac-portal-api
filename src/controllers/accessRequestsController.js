@@ -54,13 +54,13 @@ export const createAccessRequest = (req, res) => {
   // This public endpoint must not reveal whether an email already has an
   // account or a pending request.
   const genericAcceptedResponse = { success: true, data: { status: "Pending" } };
-  const existingUser = req.db.users.find((u) => u.email.toLowerCase() === email);
+  const existingUser = req.db.users.find((u) => String(u?.email || "").trim().toLowerCase() === email);
   if (existingUser) {
     return res.json(genericAcceptedResponse);
   }
 
   const existingPending = req.db.access_requests.find(
-    (r) => r.email.toLowerCase() === email && r.status === "Pending"
+    (r) => String(r?.email || "").trim().toLowerCase() === email && r.status === "Pending"
   );
   if (existingPending) {
     return res.json(genericAcceptedResponse);

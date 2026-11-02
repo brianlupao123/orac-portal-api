@@ -49,12 +49,22 @@ export function validateRuntimeConfig() {
     throw new Error("Invalid PORT. Expected a number between 1 and 65535.");
   }
 
+  if (process.env.TRUST_PROXY_HOPS !== undefined) {
+    const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+    if (!Number.isSafeInteger(trustProxyHops) || trustProxyHops < 0) {
+      throw new Error("Invalid TRUST_PROXY_HOPS. Expected a non-negative integer matching the deployed proxy chain.");
+    }
+  }
+
   if (config.isProduction) {
     if (config.storeDriver !== "postgres") {
       throw new Error("Production requires STORE_DRIVER=postgres.");
     }
     if (!process.env.JWT_SECRET || config.jwtSecret === DEV_JWT_SECRET || config.jwtSecret.length < 32) {
       throw new Error("Production JWT_SECRET must be set to a strong value of at least 32 characters.");
+    }
+    if (process.env.RATE_LIMIT_DISABLED === "true") {
+      throw new Error("RATE_LIMIT_DISABLED=true is not permitted in production.");
     }
   }
 

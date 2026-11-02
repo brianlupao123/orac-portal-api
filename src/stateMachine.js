@@ -1,12 +1,12 @@
 import { requirePermission } from "./permissions.js";
-import { isEligibleForDb } from "./timesheetEligibility.js";
 import { invoiceVarianceGate, lockTimesheetsForInvoice } from "./timesheetWorkflow.js";
-import { countedTimesheets, pendingKioskTimesheets, reviewBlockedReason } from "./timesheetReview.js";
+import { countedTimesheets } from "./timesheetReview.js";
+import { calculateLegacyInvoiceAmounts, invoiceReadinessBlock } from "./invoiceReadiness.js";
 
 const allowedTransitions = {
   Draft: ["Sent"],
   Sent: ["Approved_Pending_PO"],
-  Approved_Pending_PO: ["PO_Verified", "Field_Dispatch"],
+  Approved_Pending_PO: ["PO_Verified"],
   PO_Verified: ["Field_Dispatch"],
   Field_Dispatch: ["Invoiced"],
   Invoiced: []
@@ -17,15 +17,12 @@ function quoteLines(db, quoteId) {
 }
 
 function getPo(db, quoteId) {
-  return db.purchase_orders.find((po) => po.quotation_id === quoteId);
+  return (db.purchase_orders || []).find((po) => po.quotation_id === quoteId && po.status !== "rejected" && po.status !== "cancelled") ||
+    (db.purchase_orders || []).find((po) => po.quotation_id === quoteId);
 }
 
 function getDispatch(db, quoteId) {
   return db.dispatch_cards.find((job) => job.quotation_id === quoteId);
-}
-
-function approvedWorksheets(db, dispatchId) {
-  return db.field_worksheets.filter((item) => item.dispatch_card_id === dispatchId && isEligibleForDb(db, item));
 }
 
 function validateTransition(db, quote, targetState, payload, actor) {
@@ -38,12 +35,39 @@ function validateTransition(db, quote, targetState, payload, actor) {
     if (!quote.client_id || quoteLines(db, quote.id).length === 0) {
       throw Object.assign(new Error("Quote needs a client and at least one line before it can be sent."), { status: 400 });
     }
+    if (quote.tax_status === "unconfigured") {
+      throw Object.assign(new Error("Cannot issue quotation with unconfigured tax status. A configured tax treatment is required."), { status: 400 });
+    }
+    // Production environments reject provisional tax treatment — only approved
+    // taxable, zero-rated, or exempt configurations may be sent to clients.
+    const requireApprovedTax = (process.env.NODE_ENV || "development") === "production" || process.env.ORAC_REQUIRE_APPROVED_TAX === "true";
+    if (requireApprovedTax && (quote.tax_status === "provisional" || !quote.tax_approved)) {
+      throw Object.assign(new Error("Production quotation issuance requires approved tax configuration. Provisional tax treatment is restricted to development/test fixtures."), { status: 400 });
+    }
   }
 
   if (targetState === "Approved_Pending_PO") {
     requirePermission(actor, "approveQuote");
-    if (actor.role === "Sales" && quote.sent_by && quote.sent_by === actor.id) {
-      throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague, Operations, or Admin must approve it."), { status: 403 });
+    const selfApproval = (quote.sent_by && quote.sent_by === actor.id) || (quote.created_by && quote.created_by === actor.id);
+    if (actor.role === "Sales" && selfApproval) {
+      throw Object.assign(new Error("Sales cannot approve a quote they personally sent. A different Sales colleague or Management must approve it."), { status: 403 });
+    }
+    if (actor.role === "Admin" && selfApproval && String(payload.approval_exception_reason || "").trim().length < 10) {
+      throw Object.assign(new Error("Admin fallback approval requires a recorded reason explaining why Sales could not complete the approval."), { status: 400 });
+    }
+    const totalCents = Number.isInteger(quote.grand_total_cents)
+      ? quote.grand_total_cents
+      : Math.round(Number(quote.total_amount || 0) * 100);
+    const isAboveThreshold = totalCents > 500000;
+    const hasDiscount = Number(quote.discount_percent || 0) > 0;
+
+    if ((isAboveThreshold || hasDiscount) && !["Management", "Admin"].includes(actor.role)) {
+      const reason = isAboveThreshold && hasDiscount
+        ? "Quotations exceeding USD 5,000 and quotations with commercial discounts require Management approval."
+        : isAboveThreshold
+          ? "Quotations exceeding USD 5,000 require Management approval."
+          : "Quotations with commercial discounts require Management approval.";
+      throw Object.assign(new Error(reason), { status: 403 });
     }
   }
 
@@ -58,12 +82,14 @@ function validateTransition(db, quote, targetState, payload, actor) {
   if (targetState === "Field_Dispatch") {
     requirePermission(actor, "dispatch");
     const po = getPo(db, quote.id);
-    const urgent = Boolean(payload.started_before_po);
-    if (!po && !urgent) {
-      throw Object.assign(new Error("Dispatch requires a verified PO, unless urgent pre-PO dispatch is explicitly authorized."), { status: 400 });
+    if (payload.started_before_po) {
+      throw Object.assign(new Error("Urgent pre-PO dispatch is not permitted; a verified PO is required before dispatch."), { status: 400 });
     }
-    if (urgent && !String(payload.urgent_reason || "").trim()) {
-      throw Object.assign(new Error("Urgent pre-PO dispatch requires a reason."), { status: 400 });
+    if (!po || po.status !== "verified" || !String(po.po_reference || "").trim() || Number(po.po_amount || 0) <= 0) {
+      throw Object.assign(new Error("Dispatch requires a verified PO with reference and positive amount."), { status: 400 });
+    }
+    if (quote.status !== "PO_Verified") {
+      throw Object.assign(new Error("Dispatch is permitted only from PO_Verified status."), { status: 400 });
     }
   }
 
@@ -72,39 +98,13 @@ function validateTransition(db, quote, targetState, payload, actor) {
     const po = getPo(db, quote.id);
     const job = getDispatch(db, quote.id);
     if (!job) throw Object.assign(new Error("A dispatch card must exist before invoicing."), { status: 400 });
-    if (!po || po.status !== "verified" || !String(po.po_reference || "").trim()) {
-      throw Object.assign(new Error("Invoice blocked: verified PO reference is required."), { status: 400 });
-    }
-    if (approvedWorksheets(db, job.id).length === 0) {
-      throw Object.assign(new Error("Invoice blocked: at least one supervisor-approved worksheet is required."), { status: 400 });
-    }
-    const pendingKiosk = pendingKioskTimesheets(db, job.id);
-    if (pendingKiosk.length > 0) {
-      throw Object.assign(new Error(`Invoice blocked: ${pendingKiosk.length} kiosk timesheet ${pendingKiosk.length === 1 ? "entry is" : "entries are"} awaiting Supervisor review.${reviewBlockedReason(db, job) ? " " + reviewBlockedReason(db, job) : ""}`), { status: 400 });
-    }
-    if (po.requires_amendment) {
-      throw Object.assign(new Error("Invoice blocked: logged work exceeds PO amount and requires an approved PO amendment."), { status: 400 });
-    }
+    const blocked = invoiceReadinessBlock(db, job);
+    if (blocked) throw Object.assign(new Error(blocked.message), { status: blocked.status, code: blocked.code });
   }
 }
 
 function createDispatch(db, store, quote, payload, actor) {
   let po = getPo(db, quote.id);
-  if (!po && payload.started_before_po) {
-    po = {
-      id: store.id("po"),
-      quotation_id: quote.id,
-      po_reference: "",
-      po_amount: 0,
-      status: "pending",
-      started_before_po: true,
-      date_received: null,
-      verified_by: null,
-      verified_at: null,
-      requires_amendment: false
-    };
-    db.purchase_orders.push(po);
-  }
 
   let job = getDispatch(db, quote.id);
   if (!job) {
@@ -130,19 +130,13 @@ function createDispatch(db, store, quote, payload, actor) {
   return job;
 }
 
-function createInvoice(db, store, quote, actor) {
+export function createLegacyInvoice(db, store, quote, actor) {
   const po = getPo(db, quote.id);
   const job = getDispatch(db, quote.id);
-  // Only approved hours are billed: pending or rejected kiosk entries are excluded.
-  const timesheets = countedTimesheets(db, job.id);
+  const { timesheets, materials, laborTotal, laborHours, materialTotal, total } = calculateLegacyInvoiceAmounts(db, job, quote);
   // Dark by default (TIMESHEET_INVOICE_VARIANCE): billed hours may never exceed eligible hours without a second-approved override.
   const gate = invoiceVarianceGate(db, job.id);
   if (!gate.allow) throw Object.assign(new Error(gate.reason), { status: 409, code: "INVOICE_VARIANCE_BLOCK" });
-  const materials = db.material_usage.filter((item) => item.dispatch_card_id === job.id);
-  const laborTotal = timesheets.reduce((sum, item) => sum + item.hours_logged * item.hourly_rate, 0);
-  const laborHours = timesheets.reduce((sum, item) => sum + item.hours_logged, 0);
-  const materialTotal = materials.reduce((sum, item) => sum + item.total_cost, 0);
-  const total = laborTotal + materialTotal || quote.total_amount;
 
   const invoice = {
     id: store.id("inv"),
@@ -152,6 +146,7 @@ function createInvoice(db, store, quote, actor) {
     total_amount: total,
     status: "sent",
     generated_by: actor.id,
+    issued_by: actor.id,
     generated_at: new Date().toISOString()
   };
 
@@ -191,19 +186,49 @@ function createInvoice(db, store, quote, actor) {
   return invoice;
 }
 
+// Direct Field_Dispatch -> Invoiced transitions are intentionally refused by
+// the HTTP path. The controlled draft issuer calls this helper only after the
+// independent-review and stale-evidence checks have completed.
+export function issueLegacyInvoice(db, store, quoteId, actor) {
+  const quote = db.quotes.find((item) => item.id === quoteId);
+  if (!quote) throw Object.assign(new Error("Quote not found."), { status: 404 });
+  validateTransition(db, quote, "Invoiced", {}, actor);
+  const before = { ...quote };
+  const invoice = createLegacyInvoice(db, store, quote, actor);
+  quote.status = "Invoiced";
+  quote.updated_at = new Date().toISOString();
+  store.audit(db, actor, "quotation", quote.id, `QUOTE_TRANSITION_${before.status}_TO_Invoiced`, before, quote);
+  return invoice;
+}
+
 export function transitionQuote(db, store, quoteId, targetState, payload, actor) {
   const quote = db.quotes.find((item) => item.id === quoteId);
   if (!quote) throw Object.assign(new Error("Quote not found."), { status: 404 });
 
+  if (quote.status === targetState) return { quote, created: null };
+  if (targetState === "Invoiced") {
+    throw Object.assign(new Error("A controlled invoice draft must be independently issued before a quotation can be invoiced."), { status: 409, code: "LEGACY_INVOICE_DRAFT_REQUIRED" });
+  }
   validateTransition(db, quote, targetState, payload, actor);
   const before = { ...quote };
   quote.status = targetState;
   quote.updated_at = new Date().toISOString();
-  if (targetState === "Sent") quote.sent_by = actor.id;
+  if (targetState === "Approved_Pending_PO" && actor.role === "Admin" && quote.sent_by === actor.id) {
+    quote.approval_exception = {
+      type: "admin_sales_fallback",
+      reason: String(payload.approval_exception_reason).trim(),
+      approved_by: actor.id,
+      approved_at: quote.updated_at
+    };
+  }
+  if (targetState === "Sent") {
+    quote.sent_by = actor.id;
+    quote.sent_at = new Date().toISOString();
+    quote.tax_rate_locked = true;
+  }
 
   let created = null;
   if (targetState === "Field_Dispatch") created = createDispatch(db, store, quote, payload, actor);
-  if (targetState === "Invoiced") created = createInvoice(db, store, quote, actor);
 
   store.audit(db, actor, "quotation", quote.id, `QUOTE_TRANSITION_${before.status}_TO_${targetState}`, before, quote);
   return { quote, created };

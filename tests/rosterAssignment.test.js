@@ -124,19 +124,21 @@ test("dispatch material status stays gated by assignment even for a technician r
   assert.equal(resDenied.statusCode, 403);
 });
 
-test("a Supervisor assigned to the dispatch can roster a Technician onto it", () => {
+test("Operations can roster a Technician onto an assigned dispatch", () => {
   const db = baseDb();
   const res = response();
-  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "sup-1"), res);
+  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "ops-1"), res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(db.dispatch_cards[0].assigned_technician_ids, ["tech-1"]);
 });
 
-test("a Supervisor NOT assigned to the dispatch cannot roster anyone onto it", () => {
+test("Supervisor cannot roster anyone onto a dispatch (dispatch authority is Admin/Operations only)", () => {
   const db = baseDb();
   const res = response();
-  assignRosterTechnician(req(db, { technician_id: "tech-1" }, "sup-2"), res);
-  assert.equal(res.statusCode, 403);
+  assert.throws(
+    () => assignRosterTechnician(req(db, { technician_id: "tech-1" }, "sup-1"), res),
+    { status: 403 }
+  );
   assert.deepEqual(db.dispatch_cards[0].assigned_technician_ids, []);
 });
 
@@ -152,6 +154,13 @@ test("roster read lists only active Technicians with id/name/trade — no email 
   const one = res.body.data.technicians.find((t) => t.id === "tech-1");
   assert.equal(one.on_roster, true);
   assert.equal(one.email, undefined);
+});
+
+test("an assigned Supervisor can read the dispatch roster picker", () => {
+  const db = baseDb();
+  const res = response();
+  getDispatchRoster(req(db, {}, "sup-1"), res);
+  assert.equal(res.statusCode, 200);
 });
 
 test("a Technician cannot read the roster picker", () => {

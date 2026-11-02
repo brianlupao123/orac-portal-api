@@ -6,11 +6,15 @@ function res() { return { statusCode: 200, headers: {}, status(code) { this.stat
 function db(role = "Finance") { return { users: [{ id: "actor", role, is_active: true }], leads: [{ email: "already@example.test" }], quotes: [{ id: "q2", quote_number: "Q-2", client_id: "=client", status: "Draft", total_amount: 1 }, { id: "q1", quote_number: "Q-1", client_id: "c1", status: "Approved", total_amount: 50 }], dispatch_cards: [{ id: "d1", assigned_technician_id: "actor", status: "Open", created_at: "2026-09-20" }], field_worksheets: [{ id: "w1", dispatch_card_id: "d1", technician_id: "actor", status: "Submitted", work_date: "2026-09-20" }], invoices: [], purchase_orders: [] }; }
 
 test("Pastel review export is Finance-only, deterministic, and formula-safe", () => {
-  const database = db(); const response = res();
-  getPastelReviewQuotes({ db: database, user: { id: "actor" } }, response);
+  const database = db(); const response = res(); const audits = [];
+  const store = { audit: (...args) => audits.push(args) };
+  getPastelReviewQuotes({ db: database, store, user: { id: "actor" } }, response);
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /^quote_number,client_id,status,total_amount\nQ-1/);
   assert.match(response.body, /'=client/);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0][4], "PASTEL_REVIEW_EXPORT_GENERATED");
+  assert.deepEqual(audits[0][6], { export_type: "quotes", accounting_posted: false, row_count: 2 });
 });
 
 test("lead import preview validates without mutating leads", () => {

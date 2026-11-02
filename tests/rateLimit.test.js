@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import jwt from "jsonwebtoken";
+import express from "express";
+import { config } from "../src/config.js";
+import { persistenceMiddleware } from "../src/persistenceMiddleware.js";
 import { createPublicEndpointLimits, PUBLIC_WRITE_ROUTES, WindowCounter, readLimitConfig, normalizedEmail } from "../src/middleware/rateLimit.js";
 import { makeReq, makeRes, run } from "./_http.js";
 
@@ -58,11 +62,48 @@ test("login: per-IP attempt ceiling is enforced regardless of email", () => {
   assert.equal(run(mw, post("/auth/login", { email: "c@x.co" })).res.statusCode, 429);
 });
 
-test("routes outside the public-write table and GETs are never limited", () => {
-  const { mw } = limiter({ RATE_LIMIT_PUBLIC_WRITE_MAX: "1", RATE_LIMIT_LOGIN_ATTEMPTS_MAX: "1" });
+test("protected writes require a valid signed token before persistence; GETs remain unauthenticated here", () => {
+  const { mw } = limiter({ RATE_LIMIT_API_WRITE_MAX: "10", RATE_LIMIT_WINDOW_MS: "60000" });
   for (let i = 0; i < 5; i++) {
     assert.equal(run(mw, makeReq({ method: "GET", path: "/leads" })).passed, true);
-    assert.equal(run(mw, post("/quotes")).passed, true);
+  }
+  const missing = run(mw, post("/quotes"));
+  assert.equal(missing.passed, false);
+  assert.equal(missing.res.statusCode, 401);
+  const invalid = run(mw, makeReq({ method: "POST", path: "/quotes", headers: { authorization: "Bearer not-a-token" } }));
+  assert.equal(invalid.passed, false);
+  assert.equal(invalid.res.statusCode, 401);
+  const validToken = jwt.sign({ id: "u-test" }, config.jwtSecret);
+  assert.equal(run(mw, makeReq({ method: "POST", path: "/quotes", headers: { authorization: `Bearer ${validToken}` } })).passed, true);
+  const burst = limiter({ RATE_LIMIT_API_WRITE_MAX: "1", RATE_LIMIT_WINDOW_MS: "60000" }).mw;
+  assert.equal(run(burst, post("/protected")).res.statusCode, 401);
+  assert.equal(run(burst, post("/protected")).res.statusCode, 429);
+});
+
+test("missing and invalid credentials are refused before persistence reads the store", async () => {
+  let storeReads = 0;
+  const store = {
+    async read() { storeReads += 1; return { db: {}, release: async () => {} }; },
+    async write() {},
+    async release() {}
+  };
+  const app = express();
+  app.use(express.json());
+  app.use("/api", createPublicEndpointLimits({ env: {} }));
+  app.use("/api", persistenceMiddleware(store));
+  app.post("/api/protected", (req, res) => res.json({ success: true }));
+  const server = await new Promise((resolve) => {
+    const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
+  });
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/api/protected`;
+    const missing = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(missing.status, 401);
+    const invalid = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer forged" }, body: "{}" });
+    assert.equal(invalid.status, 401);
+    assert.equal(storeReads, 0);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
 
@@ -78,6 +119,7 @@ test("config: invalid or non-positive env values fall back to defaults", () => {
   assert.equal(cfg.publicWritesPerIp, 30);
   assert.equal(cfg.windowMs, 15 * 60 * 1000);
   assert.equal(cfg.loginFailuresPerEmail, 10);
+  assert.equal(cfg.apiWritesPerIp, 300);
 });
 
 test("WindowCounter stays bounded and fails closed when full", () => {

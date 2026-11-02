@@ -31,7 +31,7 @@ function makeDb() {
       { id: "ws2", dispatch_card_id: "d_mim", technician_id: "u_tech2", submitted_by: "u_tech2" }
     ],
     invoices: [],
-    leads: [{ id: "l1" }],
+    leads: [{ id: "l1", status: "New" }],
     stock_items: [{ id: "si1" }],
     service_requests: [{ id: "sr_zim", client_id: "c_zim" }],
     internal_work_requests: [{ id: "iwr1" }],
@@ -334,6 +334,22 @@ test("only Admin is ever routed to the access-request screen, and it focuses tha
       assert.equal(out.resolved, false);
     }
   }
+});
+
+test("new-lead notifications open the existing Sales/Admin lead list without granting Management quote access", () => {
+  const db = makeDb();
+  const destination = { kind: "lead", id: "l1" };
+  for (const id of ["u_admin", "u_sales"]) {
+    const resolved = resolveDestination(db, db.users.find((user) => user.id === id), destination);
+    assert.equal(resolved.route, "/quotations");
+    assert.equal(resolved.resolved, true);
+    assert.equal(resolved.exact, false, "the quotation page lists new leads but does not focus a lead by id");
+    assert.match(resolved.note, /look for this item in the list/i);
+  }
+
+  const management = resolveDestination(db, db.users.find((user) => user.id === "u_mgmt"), destination);
+  assert.equal(management.route, "/");
+  assert.equal(management.resolved, false, "Management must not be routed into the quote mutation screen");
 });
 
 test("stale or deleted target falls back to the correct inbox with an honest message", () => {

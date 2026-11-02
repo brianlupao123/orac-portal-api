@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../src/store.js";
-import { transitionQuote } from "../src/stateMachine.js";
+import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { exportInvoicesCsv } from "../src/exporter.js";
 import { getInvoicePdf } from "../src/controllers/documentController.js";
 import { capturePo } from "../src/controllers/quoteController.js";
+import { exportPastel } from "../src/controllers/coreController.js";
 
 function makeCtx(clientName = "Zimplats") {
   const store = createStore(":memory:");
   const db = {
     users: [
       { id: "u_admin", role: "Admin", is_active: true },
-      { id: "u_fin", role: "Finance", is_active: true }
+      { id: "u_fin", role: "Finance", is_active: true },
+      { id: "u_sales", role: "Sales", is_active: true }
     ],
     clients: [{ id: "c1", name: clientName }],
     quote_lines: [{ id: "l1", quotation_id: "q1", description: "Service", quantity: 1, unit_price: 1000, line_total: 1000 }],
@@ -27,8 +29,9 @@ function makeCtx(clientName = "Zimplats") {
 function invoiceJob(ctx, { poAmount = 5000, materials = 0, hours = 0, rate = 0, zeroHourTimesheet = false } = {}) {
   const { db, store, admin } = ctx;
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-77", po_amount: poAmount, status: "verified", requires_amendment: false });
+  transitionQuote(db, store, "q1", "PO_Verified", {}, admin);
   transitionQuote(db, store, "q1", "Field_Dispatch", {}, admin);
   const job = db.dispatch_cards[0];
   job.purchase_order_id = "po1";
@@ -37,7 +40,32 @@ function invoiceJob(ctx, { poAmount = 5000, materials = 0, hours = 0, rate = 0, 
   if (zeroHourTimesheet) db.timesheets.push({ id: "t0", dispatch_card_id: job.id, hours_logged: 0, hourly_rate: 50 });
   db.field_worksheets.push({ id: "w1", dispatch_card_id: job.id, status: "Supervisor_Approved" });
   store.recalculateVariance(db, "po1");
-  return transitionQuote(db, store, "q1", "Invoiced", {}, admin).created;
+  return issueLegacyInvoice(db, store, "q1", admin);
+}
+
+function seedLegacyPrePoDispatch(ctx) {
+  const { db, store, admin } = ctx;
+  transitionQuote(db, store, "q1", "Sent", {}, admin);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
+  db.purchase_orders.push({
+    id: "legacy-po-1", quotation_id: "q1", po_reference: "", po_amount: 0,
+    status: "pending", started_before_po: true, requires_amendment: false
+  });
+  const job = {
+    id: "legacy-job-1",
+    quotation_id: "q1",
+    purchase_order_id: "legacy-po-1",
+    dispatch_number: "JOB-LEGACY-1",
+    status: "active",
+    started_before_po: true,
+    urgent_reason: "Historical record fixture",
+    assigned_supervisor_id: admin.id,
+    assigned_technician_ids: [],
+    created_at: new Date().toISOString()
+  };
+  db.dispatch_cards.push(job);
+  db.quotes[0].status = "Field_Dispatch";
+  return job;
 }
 
 const sumLines = (db, invoice) => db.invoice_lines.filter((l) => l.invoice_id === invoice.id).reduce((s, l) => s + l.line_total, 0);
@@ -82,7 +110,73 @@ test("Pastel export falls back to created_at for invoices without generated_at",
   const inv = invoiceJob(ctx, { hours: 10, rate: 50 });
   inv.created_at = "2026-08-01T00:00:00.000Z";
   delete inv.generated_at;
-  assert.equal(exportInvoicesCsv(ctx.db).split("\n")[1].split(",")[1], "2026-08-01");
+  assert.equal(exportInvoicesCsv(ctx.db).split("\n")[1].split(",")[2], "2026-08-01");
+});
+
+test("Pastel export records an audit event but never claims accounting posting", () => {
+  const ctx = makeCtx();
+  invoiceJob(ctx, { hours: 10, rate: 50 });
+  const response = {
+    headers: {},
+    header(key, value) { this.headers[key] = value; return this; },
+    send(body) { this.body = body; return this; }
+  };
+  exportPastel({ db: ctx.db, store: ctx.store, user: { id: "u_fin" } }, response);
+  const audit = ctx.db.audit_logs.at(-1);
+  assert.match(response.body, /transaction_id/);
+  assert.equal(audit.action, "PASTEL_EXPORT_GENERATED");
+  assert.deepEqual(audit.new_values, { export_type: "invoices", accounting_posted: false, row_count: 1 });
+});
+
+test("Pastel review export includes issued credit notes as negative, non-posting correction rows", () => {
+  const ctx = makeCtx();
+  const invoice = invoiceJob(ctx, { hours: 10, rate: 50 });
+  ctx.db.invoice_credit_notes = [{
+    id: "credit-1", invoice_id: invoice.id, amount: 25, currency: "USD",
+    reason: "Approved service correction", status: "issued", prepared_at: "2026-10-27T10:00:00.000Z", issued_at: "2026-10-27T11:00:00.000Z"
+  }];
+  const response = {
+    headers: {},
+    header(key, value) { this.headers[key] = value; return this; },
+    send(body) { this.body = body; return this; }
+  };
+  exportPastel({ db: ctx.db, store: ctx.store, user: { id: "u_fin" } }, response);
+  assert.match(response.body, /transaction_type/);
+  assert.match(response.body, /credit_note,credit-1/);
+  assert.match(response.body, /-25/);
+  assert.deepEqual(ctx.db.audit_logs.at(-1).new_values, { export_type: "invoices", accounting_posted: false, row_count: 2 });
+});
+
+test("Sales cannot verify a client-submitted PO before dispatch; Finance can verify", () => {
+  const { db, store } = makeCtx();
+  db.quotes[0].status = "Approved_Pending_PO";
+  db.quotes[0].total_amount = 1500;
+  db.purchase_orders.push({
+    id: "po1", quotation_id: "q1", po_reference: "PO-77", po_amount: 1500,
+    status: "pending", verified_by: null, verified_at: null, requires_amendment: false
+  });
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; }
+  };
+
+  assert.throws(
+    () => capturePo({
+      user: { id: "u_sales" }, params: { id: "q1" },
+      body: { po_reference: "PO-77", po_amount: 1500 }, db, store
+    }, res),
+    (err) => err.status === 403 && /Role Sales cannot perform verifyPo/.test(err.message)
+  );
+
+  capturePo({
+    user: { id: "u_fin" }, params: { id: "q1" },
+    body: { po_reference: "PO-77", po_amount: 1500 }, db, store
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.status, "verified");
+  assert.equal(res.body.data.verified_by, "u_fin");
 });
 
 test("invoice PDF shows invoice date and job reference for workflow-created invoices", () => {
@@ -103,10 +197,7 @@ test("invoice PDF shows invoice date and job reference for workflow-created invo
 
 test("re-verifying a PO for less than logged work keeps the amendment block", () => {
   const { db, store, admin } = makeCtx();
-  transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
-  transitionQuote(db, store, "q1", "Field_Dispatch", { started_before_po: true, urgent_reason: "breakdown" }, admin);
-  const job = db.dispatch_cards[0];
+  const job = seedLegacyPrePoDispatch({ db, store, admin });
   db.timesheets.push({ id: "t1", dispatch_card_id: job.id, hours_logged: 100, hourly_rate: 50 });
   db.field_worksheets.push({ id: "w1", dispatch_card_id: job.id, status: "Supervisor_Approved" });
   store.recalculateVariance(db, job.purchase_order_id);
@@ -114,15 +205,12 @@ test("re-verifying a PO for less than logged work keeps the amendment block", ()
   capturePo({ user: { id: "u_fin" }, params: { id: "q1" }, body: { po_reference: "PO-LOW", po_amount: 1000 }, db, store }, res);
   const po = db.purchase_orders[0];
   assert.equal(po.requires_amendment, true);
-  assert.throws(() => transitionQuote(db, store, "q1", "Invoiced", {}, admin), /requires an approved PO amendment/);
+  assert.throws(() => issueLegacyInvoice(db, store, "q1", admin), /requires an approved PO amendment/);
 });
 
 test("re-verifying a PO for at least the logged work clears the amendment flag", () => {
   const { db, store, admin } = makeCtx();
-  transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
-  transitionQuote(db, store, "q1", "Field_Dispatch", { started_before_po: true, urgent_reason: "breakdown" }, admin);
-  const job = db.dispatch_cards[0];
+  const job = seedLegacyPrePoDispatch({ db, store, admin });
   db.timesheets.push({ id: "t1", dispatch_card_id: job.id, hours_logged: 100, hourly_rate: 50 });
   store.recalculateVariance(db, job.purchase_order_id);
   const res = { status() { return this; }, json(b) { this.body = b; return this; } };

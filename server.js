@@ -8,18 +8,19 @@ import { config, validateRuntimeConfig } from "./src/config.js";
 validateRuntimeConfig();
 
 import { ensureTableExists } from "./src/pool.js";
-import { createStore as createJsonStore } from "./src/store.js";
-import { createStore as createPostgresStore } from "./src/postgresStore.js";
+import { store } from "./src/configuredStore.js";
+
 import { persistenceMiddleware } from "./src/persistenceMiddleware.js";
 import { securityHeaders } from "./src/middleware/securityHeaders.js";
 import { createPublicEndpointLimits } from "./src/middleware/rateLimit.js";
+import { createCors } from "./src/middleware/cors.js";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const publicDir = join(__dirname, "public");
 
-export const store = config.storeDriver === "postgres" 
-  ? createPostgresStore(join(__dirname, "data", "db.json")) 
-  : createJsonStore(config.jsonDbPath);
+export { store };
+
+
 
 if (config.storeDriver === "postgres") {
   await ensureTableExists();
@@ -46,17 +47,7 @@ app.get("/healthz", (req, res) => {
 
 // CORS — allow the deployed frontend to call the API
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && (ALLOWED_ORIGINS.includes(origin) || !config.isProduction)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  }
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
+app.use(createCors({ allowedOrigins: ALLOWED_ORIGINS, isProduction: config.isProduction }));
 
 // Rate limits for the unauthenticated endpoints. This MUST stay ahead of
 // persistenceMiddleware: that middleware takes the store lock for every write.

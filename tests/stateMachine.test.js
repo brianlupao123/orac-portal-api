@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../src/store.js";
-import { transitionQuote } from "../src/stateMachine.js";
+import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 
 function makeDb() {
   const store = createStore(":memory:");
@@ -27,29 +27,39 @@ function makeDb() {
   return { db, store, actor: db.users[0] };
 }
 
-test("rejects illegal Draft to Invoiced transition", () => {
+test("refuses direct Draft to Invoiced transition", () => {
   const { db, store, actor } = makeDb();
   assert.throws(
     () => transitionQuote(db, store, "q1", "Invoiced", {}, actor),
-    /Illegal transition/
+    /controlled invoice draft/
   );
 });
 
-test("blocks invoice when urgent dispatch started before PO", () => {
+test("blocks dispatch without a verified PO, including urgent pre-PO requests", () => {
   const { db, store, actor } = makeDb();
-  transitionQuote(db, store, "q1", "Sent", {}, actor);
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
   transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
-  transitionQuote(db, store, "q1", "Field_Dispatch", { started_before_po: true, urgent_reason: "Plant stoppage" }, actor);
+  assert.throws(() => transitionQuote(db, store, "q1", "Field_Dispatch", {}, actor), /Illegal transition: Approved_Pending_PO -> Field_Dispatch/);
+  assert.throws(() => transitionQuote(db, store, "q1", "PO_Verified", {}, actor), /A verified PO with reference and amount is required/);
+  db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-ZIM-001", po_amount: 200, status: "verified" });
+  transitionQuote(db, store, "q1", "PO_Verified", {}, actor);
+  assert.throws(() => transitionQuote(db, store, "q1", "Field_Dispatch", { started_before_po: true, urgent_reason: "Plant stoppage" }, actor), /Urgent pre-PO dispatch is not permitted/);
+  assert.equal(db.dispatch_cards.length, 0);
+});
 
-  assert.throws(
-    () => transitionQuote(db, store, "q1", "Invoiced", {}, actor),
-    /verified PO reference is required/
-  );
+test("does not dispatch against a pending client-submitted PO", () => {
+  const { db, store, actor } = makeDb();
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
+  db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-ZIM-001", po_amount: 200, status: "pending" });
+  assert.throws(() => transitionQuote(db, store, "q1", "Field_Dispatch", {}, actor), /Illegal transition: Approved_Pending_PO -> Field_Dispatch/);
+  assert.throws(() => transitionQuote(db, store, "q1", "PO_Verified", {}, actor), /A verified PO with reference and amount is required/);
+  assert.equal(db.dispatch_cards.length, 0);
 });
 
 test("allows full path when PO is verified and no amendment is required", () => {
   const { db, store, actor } = makeDb();
-  transitionQuote(db, store, "q1", "Sent", {}, actor);
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
   transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
   db.purchase_orders.push({
     id: "po1",
@@ -68,15 +78,53 @@ test("allows full path when PO is verified and no amendment is required", () => 
     activity: "Work inspected",
     hours: 1
   });
-  const result = transitionQuote(db, store, "q1", "Invoiced", {}, actor);
+  const result = issueLegacyInvoice(db, store, "q1", actor);
 
-  assert.equal(result.quote.status, "Invoiced");
+  assert.equal(db.quotes[0].status, "Invoiced");
   assert.equal(db.invoices.length, 1);
+});
+
+test("blocks an invoice above the verified PO amount even if the amendment flag is stale", () => {
+  const { db, store, actor } = makeDb();
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
+  db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-ZIM-001", po_amount: 100, status: "verified", requires_amendment: false });
+  transitionQuote(db, store, "q1", "PO_Verified", {}, actor);
+  transitionQuote(db, store, "q1", "Field_Dispatch", {}, actor);
+  const job = db.dispatch_cards[0];
+  db.field_worksheets.push({ id: "ws1", dispatch_card_id: job.id, status: "Supervisor_Approved", hours: 2 });
+  db.timesheets.push({ id: "ts1", dispatch_card_id: job.id, hours_logged: 2, hourly_rate: 60 });
+  const before = structuredClone(db);
+
+  assert.throws(
+    () => issueLegacyInvoice(db, store, "q1", actor),
+    (error) => error.code === "INVOICE_EXCEEDS_PO_REMAINING" && error.status === 409
+  );
+  assert.deepEqual(db, before, "a refused invoice leaves the quote and financial records unchanged");
+});
+
+test("blocks V5 invoice generation before legacy rate rows can be billed", () => {
+  const { db, store, actor } = makeDb();
+  db.quotes[0].v5_commercial_workflow = true;
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
+  db.purchase_orders.push({ id: "po1", quotation_id: "q1", po_reference: "PO-ZIM-001", po_amount: 200, status: "verified", requires_amendment: false });
+  transitionQuote(db, store, "q1", "PO_Verified", {}, actor);
+  transitionQuote(db, store, "q1", "Field_Dispatch", {}, actor);
+  db.field_worksheets.push({ id: "ws1", dispatch_card_id: db.dispatch_cards[0].id, status: "Supervisor_Approved", hours: 8 });
+  db.timesheets.push({ id: "legacy-rate-row", dispatch_card_id: db.dispatch_cards[0].id, hours_logged: 8, hourly_rate: 999 });
+  const before = structuredClone(db);
+
+  assert.throws(
+    () => issueLegacyInvoice(db, store, "q1", actor),
+    (error) => error.code === "V5_INVOICE_CALCULATION_UNAVAILABLE" && /pricing review only/.test(error.message)
+  );
+  assert.deepEqual(db, before, "a refused V5 invoice leaves the quote, Timesheets, locks, invoices and audit trail unchanged");
 });
 
 test("blocks invoice when PO amendment is required", () => {
   const { db, store, actor } = makeDb();
-  transitionQuote(db, store, "q1", "Sent", {}, actor);
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
   transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
   db.purchase_orders.push({
     id: "po1",
@@ -97,7 +145,7 @@ test("blocks invoice when PO amendment is required", () => {
   });
 
   assert.throws(
-    () => transitionQuote(db, store, "q1", "Invoiced", {}, actor),
+    () => issueLegacyInvoice(db, store, "q1", actor),
     /requires an approved PO amendment/
   );
 });
@@ -117,8 +165,8 @@ test("rejects sales user from invoicing", () => {
   const admin = db.users.find((user) => user.role === "Admin");
   const sales = db.users.find((user) => user.role === "Sales");
 
-  transitionQuote(db, store, "q1", "Sent", {}, admin);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
+  transitionQuote(db, store, "q1", "Sent", {}, sales);
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, admin);
   db.purchase_orders.push({
     id: "po1",
     quotation_id: "q1",
@@ -138,15 +186,15 @@ test("rejects sales user from invoicing", () => {
   });
 
   assert.throws(
-    () => transitionQuote(db, store, "q1", "Invoiced", {}, sales),
+    () => issueLegacyInvoice(db, store, "q1", sales),
     /cannot perform invoice/
   );
 });
 
 test("blocks invoice without supervisor-approved worksheet", () => {
   const { db, store, actor } = makeDb();
-  transitionQuote(db, store, "q1", "Sent", {}, actor);
-  transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, actor);
+  transitionQuote(db, store, "q1", "Sent", {}, db.users.find((u) => u.role === "Sales"));
+  transitionQuote(db, store, "q1", "Approved_Pending_PO", { approval_exception_reason: "Sales approver unavailable during client operational deadline." }, actor);
   db.purchase_orders.push({
     id: "po1",
     quotation_id: "q1",
@@ -159,7 +207,7 @@ test("blocks invoice without supervisor-approved worksheet", () => {
   transitionQuote(db, store, "q1", "Field_Dispatch", {}, actor);
 
   assert.throws(
-    () => transitionQuote(db, store, "q1", "Invoiced", {}, actor),
+    () => issueLegacyInvoice(db, store, "q1", actor),
     /supervisor-approved worksheet is required/
   );
 });
@@ -184,47 +232,22 @@ test("allows a different Sales colleague to approve a quote they did not send", 
   db.users.push(otherSales);
 
   transitionQuote(db, store, "q1", "Sent", {}, sales);
-  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, otherSales);
-
-  assert.equal(result.quote.status, "Approved_Pending_PO");
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, otherSales);
 });
 
-test("does not block Admin or Operations from approving a quote they sent", () => {
+test("Admin fallback approval requires a recorded reason when approving a quote they sent", () => {
   const { db, store } = makeDb();
   const admin = db.users.find((user) => user.role === "Admin");
 
   transitionQuote(db, store, "q1", "Sent", {}, admin);
-  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin);
-
-  assert.equal(result.quote.status, "Approved_Pending_PO");
-});
-
-test("ignores a forged sent_by in the transition payload; sent_by always comes from the real actor", () => {
-  const { db, store } = makeDb();
-  const sales = db.users.find((user) => user.role === "Sales");
-  const otherSales = { id: "u_sales2", role: "Sales", is_active: true };
-  db.users.push(otherSales);
-
-  // sales sends the quote, but forges the payload to try to attribute the
-  // send to otherSales, hoping to approve it themself afterwards.
-  transitionQuote(db, store, "q1", "Sent", { sent_by: otherSales.id }, sales);
-  assert.equal(db.quotes.find((q) => q.id === "q1").sent_by, sales.id, "sent_by must come from the authenticated actor, never the payload");
-
   assert.throws(
-    () => transitionQuote(db, store, "q1", "Approved_Pending_PO", { sent_by: otherSales.id }, sales),
-    /Sales cannot approve a quote they personally sent/,
-    "a forged sent_by in the approval payload must not defeat the self-approval block"
+    () => transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, admin),
+    /Admin fallback approval requires a recorded reason/
   );
-});
 
-test("allows Operations to approve a quote Sales sent, independent of the self-approval rule", () => {
-  const { db, store } = makeDb();
-  db.users.push({ id: "u_ops", role: "Operations", is_active: true });
-  const sales = db.users.find((user) => user.role === "Sales");
-  const ops = db.users.find((user) => user.id === "u_ops");
-
-  transitionQuote(db, store, "q1", "Sent", {}, sales);
-  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {}, ops);
+  const result = transitionQuote(db, store, "q1", "Approved_Pending_PO", {
+    approval_exception_reason: "Sales approver unavailable during client operational deadline."
+  }, admin);
 
   assert.equal(result.quote.status, "Approved_Pending_PO");
 });

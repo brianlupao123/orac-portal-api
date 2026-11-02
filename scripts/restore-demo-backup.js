@@ -1,5 +1,6 @@
 import { pool, ensureTableExists } from "../src/pool.js";
 import { evaluateGuard } from "./lib/destructiveGuard.js";
+import { restoreStoreBackup } from "./lib/restoreStoreBackup.js";
 
 const backupId = Number(process.argv[2]);
 const PHRASE = "RESTORE_DEMO_BACKUP";
@@ -23,23 +24,8 @@ try {
   await ensureTableExists();
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    await client.query("CREATE TABLE IF NOT EXISTS store_backups (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), label TEXT NOT NULL, data JSONB NOT NULL)");
-    // The row lock also makes the running application wait for this restore.
-    const current = await client.query("SELECT data FROM store WHERE id = 'main' FOR UPDATE");
-    if (!current.rowCount) throw new Error("The main store does not exist; refusing to restore into an uninitialised database.");
-    const backup = await client.query("SELECT data FROM store_backups WHERE id = $1", [backupId]);
-    if (!backup.rowCount) throw new Error("Backup was not found.");
-    const safety = await client.query(
-      "INSERT INTO store_backups (label, data) VALUES ($1, $2) RETURNING id",
-      [`before-restore-of-${backupId}`, current.rows[0].data]
-    );
-    await client.query("UPDATE store SET data = $1 WHERE id = 'main'", [backup.rows[0].data]);
-    await client.query("COMMIT");
-    console.log(`Restored backup ${backupId}. The previous state was saved as backup ${safety.rows[0].id}.`);
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
+    const safetyBackupId = await restoreStoreBackup(client, backupId);
+    console.log(`Restored backup ${backupId}. The previous state was saved as backup ${safetyBackupId}.`);
   } finally {
     client.release();
   }

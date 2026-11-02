@@ -6,6 +6,25 @@ import bcrypt from "bcrypt";
 
 const now = () => new Date().toISOString();
 
+// The PO ceiling is based only on recorded dispatch evidence. Keeping this
+// calculation reusable lets the amendment controller validate the evidence
+// before it changes an authorization amount.
+export function calculatePurchaseOrderEvidenceValue(db, purchaseOrderId) {
+  const po = db.purchase_orders.find((item) => item.id === purchaseOrderId);
+  if (!po) return 0;
+
+  const jobs = db.dispatch_cards.filter((job) => job.purchase_order_id === po.id);
+  const jobIds = new Set(jobs.map((job) => job.id));
+  const labor = approvedLabourValue(db, jobIds);
+  const materials = db.material_usage
+    .filter((item) => jobIds.has(item.dispatch_card_id))
+    .reduce((sum, item) => sum + Number(item.total_cost || 0), 0);
+
+  return labor + materials;
+}
+// Local JSON demo seed only; PostgreSQL normalization does not add demo records.
+const DEFAULT_DEMO_PASSWORD_HASH = bcrypt.hashSync("password123", 10);
+
 /* ── Mutex: guarantees sequential access to db.json on Windows ── */
 class Mutex {
   constructor() {
@@ -33,17 +52,15 @@ class Mutex {
 
 /* ── Seed data ── */
 function seedData() {
-  // Default password: password123
-  const defaultHash = bcrypt.hashSync("password123", 10);
   const users = [
-    { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true, password_hash: defaultHash },
-    { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true, password_hash: defaultHash },
-    { id: "u_sales", name: "Sales User", email: "sales@orac.co.zw", role: "Sales", is_active: true, password_hash: defaultHash },
-    { id: "u_finance", name: "Finance User", email: "finance@orac.co.zw", role: "Finance", is_active: true, password_hash: defaultHash },
-    { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true, password_hash: defaultHash },
-    { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", trade: "Fitter", is_active: true, password_hash: defaultHash },
-    { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true, password_hash: defaultHash },
-    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats", password_hash: defaultHash }
+    { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_sales", name: "Sales User", email: "sales@orac.co.zw", role: "Sales", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_finance", name: "Finance User", email: "finance@orac.co.zw", role: "Finance", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", trade: "Fitter", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
+    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats", password_hash: DEFAULT_DEMO_PASSWORD_HASH }
   ];
 
   const clients = [
@@ -107,10 +124,14 @@ function seedData() {
         unbilled_age_days: 30,
         variance_warning_percent: 80,
         currency: "USD",
-        tax_rate: null
+        tax_rate: null,
+        tax_status: "unconfigured"
       }
     },
     leads: [],
+    // Persistent Idempotency-Key records (see src/idempotency.js). Internal:
+    // never exposed through the generic collection routes.
+    idempotency_keys: [],
     quotes: [],
     quote_lines: [],
     purchase_orders: [],
@@ -137,9 +158,36 @@ function seedData() {
     v5_client_supervisor_contacts: [],
     v5_paper_signatures: [],
     v5_supervisor_confirmations: [],
+    // Controlled commercial links for material evidence. This is separate
+    // from operational material_usage: field staff record what was consumed;
+    // Sales/Admin allocates it to an accepted V5 quote line later.
+    v5_material_allocations: [],
+    // Approved V5 amendment revisions are linked to their exact dispatch
+    // append-only. This is not invoice coverage by itself.
+    v5_amendment_dispatch_links: [],
+    v5_amendment_evidence_allocations: [],
+    // V5 invoice writer records are append-only and deliberately separate
+    // from legacy invoices. The writer remains disabled until both V5 flags
+    // are enabled, so merely normalizing these collections changes nothing.
+    v5_invoice_drafts: [],
+    v5_invoices: [],
+    v5_invoice_lines: [],
+    v5_invoice_source_consumption: [],
+    v5_invoice_events: [],
+    v5_invoice_number_ledger: [],
+    v5_line_completions: [],
+    v5_amendment_supersessions: [],
+    v5_allocation_remaps: [],
+    v5_invoice_idempotency: [],
     material_usage: [],
     invoices: [],
+    legacy_invoice_drafts: [],
+    legacy_invoice_idempotency: [],
     invoice_lines: [],
+    invoice_payments: [],
+    // Legacy credit notes are controlled correction records. They remain
+    // separate from V5 invoices and are never accounting-posting records.
+    invoice_credit_notes: [],
     pastel_export_batches: [],
     pastel_export_lines: [],
     suppliers: [
@@ -169,34 +217,37 @@ function seedData() {
   };
 }
 
-export function normalizeDb(db) {
+export function normalizeDb(db, { seedDemoRecords = true } = {}) {
   const seeded = seedData();
   for (const [key, value] of Object.entries(seeded)) {
     if (!Array.isArray(value)) continue;
     if (!Array.isArray(db[key])) db[key] = [];
   }
 
-  const existingUserIds = new Set(db.users.map((user) => user.id));
-  for (const user of seeded.users) {
-    if (!existingUserIds.has(user.id)) db.users.push(user);
+  if (seedDemoRecords) {
+    const existingUserIds = new Set(db.users.map((user) => user.id));
+    for (const user of seeded.users) {
+      if (!existingUserIds.has(user.id)) db.users.push(user);
+    }
   }
 
-  if (db.suppliers.length === 0 && seeded.suppliers) {
+  if (seedDemoRecords && db.suppliers.length === 0 && seeded.suppliers) {
     db.suppliers = [...seeded.suppliers];
   }
-  if (db.stock_items.length === 0 && seeded.stock_items) {
+  if (seedDemoRecords && db.stock_items.length === 0 && seeded.stock_items) {
     db.stock_items = [...seeded.stock_items];
   }
   if (!db.notifications) {
     db.notifications = [];
   }
 
-  // Backfill client_id onto pre-existing seeded users where missing
-  // (covers a local db.json created before Phase 06 introduced this field).
-  for (const seededUser of seeded.users) {
-    if (seededUser.client_id) {
-      const existing = db.users.find((u) => u.id === seededUser.id);
-      if (existing && !existing.client_id) existing.client_id = seededUser.client_id;
+  // Backfill the demo Client Viewer scope only for local JSON/demo stores.
+  if (seedDemoRecords) {
+    for (const seededUser of seeded.users) {
+      if (seededUser.client_id) {
+        const existing = db.users.find((u) => u.id === seededUser.id);
+        if (existing && !existing.client_id) existing.client_id = seededUser.client_id;
+      }
     }
   }
 
@@ -219,6 +270,47 @@ export function normalizeDb(db) {
   for (const collectionName of ["clients", "mine_sites", "plants", "plant_sections", "equipment_tags"]) {
     for (const record of db[collectionName] || []) {
       if (record.is_active === undefined) record.is_active = true;
+    }
+  }
+
+  // Controlled Quotations (Phase 2): Backfill legacy quotes and quote lines
+  // without altering historical issued totals or assigning unapproved VAT.
+  for (const quote of db.quotes || []) {
+    if (!quote.currency) quote.currency = "USD";
+    if (quote.grand_total_cents === undefined) {
+      quote.grand_total_cents = Math.round(Number(quote.total_amount || 0) * 100);
+    }
+    if (quote.pre_tax_total_cents === undefined) {
+      quote.pre_tax_total_cents = quote.grand_total_cents;
+    }
+    if (quote.tax_total_cents === undefined) {
+      quote.tax_total_cents = 0;
+    }
+    if (quote.tax_status === undefined) {
+      quote.tax_status = "unconfigured";
+    }
+    if (quote.applied_tax_rate === undefined) {
+      quote.applied_tax_rate = null;
+    }
+    if (quote.discount_percent === undefined) {
+      quote.discount_percent = 0;
+    }
+    if (quote.validity_days === undefined) {
+      quote.validity_days = 30;
+    }
+  }
+
+  for (const line of db.quote_lines || []) {
+    if (!line.unit_of_measure) line.unit_of_measure = "each";
+    if (!line.cost_type) line.cost_type = "material";
+    if (!line.work_package_id) line.work_package_id = "wp_01";
+    if (!line.item_type) line.item_type = "standard";
+    if (line.unit_price_cents === undefined) {
+      line.unit_price_cents = Math.round(Number(line.unit_price || 0) * 100);
+    }
+    if (line.line_total_cents === undefined) {
+      const calcTotal = line.line_total != null ? line.line_total : (line.quantity * line.unit_price);
+      line.line_total_cents = Math.round(Number(calcTotal || 0) * 100);
     }
   }
 
@@ -254,6 +346,7 @@ export function createStore(filePath) {
   }
 
   return {
+    driver: "json",
     id(prefix) {
       return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     },
@@ -329,14 +422,7 @@ export function createStore(filePath) {
       const po = db.purchase_orders.find((item) => item.id === purchaseOrderId);
       if (!po) return;
 
-      const jobs = db.dispatch_cards.filter((job) => job.purchase_order_id === po.id);
-      const jobIds = new Set(jobs.map((job) => job.id));
-      const labor = approvedLabourValue(db, jobIds);
-      const materials = db.material_usage
-        .filter((item) => jobIds.has(item.dispatch_card_id))
-        .reduce((sum, item) => sum + Number(item.total_cost || 0), 0);
-
-      po.logged_value = labor + materials;
+      po.logged_value = calculatePurchaseOrderEvidenceValue(db, po.id);
       const previouslyRequired = po.requires_amendment;
       po.requires_amendment = po.logged_value > po.po_amount;
       
