@@ -46,18 +46,21 @@ const ackAll = (db, id, user = "u_ops") => {
 test("permissions: only Admin/Management/Operations/Supervisor view; only Admin/Operations/Supervisor manage; only Admin/Operations reconcile", () => {
   const db = makeDb();
   const can = (role, perm) => hasPermission(db.users.find((u) => u.role === role), perm);
-  for (const role of ["Technician", "Sales", "Finance", "Client Viewer"]) {
+  for (const role of ["Technician", "Finance", "Client Viewer"]) {
     for (const p of ["viewWorksheetRegister", "manageWorksheetRegister", "submitWorksheetRegister", "reviewWorksheetRegister", "reconcileWorksheetRegister"]) assert.equal(can(role, p), false, `${role} ${p}`);
   }
   assert.equal(can("Management", "viewWorksheetRegister"), true);
   assert.equal(can("Management", "manageWorksheetRegister"), false);
   assert.equal(can("Supervisor", "reconcileWorksheetRegister"), false);
   assert.equal(can("Operations", "reconcileWorksheetRegister"), true);
+  // Sales can view worksheet registers but cannot manage, submit, review or reconcile.
+  assert.equal(can("Sales", "viewWorksheetRegister"), true, "Sales viewWorksheetRegister");
+  for (const p of ["manageWorksheetRegister", "submitWorksheetRegister", "reviewWorksheetRegister", "reconcileWorksheetRegister"]) assert.equal(can("Sales", p), false, `Sales ${p}`);
 });
 
 test("Technician, Finance and Client Viewer are refused on every read and write handler", () => {
   const { db, id } = seeded();
-  for (const user of ["u_tech1", "u_fin", "u_client", "u_sales"]) {
+  for (const user of ["u_tech1", "u_fin", "u_client"]) {
     for (const [fn, params, body] of [
       [listWorksheetRegisters, {}, {}], [getWorksheetRegister, { id }, {}], [getWorksheetRegisterDocument, { id }, {}],
       [createWorksheetRegister, {}, baseBody()], [updateWorksheetRegister, { id }, {}], [buildWorksheetRegister, { id }, {}],
@@ -67,6 +70,15 @@ test("Technician, Finance and Client Viewer are refused on every read and write 
     ]) {
       assert.throws(() => fn(req(db, user, body, params), makeRes()), /cannot perform/, `${user} ${fn.name}`);
     }
+  }
+  // Sales can read (list/get/document) but cannot write any worksheet register handler.
+  for (const [fn, params, body] of [
+    [createWorksheetRegister, {}, baseBody()], [updateWorksheetRegister, { id }, {}], [buildWorksheetRegister, { id }, {}],
+    [acknowledgeRegisterExceptions, { id }, { keys: ["x"], note: "abc" }], [submitWorksheetRegister, { id }, {}],
+    [reviewWorksheetRegister, { id }, { decision: "approve" }], [cancelWorksheetRegister, { id }, { reason: "abc" }],
+    [reconcileWorksheetRegister, { id }, { confirm: true }]
+  ]) {
+    assert.throws(() => fn(req(db, "u_sales", body, params), makeRes()), /cannot perform/, `u_sales ${fn.name}`);
   }
   assert.equal(call(listWorksheetRegisters, db, "u_mgmt").body.data.length, 1, "Management can read");
   assert.equal(call(listWorksheetRegisters, db, "u_sup").body.data.length, 1, "Supervisor can read");

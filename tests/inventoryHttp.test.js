@@ -235,17 +235,22 @@ test(`${TAG}: over-stock worksheet usage is refused with nothing written, even w
   assert.equal(JSON.stringify(disk.stock_items), JSON.stringify(JSON.parse(before).stock_items));
 });
 
-test(`${TAG}: Client Viewer, Sales, Finance, Supervisor and Technician cannot read the ledger by route or by generic collection`, async () => {
+test(`${TAG}: Client Viewer, Finance, Supervisor and Technician cannot read the ledger; Sales can read the generic collection but not inventory management routes`, async () => {
   const w = makeWorld();
   await withServer(buildApp(w.store), async (base) => {
     await call(base, "Operations", "/inventory/movements", { method: "POST", body: receipt() });
-    for (const role of ["Client Viewer", "Sales", "Finance", "Supervisor", "Technician"]) {
+    for (const role of ["Client Viewer", "Finance", "Supervisor", "Technician"]) {
       for (const path of ["/inventory/movements", "/inventory/stock_items/si-fx-1/movements", "/stock_movements?client_id=c-1"]) {
         const r = await call(base, role, path);
         assert.equal(r.status, 403, `${role} ${path}`);
       }
     }
-    for (const role of ["Admin", "Management", "Operations"]) {
+    // Sales can read the generic stock_movements collection but not dedicated inventory management routes.
+    for (const path of ["/inventory/movements", "/inventory/stock_items/si-fx-1/movements"]) {
+      const r = await call(base, "Sales", path);
+      assert.equal(r.status, 403, `Sales ${path}`);
+    }
+    for (const role of ["Admin", "Management", "Operations", "Sales"]) {
       const generic = await call(base, role, "/stock_movements");
       assert.equal(generic.status, 200, role);
       assert.equal((await generic.text()).includes("idempotency_fingerprint"), false, role);

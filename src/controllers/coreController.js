@@ -41,21 +41,21 @@ export const collectionGuards = {
   quotes: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
   quote_lines: [roles.ADMIN, roles.MANAGEMENT, roles.SALES, roles.FINANCE, roles.OPERATIONS, roles.CLIENT_VIEWER],
   leads: [roles.ADMIN, roles.MANAGEMENT, roles.SALES],
-  dispatch_cards: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
-  field_worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  dispatch_cards: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
+  field_worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   // Daily Time Sheet / Contractors Log Sheet (paper-form digitisation).
   // Technician sees only their own daily_timesheets, enforced below in
   // scopeOperationalData. Contractor logs are crew-level and have no
   // individual-technician ownership, so Technician/Client Viewer are
   // excluded from the list entirely rather than scoped to an empty set.
-  daily_timesheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  daily_timesheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   contractor_log_sheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR],
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   // Client Viewers may read invoices only after the client-scoping step below
   // filters them to their own organisation.
   invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER],
   purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
-  stock_movements: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  stock_movements: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SALES],
   mine_sites: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   plants: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   plant_sections: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
@@ -64,7 +64,7 @@ export const collectionGuards = {
   // context through approved work records, not an unrestricted catalog list.
   catalog_items: [roles.ADMIN, roles.MANAGEMENT],
   suppliers: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
-  stock_items: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
+  stock_items: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SALES],
   // NEW — Phase 6: names/emails of everyone who has ever requested access.
   // Admin-only, same reasoning as `users`.
   access_requests: [...permissions.viewAccessRequests]
@@ -231,6 +231,23 @@ export function scopeOperationalData(data, collectionName, actor, db) {
         client.primary_sales_owner_id === actor.id ||
         (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id))
       );
+    }
+    // Sales sees only dispatch_cards, field_worksheets, and daily_timesheets
+    // that belong to quotes in their commercial portfolio (read-only browse).
+    if (collectionName === "dispatch_cards") {
+      return data.filter((dispatch) => isDispatchInSalesPortfolio(dispatch, actor, db));
+    }
+    if (collectionName === "field_worksheets") {
+      return data.filter((worksheet) => {
+        const dispatch = (db?.dispatch_cards || []).find((d) => d.id === worksheet.dispatch_card_id);
+        return dispatch && isDispatchInSalesPortfolio(dispatch, actor, db);
+      });
+    }
+    if (collectionName === "daily_timesheets") {
+      return data.filter((sheet) => {
+        const dispatch = (db?.dispatch_cards || []).find((d) => d.id === sheet.dispatch_card_id);
+        return dispatch && isDispatchInSalesPortfolio(dispatch, actor, db);
+      });
     }
   }
   if (actor?.role === roles.TECHNICIAN) {

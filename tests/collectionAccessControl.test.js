@@ -65,15 +65,21 @@ test("Technician and Supervisor cannot read generic clients or quotes", () => {
   }
 });
 
-test("Sales, Finance, and Client Viewer cannot list generic field-work collections", () => {
+test("Finance and Client Viewer cannot list generic field-work collections", () => {
   for (const actor of [
-    { id: "sales-1", role: "Sales", is_active: true },
     { id: "finance-1", role: "Finance", is_active: true },
     { id: "client-1", role: "Client Viewer", client_id: "client-a", is_active: true }
   ]) {
     expectDenied("dispatch_cards", actor);
     expectDenied("field_worksheets", actor);
   }
+});
+
+test("Sales can list field-work collections (portfolio-scoped read-only access)", () => {
+  const sales = { id: "sales-1", role: "Sales", is_active: true };
+  const response = createResponse();
+  getCollection("dispatch_cards")(requestFor(sales), response);
+  assert.equal(response.statusCode, 200);
 });
 
 test("Operations retains permitted access to client, quote, and field-work collections", () => {

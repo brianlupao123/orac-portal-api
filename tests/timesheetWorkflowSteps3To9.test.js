@@ -34,7 +34,7 @@ const call = (fn, { db, st = stores.get(db) || stores.set(db, store()).get(db), 
 const authority = (o = {}) => ({ id: "a1", kind: "authoriser", client_id: "c1", user_id: "ca", status: "active", start_date: "2026-01-01", end_date: null, evidence_reference: "letter", ...o });
 
 test("flags off: permissions identical to base, every new handler refuses", withFlags([], () => {
-  assert.equal(hasPermission(u("s", "Sales"), "viewWorksheetRegister"), false);
+  assert.equal(hasPermission(u("s", "Sales"), "viewWorksheetRegister"), true);
   assert.equal(hasPermission(u("o", "Operations"), "addTimesheet"), true);
   assert.equal(hasPermission(u("o", "Operations"), "manageWorksheetRegister"), true);
   const db = makeDb([ws()]);

@@ -64,7 +64,7 @@ test("HTTP[real router]: 8-role matrix on list: Admin/Management/Operations/Supe
   await withServer(buildApp(w.store), async (base) => {
     for (const role of Object.keys(ROLE_USERS)) {
       const r = await call(base, role, "/worksheet_registers");
-      assert.equal(r.status, ["Admin", "Management", "Operations", "Supervisor"].includes(role) ? 200 : 403, role);
+      assert.equal(r.status, ["Admin", "Management", "Operations", "Supervisor", "Sales"].includes(role) ? 200 : 403, role);
     }
     // The generic collection route must not expose it either.
     assert.equal((await call(base, "Admin", "/worksheet_registers_raw")).status === 200, false);

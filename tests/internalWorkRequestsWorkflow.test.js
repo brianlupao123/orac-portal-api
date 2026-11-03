@@ -147,14 +147,14 @@ test("a related record must be allow-listed for the type and readable by THIS re
   // Type not allowed for this request type.
   assert.equal(attempt("u_tech", base({ related_entity_type: "quote", related_entity_id: "q_a" })).statusCode, 400);
   assert.equal(attempt("u_sales", { ...base({ request_type: "STOCK_AVAILABILITY" }), related_entity_type: "purchase_order", related_entity_id: "po_a" }).statusCode, 400);
-  // Sales cannot read stock items, so cannot attach one even to a type that lists them.
-  assert.equal(attempt("u_sales", { ...base({ request_type: "STOCK_FULFILMENT" }), related_entity_type: "stock_item", related_entity_id: "si_1" }).statusCode, 400);
+  // Sales can now read stock items, so can attach one to a type that lists them.
+  assert.equal(attempt("u_sales", { ...base({ request_type: "STOCK_FULFILMENT" }), related_entity_type: "stock_item", related_entity_id: "si_1" }).statusCode, 201);
   // Operations cannot read invoices today; archived stock items are unavailable to everyone.
   assert.equal(attempt("u_ops", { ...base({ request_type: "COMMERCIAL_CLARIFICATION", recipient_role: "Sales" }), related_entity_type: "invoice", related_entity_id: "inv_a" }).statusCode, 400);
   assert.equal(attempt("u_ops", { ...base({ request_type: "STOCK_FULFILMENT" }), related_entity_type: "stock_item", related_entity_id: "si_archived" }).statusCode, 400);
   // Wrong kind for the id (a quote id presented as a PO).
   assert.equal(attempt("u_finance", { ...base({ request_type: "PO_AMENDMENT_CONFIRMATION", recipient_role: "Sales" }), related_entity_type: "purchase_order", related_entity_id: "q_a" }).statusCode, 400);
-  assert.equal(db.internal_work_requests.length, 2, "only the two permitted requests were created");
+  assert.equal(db.internal_work_requests.length, 3, "only the three permitted requests were created");
 });
 
 test("required, forbidden and half-specified related records are 400", () => {
@@ -516,7 +516,7 @@ test("options list only what the caller's role may raise, with recipients and re
   const opts = (user) => run(getInternalWorkRequestOptions, db, store, user).body.data;
   const sales = opts("u_sales");
   assert.deepEqual(sales.types.map((t) => t.request_type), ["STOCK_AVAILABILITY", "STOCK_FULFILMENT", "ADMINISTRATIVE_SUPPORT"]);
-  assert.deepEqual(sales.types.find((t) => t.request_type === "STOCK_FULFILMENT").related_entity_types.map((r) => r.type), ["quote"], "Sales cannot read dispatch cards or stock items");
+  assert.deepEqual(sales.types.find((t) => t.request_type === "STOCK_FULFILMENT").related_entity_types.map((r) => r.type), ["quote", "dispatch_card", "stock_item"], "Sales can read quotes, dispatch cards and stock items");
   assert.deepEqual(sales.types.find((t) => t.request_type === "ADMINISTRATIVE_SUPPORT").recipients, ["Admin", "Management"]);
   const tech = opts("u_tech");
   assert.deepEqual(tech.types.map((t) => t.request_type), ["FIELD_CLARIFICATION", "ADMINISTRATIVE_SUPPORT"]);

@@ -437,7 +437,7 @@ test("the generic stock_movements read never exposes the fingerprint, and Client
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.body.data.length, 1);
   assert.equal(JSON.stringify(ok.body).includes("idempotency_fingerprint"), false);
-  for (const role of ["Client Viewer", "Sales", "Finance", "Technician", "Supervisor"]) {
+  for (const role of ["Client Viewer", "Finance", "Technician", "Supervisor"]) {
     const r = res();
     getCollection("stock_movements")(as(w, role), r);
     assert.equal(r.statusCode, 403, role);

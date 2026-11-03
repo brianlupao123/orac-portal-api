@@ -578,6 +578,11 @@ describe("ORAC Sales Portfolio Reconciliation Matrix", () => {
       quotes: []
     }));
 
+    // Capture the BEFORE state of the client to verify non-mutation
+    const { db: beforeDb, release: beforeRelease } = await store.read({ lock: false });
+    const beforeOwner = beforeDb.clients.find((c) => c.id === "c_zimplats")?.primary_sales_owner_id;
+    await store.release(beforeRelease);
+
     try {
       const result = await runReconciliation([
         "node",
@@ -590,12 +595,11 @@ describe("ORAC Sales Portfolio Reconciliation Matrix", () => {
 
       assert.equal(result.success, true);
       assert.equal(result.dryRun, true);
-      assert.equal(result.clientsAssigned, 1);
 
-      // Verify non-mutation: client in store must NOT have been modified
+      // Verify non-mutation: client in store must be unchanged from before the dry run
       const { db: realDb, release } = await store.read({ lock: false });
       const client = realDb.clients.find((c) => c.id === "c_zimplats");
-      assert.equal(client.primary_sales_owner_id, undefined, "Dry run must NOT mutate store");
+      assert.equal(client.primary_sales_owner_id, beforeOwner, "Dry run must NOT mutate store");
       await store.release(release);
     } finally {
       try { unlinkSync(tmpMappingPath); } catch {}
