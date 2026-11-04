@@ -9,7 +9,10 @@ import {
   INTERNAL_WORK_REQUEST_PRIORITIES,
   INTERNAL_WORK_REQUEST_STATUS,
   INTERNAL_WORK_REQUEST_STATUSES,
+  NEW_TECHNICIAN_REGISTRATION,
   RELATED_ENTITY_TYPES,
+  TECHNICIAN_REGISTRATION_LIMITS,
+  WORKER_TYPES,
   allowedActionsFor,
   belongsInInbox,
   belongsInOutbox,
@@ -19,6 +22,7 @@ import {
   findRequestType,
   isAuditReader,
   isPairingAllowed,
+  isTechnicianRegistration,
   parseCreateBody,
   parseTransitionBody,
   recipientsFor,
@@ -28,6 +32,7 @@ import {
   requestTypesFor,
   toAuditSnapshot
 } from "../internalWorkRequestRules.js";
+import { TECHNICIAN_TRADES } from "../trades.js";
 
 // Internal Work Requests: a controlled staff-to-staff request. Handlers only
 // mutate req.db and call req.store.audit(); persistence is the store's job (one
@@ -37,17 +42,17 @@ import {
 
 // Same reload-per-request source of truth as auth.js: the account in req.db.
 // Deliberately NOT coreController.getActor(), which falls back to users[0].
-const actorFor = (req) => req.db?.users?.find((user) => user.id === req.user?.id);
-const fail = (res, status, message) => res.status(status).json({ success: false, message });
-const deny = (res, actor, what) => fail(res, 403, `Role ${actor?.role || "Unknown"} cannot ${what}.`);
-const requests = (db) => (Array.isArray(db.internal_work_requests) ? db.internal_work_requests : (db.internal_work_requests = []));
+export const actorFor = (req) => req.db?.users?.find((user) => user.id === req.user?.id);
+export const fail = (res, status, message) => res.status(status).json({ success: false, message });
+export const deny = (res, actor, what) => fail(res, 403, `Role ${actor?.role || "Unknown"} cannot ${what}.`);
+export const requests = (db) => (Array.isArray(db.internal_work_requests) ? db.internal_work_requests : (db.internal_work_requests = []));
 const lookup = (list, id) => (id ? (list || []).find((item) => item.id === id) || null : null);
-const NOT_FOUND = "Internal work request not found.";
+export const NOT_FOUND = "Internal work request not found.";
 const UNAVAILABLE_RELATED = "The selected related record is not available to you.";
 const AUDIT_READ_ONLY = "Admin audit access is read-only.";
 
 // True when the caller can read this request ONLY through Admin audit access.
-const readOnlyAuditor = (record, actor) => {
+export const readOnlyAuditor = (record, actor) => {
   if (!isAuditReader(actor)) return false;
   const relation = relationOf(record, actor);
   return !relation.isRequester && !relation.isAssignee && !relation.isResolver;
@@ -83,7 +88,7 @@ export function resolveRelatedEntity(db, actor, type, id) {
 // Views. Built field by field so a future field on the stored record is never
 // exposed by accident.
 // ---------------------------------------------------------------------------
-function toView(record, db, actor, { includeHistory = false } = {}) {
+export function toView(record, db, actor, { includeHistory = false } = {}) {
   let related = null;
   if (record.related_entity_type) {
     const resolved = resolveRelatedEntity(db, actor, record.related_entity_type, record.related_entity_id);
@@ -127,6 +132,19 @@ function toView(record, db, actor, { includeHistory = false } = {}) {
     },
     allowed_actions: allowedActionsFor(record, actor)
   };
+  if (isTechnicianRegistration(record)) {
+    // Built field by field. Only participants reach this view (canReadRequest).
+    const payload = record.payload || {};
+    view.payload = {
+      first_name: payload.first_name ?? null,
+      last_name: payload.last_name ?? null,
+      national_id: payload.national_id ?? null,
+      trade: payload.trade ?? null,
+      worker_type: payload.worker_type ?? null,
+      phone_number: payload.phone_number ?? null
+    };
+    view.registered_user_id = record.registered_user_id ?? null;
+  }
   if (includeHistory) {
     view.history = (record.history || []).map((entry) => ({
       at: entry.at,
@@ -145,7 +163,7 @@ function toView(record, db, actor, { includeHistory = false } = {}) {
 // Applies one mutation together with its audit event. If the mutation or the
 // audit hook throws, the record and the audit/notification lists are restored,
 // so a failed action can never leave a half-written request.
-function commit(req, actor, record, auditAction, mutate) {
+export function commit(req, actor, record, auditAction, mutate) {
   const before = { ...record, history: [...(record.history || [])] };
   const auditLogs = Array.isArray(req.db.audit_logs) ? req.db.audit_logs : null;
   const notifications = Array.isArray(req.db.notifications) ? req.db.notifications : null;
@@ -163,7 +181,7 @@ function commit(req, actor, record, auditAction, mutate) {
   }
 }
 
-const historyEntry = (actor, action, from, to, note, at) => ({
+export const historyEntry = (actor, action, from, to, note, at) => ({
   at, actor_user_id: actor.id, actor_role: actor.role, action, from_status: from, to_status: to, note
 });
 
@@ -187,7 +205,7 @@ export const getInternalWorkRequestOptions = (req, res) => {
   if (!hasPermission(actor, "createInternalWorkRequest")) return deny(res, actor, "raise internal work requests");
   const types = requestTypesFor(actor.role).map((code) => {
     const policy = INTERNAL_WORK_REQUEST_POLICY[code];
-    return {
+    const entry = {
       request_type: code,
       label: policy.label,
       related_required: policy.related_required,
@@ -196,6 +214,12 @@ export const getInternalWorkRequestOptions = (req, res) => {
         .filter((type) => canReadCollection(actor, RELATED_ENTITY_TYPES[type].collection))
         .map((type) => ({ type, label: RELATED_ENTITY_TYPES[type].label }))
     };
+    // The form for this type is built from server data: trade and worker-type
+    // choices and limits are never hard-coded in the client.
+    if (code === NEW_TECHNICIAN_REGISTRATION) {
+      entry.technician_registration = { trades: [...TECHNICIAN_TRADES], worker_types: [...WORKER_TYPES], limits: { ...TECHNICIAN_REGISTRATION_LIMITS } };
+    }
+    return entry;
   });
   return res.json({
     success: true,
@@ -264,6 +288,12 @@ export const createInternalWorkRequest = (req, res) => {
     updated_at: timestamp,
     resolved_at: null
   };
+  // Only a technician registration carries a payload (and, once approved, the
+  // id of the account it created). Every other request keeps its exact shape.
+  if (input.request_type === NEW_TECHNICIAN_REGISTRATION) {
+    record.payload = input.payload;
+    record.registered_user_id = null;
+  }
 
   const list = requests(req.db);
   const count = list.length;
@@ -371,6 +401,12 @@ export const transitionInternalWorkRequest = (req, res) => {
   } else {
     const recipient = hasPermission(actor, "workInternalWorkRequest") && actor.role === record.recipient_role && !relation.isRequester;
     if (!recipient) return fail(res, 403, readOnlyAuditor(record, actor) ? AUDIT_READ_ONLY : `Only the addressed ${record.recipient_role} recipient can ${actionName} this request.`);
+  }
+
+  // 1b. A registration is finished by approving it, which creates the account;
+  // completing it by hand would close the request with nobody registered.
+  if (actionName === "complete" && isTechnicianRegistration(record)) {
+    return fail(res, 400, "Approve this request to add the technician to the registry. It cannot be completed any other way.");
   }
 
   // 2. Input the action needs (400).

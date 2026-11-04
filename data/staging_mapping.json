@@ -1,0 +1,136 @@
+{
+  "clients": [
+    {
+      "client_id": "c_zimplats",
+      "primary_sales_owner_id": "u_sales",
+      "account_team_user_ids": ["fx_sal_01"]
+    },
+    {
+      "client_id": "c_mimosa",
+      "primary_sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": ["fx_sal_02"]
+    },
+    {
+      "client_id": "c_walkin",
+      "primary_sales_owner_id": "u_sales",
+      "account_team_user_ids": []
+    },
+    {
+      "client_id": "fx_uat_cli_01",
+      "primary_sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": ["fx_sal_02"]
+    },
+    {
+      "client_id": "fx_uat_cli_02",
+      "primary_sales_owner_id": "fx_sal_02",
+      "account_team_user_ids": ["fx_sal_01"]
+    },
+    {
+      "client_id": "fx_uat_cli_03",
+      "primary_sales_owner_id": "u_sales",
+      "account_team_user_ids": ["fx_sal_01", "fx_sal_02"]
+    }
+  ],
+  "quotes": [
+    {
+      "quotation_id": "fx_q_001",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "fx_q_002",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "fx_q_003",
+      "sales_owner_id": "fx_sal_02",
+      "account_team_user_ids": ["fx_sal_01"]
+    },
+    {
+      "quotation_id": "fx_q_004",
+      "sales_owner_id": "fx_sal_02",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "fx_q_005",
+      "sales_owner_id": "u_sales",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "fx_q_006",
+      "sales_owner_id": "u_sales",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "fx_q_007",
+      "sales_owner_id": "fx_sal_02",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvlxjqg4_cp5kss",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvlxqz42_nkk7ew",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvme83ki_zo4fix",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvmlu8zx_dx4mpm",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvmop8q8_a1nvuk",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvni9z8r_hwa1ks",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnifnyp_h5uci9",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnifo7t_09t7v9",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnktpkg_qb2vfn",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnktpoq_qq153q",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnkwm1p_i9o31c",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvnkwmay_cv6ckk",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    },
+    {
+      "quotation_id": "quote_mvo5mheh_7vqu0e",
+      "sales_owner_id": "fx_sal_01",
+      "account_team_user_ids": []
+    }
+  ]
+}

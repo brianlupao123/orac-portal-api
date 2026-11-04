@@ -23,17 +23,36 @@ test("internal work requests are not exposed or archivable through the generic c
   }
 });
 
-test("exactly the seven approved routes exist, behind authentication, with fixed paths before /:id", () => {
+test("exactly the eight approved routes exist, behind authentication, with fixed paths before /:id", () => {
   const authIndex = routerSource.indexOf("router.use(authMiddleware);");
   assert.ok(authIndex > 0);
   const routes = [...routerSource.matchAll(/router\.(get|post|patch|put|delete)\("(\/internal-work-requests[^"]*)"/g)];
   assert.deepEqual(routes.map((match) => `${match[1].toUpperCase()} ${match[2]}`), [
     "GET /internal-work-requests/options", "GET /internal-work-requests/outbox", "GET /internal-work-requests/inbox", "GET /internal-work-requests/:id",
-    "POST /internal-work-requests", "POST /internal-work-requests/:id/acknowledge", "POST /internal-work-requests/:id/transition"
+    "POST /internal-work-requests", "POST /internal-work-requests/:id/acknowledge", "POST /internal-work-requests/:id/approve-technician",
+    "POST /internal-work-requests/:id/transition"
   ], "no generic write, PATCH, PUT or DELETE route exists");
   for (const match of routes) assert.ok(match.index > authIndex, `${match[2]} must be registered after authMiddleware`);
   assert.match(routerSource, /router\.post\("\/internal-work-requests", validate\(CreateInternalWorkRequestSchema\), createInternalWorkRequest\)/);
   assert.match(routerSource, /router\.post\("\/internal-work-requests\/:id\/transition", validate\(TransitionInternalWorkRequestSchema\), transitionInternalWorkRequest\)/);
+});
+
+test("only the technician registration controller creates an account, and only behind Admin permissions", () => {
+  const registrationSource = read("src/controllers/technicianRegistrationController.js");
+  // The pinned controller and rules still never touch users (the test above
+  // enforces that); the single exception is this one file.
+  assert.match(registrationSource, /users\.push\(user\)/);
+  assert.match(registrationSource, /hasPermission\(actor, "workInternalWorkRequest"\) \|\| !hasPermission\(actor, "manageUsers"\)/);
+  assert.match(routerSource, /router\.post\("\/internal-work-requests\/:id\/approve-technician", approveTechnicianRegistration\)/);
+  assert.doesNotMatch(controllerSource, /approveTechnicianRegistration|users\s*\.\s*push/);
+  // Same fences as the main controller: no outside channel, only id() and audit() on the store.
+  assert.doesNotMatch(registrationSource, /nodemailer|sendMail|socket|WebSocket|\bfetch\s*\(|node:fs|node:http|from "pg"|pool\b|\.query\s*\(/);
+  assert.deepEqual([...new Set([...registrationSource.matchAll(/req\.store\.(\w+)/g)].map((match) => match[1]))].sort(), ["audit", "id"]);
+  assert.doesNotMatch(registrationSource, /req\.(body|query)\b/, "the account is built from the stored request, never from the call");
+  // The ID and phone number must never be written to an audit record.
+  const auditCalls = [...registrationSource.matchAll(/req\.store\.audit\([\s\S]*?\);/g)].map((match) => match[0]);
+  assert.equal(auditCalls.length, 2);
+  for (const call of auditCalls) assert.doesNotMatch(call, /\bnational_id\b|\bphone_number\b|\bpayload\b/);
 });
 
 test("named permissions are explicit, exclude Client Viewer, and make Admin read-only", () => {

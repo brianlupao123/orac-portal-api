@@ -93,6 +93,7 @@ import {
   listInternalWorkRequestInbox, getInternalWorkRequest, acknowledgeInternalWorkRequest,
   transitionInternalWorkRequest
 } from "./controllers/internalWorkRequestsController.js";
+import { approveTechnicianRegistration } from "./controllers/technicianRegistrationController.js";
 import {
   listContracts, createContract, updateContract,
   listMaintenanceSchedules, createMaintenanceSchedule, updateMaintenanceSchedule
@@ -352,6 +353,7 @@ router.get("/internal-work-requests/inbox", listInternalWorkRequestInbox);
 router.get("/internal-work-requests/:id", getInternalWorkRequest);
 router.post("/internal-work-requests", validate(CreateInternalWorkRequestSchema), createInternalWorkRequest);
 router.post("/internal-work-requests/:id/acknowledge", acknowledgeInternalWorkRequest);
+router.post("/internal-work-requests/:id/approve-technician", approveTechnicianRegistration);
 router.post("/internal-work-requests/:id/transition", validate(TransitionInternalWorkRequestSchema), transitionInternalWorkRequest);
 
 // Contracts & preventative maintenance (pilot). Explicit routes only. These

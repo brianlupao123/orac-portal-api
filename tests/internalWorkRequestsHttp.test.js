@@ -71,6 +71,7 @@ test("every internal-work-request route requires a bearer token (401 with none)"
       ["GET", "/internal-work-requests/iwr_missing"],
       ["POST", "/internal-work-requests"],
       ["POST", "/internal-work-requests/iwr_missing/acknowledge"],
+      ["POST", "/internal-work-requests/iwr_missing/approve-technician"],
       ["POST", "/internal-work-requests/iwr_missing/transition"]
     ];
     for (const [method, path] of routes) {

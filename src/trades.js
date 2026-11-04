@@ -11,7 +11,9 @@ export const TECHNICIAN_TRADES = [
   "Plumber",
   "Plumber Assistant",
   "Welder Assistant",
-  "Electrician"
+  "Electrician",
+  "Welder",
+  "Rigger"
 ];
 
 export function isTechnicianTrade(value) {

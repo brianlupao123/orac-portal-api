@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { collectionGuards } from "../src/controllers/coreController.js";
 import { permissions, roles } from "../src/permissions.js";
 import {
+  NEW_TECHNICIAN_REGISTRATION, normaliseNationalId, parseTechnicianPayload, technicianRegistrationText,
   INTERNAL_WORK_REQUEST_ACTIONS, INTERNAL_WORK_REQUEST_POLICY, INTERNAL_WORK_REQUEST_STATUS, INTERNAL_WORK_REQUEST_TYPE_CODES,
   RELATED_ENTITY_TYPES, allowedActionsFor, belongsInInbox, canReadRequest, findLifecycleAction, findRequestType, isPairingAllowed,
   pairingRows, parseCreateBody, parseTransitionBody, policyRecipientRoles, policySenderRoles, recipientsFor, requestTypesFor, toAuditSnapshot
@@ -26,14 +27,15 @@ const PINNED_MATRIX = [
   ...["Sales", "Finance", "Operations", "Supervisor", "Technician"].flatMap((sender) => [
     ["ADMINISTRATIVE_SUPPORT", sender, "Admin"], ["ADMINISTRATIVE_SUPPORT", sender, "Management"]
   ]),
-  ["ADMINISTRATIVE_SUPPORT", "Management", "Admin"]
+  ["ADMINISTRATIVE_SUPPORT", "Management", "Admin"],
+  ["NEW_TECHNICIAN_REGISTRATION", "Supervisor", "Admin"]
 ];
 
 test("the sender / type / recipient policy equals the pinned owner-decision table", () => {
   const actual = pairingRows().map((row) => [row.type, row.sender, row.recipient]);
   const key = (row) => row.join("|");
   assert.deepEqual(actual.map(key).sort(), PINNED_MATRIX.map(key).sort());
-  assert.equal(INTERNAL_WORK_REQUEST_TYPE_CODES.length, 7);
+  assert.equal(INTERNAL_WORK_REQUEST_TYPE_CODES.length, 8);
 });
 
 test("Client Viewer appears nowhere, and Admin is recipient-only", () => {
@@ -201,4 +203,61 @@ test("transition-body parsing accepts only the four transition verbs", () => {
   assert.equal(parseTransitionBody(null).ok, false);
   assert.equal(parseTransitionBody({ action: "cancel", note: "n".repeat(1001) }).ok, false);
   assert.equal(parseTransitionBody({ action: "cancel", note: 5 }).ok, false);
+});
+
+// --- New technician registration (pure rules) -----------------------------------
+const GOOD_DETAILS = { first_name: "Tendai", last_name: "Moyo", national_id: "63-123456 A 42", trade: "Fitter", worker_type: "permanent", phone_number: "0771234567" };
+
+test("parseTechnicianPayload normalises spacing and returns a copy with exactly the six fields", () => {
+  const input = { ...GOOD_DETAILS, first_name: "  Mary   Ann ", phone_number: "  +263 (77) 123-4567 " };
+  const parsed = parseTechnicianPayload(input);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(Object.keys(parsed.value).sort(), ["first_name", "last_name", "national_id", "phone_number", "trade", "worker_type"]);
+  assert.equal(parsed.value.first_name, "Mary Ann");
+  assert.equal(parsed.value.phone_number, "+263 (77) 123-4567");
+  assert.notEqual(parsed.value, input);
+  assert.equal(input.first_name, "  Mary   Ann ", "the input is not mutated");
+});
+
+test("parseTechnicianPayload accepts accented and apostrophe names, and refuses scripts, markup and prototype keys", () => {
+  for (const name of ["Nyasha", "Chipo-Rudo", "O'Brien", "Zoë", "Ndlovu Jr."]) assert.equal(parseTechnicianPayload({ ...GOOD_DETAILS, first_name: name }).ok, true, name);
+  for (const name of ["<b>x</b>", "Tendai; DROP", "12", "-Tendai", "Ten\ndai\u0000"]) assert.equal(parseTechnicianPayload({ ...GOOD_DETAILS, first_name: name }).ok, false, name);
+  for (const key of ["__proto__", "constructor", "role"]) {
+    assert.equal(parseTechnicianPayload(JSON.parse(`{"${key}":"x"}`)).ok, false, key);
+    assert.equal(parseTechnicianPayload({ ...GOOD_DETAILS, ...JSON.parse(`{"${key}":"x"}`) }).ok, false, `${key} added to a good body`);
+  }
+  for (const bad of [null, undefined, 7, "x", []]) assert.equal(parseTechnicianPayload(bad).ok, false);
+});
+
+test("normaliseNationalId ignores spaces, dashes and case only", () => {
+  assert.equal(normaliseNationalId("63-123456 a 42"), "63123456A42");
+  assert.equal(normaliseNationalId(" 63123456A42 "), "63123456A42");
+  assert.notEqual(normaliseNationalId("63-123456 A 42"), normaliseNationalId("63-123456 B 42"));
+  assert.equal(normaliseNationalId(null), "");
+});
+
+test("the generated subject and description never contain the national ID or phone number", () => {
+  const { subject, description } = technicianRegistrationText(GOOD_DETAILS);
+  assert.equal(subject, "Register technician: Tendai Moyo (Fitter)");
+  for (const text of [subject, description]) {
+    assert.equal(text.includes("123456"), false);
+    assert.equal(text.includes("0771234567"), false);
+  }
+  const longest = parseTechnicianPayload({ ...GOOD_DETAILS, first_name: "A".repeat(50), last_name: "B".repeat(50), trade: "Instrument Technician" });
+  assert.ok(technicianRegistrationText(longest.value).subject.length <= 160, "fits the subject limit");
+});
+
+test("a registration's actions: approve replaces complete, and only the addressed Admin gets them", () => {
+  const record = { request_type: NEW_TECHNICIAN_REGISTRATION, status: "Submitted", created_by_user_id: "u_supervisor", recipient_role: "Admin", assigned_to_user_id: null };
+  const admin = person("u_admin", "Admin");
+  assert.deepEqual(allowedActionsFor(record, admin), ["approve_registration", "acknowledge", "reject"]);
+  assert.deepEqual(allowedActionsFor({ ...record, status: "Acknowledged", assigned_to_user_id: "u_admin" }, admin), ["approve_registration", "start", "reject"]);
+  assert.deepEqual(allowedActionsFor({ ...record, status: "In Progress", assigned_to_user_id: "u_admin" }, admin), ["approve_registration"]);
+  assert.deepEqual(allowedActionsFor({ ...record, status: "Acknowledged", assigned_to_user_id: "u_other" }, admin), []);
+  assert.deepEqual(allowedActionsFor(record, person("u_supervisor", "Supervisor")), ["cancel"]);
+  for (const status of ["Completed", "Rejected", "Cancelled"]) assert.deepEqual(allowedActionsFor({ ...record, status }, admin), []);
+  assert.deepEqual(allowedActionsFor(record, person("u_ops", "Operations")), []);
+  // Every other type is unchanged: complete is still offered, approve never is.
+  const other = { ...record, request_type: "ADMINISTRATIVE_SUPPORT", status: "Acknowledged", assigned_to_user_id: "u_admin" };
+  assert.deepEqual(allowedActionsFor(other, admin), ["start", "complete", "reject"]);
 });

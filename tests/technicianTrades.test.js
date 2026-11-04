@@ -7,7 +7,7 @@ test("technician trade classifications are explicit and accepted", () => {
     "Fitter", "Fitter Assistant", "Boilermaker", "Boilermaker Assistant",
     "Instrument Technician", "Instrument Assistant", "Scaffolder Assistant",
     "Rigger Assistant", "General Hand", "Plumber", "Plumber Assistant",
-    "Welder Assistant", "Electrician"
+    "Welder Assistant", "Electrician", "Welder", "Rigger"
   ]);
   assert.equal(isTechnicianTrade("Fitter"), true);
   assert.equal(isTechnicianTrade(null), true);

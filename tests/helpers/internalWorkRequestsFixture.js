@@ -86,7 +86,13 @@ export const RECORD_KEYS = [
 ];
 
 // A valid create body for (type, recipient), given the related types the SENDER may use.
+export const VALID_TECHNICIAN_PAYLOAD = Object.freeze({
+  first_name: "Tendai", last_name: "Moyo", national_id: "63-123456 A 42", trade: "Welder", worker_type: "contractor", phone_number: "+263 77 123 4567"
+});
+
 export function validBody(type, recipient, relatedType, extra = {}) {
+  // A technician registration has no free text: the server generates it from the payload.
+  if (type === "NEW_TECHNICIAN_REGISTRATION") return { request_type: type, recipient_role: recipient, payload: { ...VALID_TECHNICIAN_PAYLOAD }, ...extra };
   const body = { request_type: type, subject: "Need confirmation", description: "Please confirm the position.", recipient_role: recipient, ...extra };
   if (relatedType) { body.related_entity_type = relatedType; body.related_entity_id = RELATED_ID[relatedType]; }
   return body;
