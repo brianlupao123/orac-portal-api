@@ -14,7 +14,7 @@ const RosterEntrySchema = z.object({
 }).strict();
 
 const RowRefSchema = z.object({
-  source_type: z.enum(["daily_timesheet", "contractor_log"], { message: "source_type must be daily_timesheet or contractor_log" }),
+  source_type: z.enum(["timesheet", "daily_timesheet", "contractor_log"], { message: "source_type must be timesheet, daily_timesheet or contractor_log" }),
   record_id: z.string().min(1),
   row_index: z.number().int().min(0).max(59),
   reason: z.string().trim().min(3, "A reason of at least 3 characters is required").max(300)
@@ -42,7 +42,14 @@ const base = {
   carry_overs: z.array(RowRefSchema).max(200).optional()
 };
 
-export const CreateWorksheetRegisterSchema = z.object(base).strict();
+// Preview: the same body as create, minus preview_hash. It is read-only and never saves.
+export const PreviewWorksheetRegisterSchema = z.object(base).strict();
+// Create: optional preview_hash (SHA-256 of the figures the person was shown). When present, the save
+// is refused with STALE_PREVIEW if the approved Timesheets changed since that preview.
+export const CreateWorksheetRegisterSchema = z.object({
+  ...base,
+  preview_hash: z.string().regex(/^[0-9a-f]{64}$/, "preview_hash must be a lowercase SHA-256 hex string").optional()
+}).strict();
 export const UpdateWorksheetRegisterSchema = z.object(base).partial().strict();
 
 export const AcknowledgeRegisterExceptionsSchema = z.object({

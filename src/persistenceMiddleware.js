@@ -5,8 +5,10 @@ export function persistenceMiddleware(store) {
     let writeStarted = false;
     let sendingResponse = false;
 
+    // Read-only by exact match: login, and the Worksheet roll-up preview (it computes and returns,
+    // so it must never take the write lock or rewrite the store). Look-alike paths still persist.
     const isReadOnly = ["GET", "HEAD", "OPTIONS"].includes(req.method)
-      || (req.method === "POST" && req.path === "/auth/login");
+      || (req.method === "POST" && (req.path === "/auth/login" || req.path === "/worksheet_registers/preview"));
 
     const safeRelease = async () => {
       if (writeStarted || released) return;

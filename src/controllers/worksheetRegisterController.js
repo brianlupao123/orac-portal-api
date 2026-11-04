@@ -7,6 +7,7 @@ import {
   blockingExceptions, unacknowledgedWarnings, buildGridView, computeTotals, linesHash, stateHash,
   validatePeriod, normaliseName, reconciliationEvidence, verifySourceLineage, sourceRecordIds, DEFAULT_LOOK_AROUND_DAYS
 } from "../worksheetRegisterLogic.js";
+import { createHash } from "node:crypto";
 
 // Worksheet: explicit routes only (not in the generic `collections`
 // list), so list/get always pass through the role check below.
@@ -31,7 +32,7 @@ function historyEntry(db, actor, action, comment = "") {
 
 // Compact audit payload: the grid itself is derivable, so the audit log carries
 // identity, state and counts rather than every consolidated cell.
-function auditView(record) {
+function auditView(db, record) {
   return {
     id: record.id, reference: record.reference, title: record.title, period: record.period, scope: record.scope,
     status: record.status, reconciliation_state: record.reconciliation_state,
@@ -239,22 +240,18 @@ export const getWorksheetRegisterDocument = (req, res) => {
   res.json({ success: true, data: { record: detailView(req.db, record, actor), company_profile: req.db.company_profile } });
 };
 
-export const createWorksheetRegister = (req, res) => {
-  const actor = getActor(req);
-  requirePermission(actor, "manageWorksheetRegister");
-  const body = req.body;
-
+// Shared by preview and create so the two can never disagree about validation or figures.
+// Returns { error } (status + message, identical for both) or { record } (unsaved, no id, no reference).
+function prepareNewRegister(db, body, actor, now) {
   const periodErrors = validatePeriod(body.period_start, body.period_end);
-  if (periodErrors.length) return fail(res, 400, periodErrors[0], { errors: periodErrors });
-  const scopeError = validateScope(req.db, body.scope);
-  if (scopeError) return fail(res, 400, scopeError);
-  const { roster, errors } = resolveRoster(req.db, body.roster);
-  if (errors.length) return fail(res, 400, errors[0], { errors });
-
-  const now = nowIso();
+  if (periodErrors.length) return { error: { status: 400, message: periodErrors[0], extra: { errors: periodErrors } } };
+  const scopeError = validateScope(db, body.scope);
+  if (scopeError) return { error: { status: 400, message: scopeError } };
+  const { roster, errors } = resolveRoster(db, body.roster);
+  if (errors.length) return { error: { status: 400, message: errors[0], extra: { errors } } };
   const record = {
-    id: req.store.id("wks"),
-    reference: nextReference(req.db, body.period_start),
+    id: null,
+    reference: null,
     title: body.title,
     period: { start: body.period_start, end: body.period_end },
     scope: { client_id: body.scope.client_id, project_title: body.scope.project_title, quote_id: body.scope.quote_id || null, purchase_order_id: body.scope.purchase_order_id || null, department_section: body.scope.department_section || "" },
@@ -271,13 +268,85 @@ export const createWorksheetRegister = (req, res) => {
     history: [],
     created_by: actor.id, created_at: now, updated_at: now
   };
+  return { record };
+}
+
+// Fingerprint of what a person is shown in the preview: the figures and open items (stateHash), bound to
+// the period and client so a hash from one month or client can never authorise saving another.
+const previewHashOf = (record) => createHash("sha256")
+  .update(JSON.stringify([stateHash(record.lines, record.exceptions), record.period.start, record.period.end, record.scope.client_id, normaliseName(record.scope.project_title)]))
+  .digest("hex");
+
+const existingRegisterView = (m) => (m ? { id: m.id, reference: m.reference, title: m.title, status: m.status } : null);
+
+// Counts only, no money: worker-days are the consolidated lines, dates are the in-period days with hours.
+function rollUpSummary(record) {
+  const lines = record.lines || [];
+  const byKey = new Map();
+  for (const l of lines) byKey.set(l.roster_key, (byKey.get(l.roster_key) || 0) + l.normal + l.ot_15 + l.ot_20);
+  return {
+    worker_days: lines.length,
+    dates_covered: new Set(lines.filter((l) => !l.carry_over).map((l) => l.date)).size,
+    workers_with_hours: [...byKey.values()].filter((h) => h > 0).length,
+    workers_total: (record.roster || []).length,
+    source_records: new Set(lines.flatMap((l) => (l.sources || []).map((x) => `${x.source_type}:${x.record_id ?? x.dts_id}`))).size
+  };
+}
+
+// Read-only: computes the roll-up exactly as Consolidate would, and writes nothing (no register, no audit
+// entry, no id). Mounted as a read-only route in persistenceMiddleware.
+export const previewWorksheetRegister = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "manageWorksheetRegister");
+  const prepared = prepareNewRegister(req.db, req.body, actor, nowIso());
+  if (prepared.error) return fail(res, prepared.error.status, prepared.error.message, prepared.error.extra);
+  const record = prepared.record;
+  const existing = duplicateScopeConflict(req.db, record);
+  const fresh = consolidate(record, req.db);
+  record.lines = fresh.lines;
+  record.exceptions = fresh.exceptions;
+  const counts = countExceptions(record.exceptions);
+  const grid = buildGridView(record);
+  res.json({
+    success: true,
+    data: {
+      persisted: false,
+      period: record.period, scope: record.scope, title: record.title,
+      client_name: req.db.clients.find((c) => c.id === record.scope.client_id)?.name || null,
+      roster: record.roster,
+      grid, lines: record.lines, totals: grid.totals.grand,
+      summary: rollUpSummary(record),
+      exceptions: record.exceptions, exception_counts: counts,
+      ready_to_submit: counts.blocking === 0 && counts.warning_unacknowledged === 0 && record.lines.length > 0,
+      existing_register: existingRegisterView(existing),
+      can_consolidate: !existing,
+      preview_hash: previewHashOf(record)
+    }
+  });
+};
+
+export const createWorksheetRegister = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "manageWorksheetRegister");
+  const body = req.body;
+  const now = nowIso();
+
+  const prepared = prepareNewRegister(req.db, body, actor, now);
+  if (prepared.error) return fail(res, prepared.error.status, prepared.error.message, prepared.error.extra);
+  const record = prepared.record;
   const dup = duplicateScopeConflict(req.db, record);
   if (dup) return fail(res, 409, `Worksheet ${dup.reference} already covers this client, project and period. Open it instead of creating a second one.`);
 
   rebuild(req.db, record, actor);
+  // Consolidate-from-preview: refuse to save figures the person has not seen. Nothing is written or audited.
+  if (body.preview_hash && body.preview_hash !== previewHashOf(record)) {
+    return fail(res, 409, "The approved Timesheets changed after this preview. Refresh the preview and review the new figures before consolidating.", { code: "STALE_PREVIEW" });
+  }
+  record.id = req.store.id("wks");
+  record.reference = nextReference(req.db, body.period_start);
   record.history.push(historyEntry(req.db, actor, "Created and consolidated"));
   req.db.worksheet_registers.push(record);
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_CREATED", null, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_CREATED", null, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -289,7 +358,7 @@ export const updateWorksheetRegister = (req, res) => {
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `A Worksheet cannot be edited in ${record.status} status.`);
 
   const body = req.body;
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   const candidate = { ...record, period: { ...record.period }, scope: { ...record.scope } };
   if (body.title !== undefined) candidate.title = body.title;
   if (body.period_start !== undefined || body.period_end !== undefined) {
@@ -325,7 +394,7 @@ export const updateWorksheetRegister = (req, res) => {
   rebuild(req.db, record, actor);
   record.history.push(historyEntry(req.db, actor, overrideNotes.length ? "Override recorded and re-consolidated" : "Edited and re-consolidated", overrideNotes.join(" | ")));
   record.updated_at = nowIso();
-  req.store.audit(req.db, actor, "worksheet_register", record.id, overrideNotes.length ? "REGISTER_OVERRIDE_RECORDED" : "REGISTER_UPDATED", before, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, overrideNotes.length ? "REGISTER_OVERRIDE_RECORDED" : "REGISTER_UPDATED", before, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -335,11 +404,11 @@ export const buildWorksheetRegister = (req, res) => {
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `A Worksheet cannot be re-consolidated in ${record.status} status.`);
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   rebuild(req.db, record, actor);
   record.history.push(historyEntry(req.db, actor, "Re-consolidated from Daily Time Sheets"));
   record.updated_at = nowIso();
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_BUILT", before, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_BUILT", before, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -360,14 +429,14 @@ export const acknowledgeRegisterExceptions = (req, res) => {
     if (exc.severity === SEVERITY.INFO) return fail(res, 409, `Information item ${exc.code} does not need acknowledgement.`);
     targets.push(exc);
   }
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   const at = nowIso();
   for (const exc of targets) { exc.acknowledged_by = actor.id; exc.acknowledged_at = at; exc.acknowledgement_note = note; }
   record.state_hash = stateHash(record.lines, record.exceptions);
   record.reconciliation_state = deriveReconciliationState(record);
   record.history.push(historyEntry(req.db, actor, `Acknowledged ${targets.length} warning(s)`, note));
   record.updated_at = at;
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_EXCEPTIONS_ACKNOWLEDGED", before, { ...auditView(record), acknowledged_keys: keys, note });
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_EXCEPTIONS_ACKNOWLEDGED", before, { ...auditView(req.db, record), acknowledged_keys: keys, note });
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -384,13 +453,13 @@ export const submitWorksheetRegister = (req, res) => {
   if (open.length) return fail(res, 409, `${open.length} warning(s) must be acknowledged before submitting.`, { code: "UNACKNOWLEDGED_WARNINGS", exceptions: open.map((e) => e.key) });
   if (!(record.lines || []).length) return fail(res, 409, "There are no approved Daily Time Sheet hours in this period to submit.", { code: "NO_HOURS" });
 
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   record.status = REGISTER_STATUS.SUBMITTED;
   record.submitted_by = actor.id;
   record.submitted_at = nowIso();
   record.updated_at = record.submitted_at;
   record.history.push(historyEntry(req.db, actor, "Submitted for approval"));
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_SUBMITTED", before, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_SUBMITTED", before, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -416,7 +485,7 @@ export const reviewWorksheetRegister = (req, res) => {
     }
   }
 
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   const at = nowIso();
   if (decision === "approve") {
     record.status = REGISTER_STATUS.APPROVED;
@@ -431,7 +500,7 @@ export const reviewWorksheetRegister = (req, res) => {
   }
   record.updated_at = at;
   record.history.push(historyEntry(req.db, actor, decision === "approve" ? "Approved" : "Returned for correction", note));
-  req.store.audit(req.db, actor, "worksheet_register", record.id, decision === "approve" ? "REGISTER_APPROVED" : "REGISTER_RETURNED", before, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, decision === "approve" ? "REGISTER_APPROVED" : "REGISTER_RETURNED", before, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -442,12 +511,12 @@ export const cancelWorksheetRegister = (req, res) => {
   if (!record) return fail(res, 404, "Worksheet register not found.");
   if (record.status === REGISTER_STATUS.APPROVED) return fail(res, 409, "An approved Worksheet cannot be cancelled here. Revising an approved month needs an owner-approved process.");
   if (record.status === REGISTER_STATUS.CANCELLED) return fail(res, 409, "This Worksheet is already cancelled.");
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   record.status = REGISTER_STATUS.CANCELLED;
   record.cancelled_by = actor.id; record.cancelled_at = nowIso(); record.cancelled_reason = req.body.reason;
   record.updated_at = record.cancelled_at;
   record.history.push(historyEntry(req.db, actor, "Cancelled", req.body.reason));
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_CANCELLED", before, auditView(record));
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_CANCELLED", before, auditView(req.db, record));
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -466,11 +535,11 @@ export const reconcileWorksheetRegister = (req, res) => {
   const drift = verifySourceLineage(record, req.db);
   if (drift.length) return fail(res, 409, "Source Daily Time Sheet rows no longer match what was approved. Reconciliation evidence was not recorded.", { code: "SOURCE_DRIFT", drift });
 
-  const before = auditView(record);
+  const before = auditView(req.db, record);
   record.reconciliation = reconciliationEvidence(record, { actorId: actor.id, now: nowIso(), id: req.store.id("rec") });
   record.reconciliation_state = RECONCILIATION_STATE.EVIDENCE_RECORDED;
   record.updated_at = record.reconciliation.recorded_at;
   record.history.push(historyEntry(req.db, actor, "Non-billable reconciliation evidence recorded"));
-  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_RECONCILIATION_RECORDED", before, { ...auditView(record), reconciliation_id: record.reconciliation.id, billable_entries_created: 0 });
+  req.store.audit(req.db, actor, "worksheet_register", record.id, "REGISTER_RECONCILIATION_RECORDED", before, { ...auditView(req.db, record), reconciliation_id: record.reconciliation.id, billable_entries_created: 0 });
   res.json({ success: true, already_recorded: false, data: detailView(req.db, record, actor) });
 };

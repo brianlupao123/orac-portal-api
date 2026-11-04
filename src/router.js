@@ -57,12 +57,12 @@ import {
   reviewContractorLog, getContractorLogDocument
 } from "./controllers/contractorLogController.js";
 import {
-  listWorksheetRegisters, getWorksheetRegister, getWorksheetRegisterDocument, createWorksheetRegister, updateWorksheetRegister,
+  listWorksheetRegisters, getWorksheetRegister, getWorksheetRegisterDocument, previewWorksheetRegister, createWorksheetRegister, updateWorksheetRegister,
   buildWorksheetRegister, acknowledgeRegisterExceptions, submitWorksheetRegister, reviewWorksheetRegister, cancelWorksheetRegister,
   reconcileWorksheetRegister, listLegacyTimesheets
 } from "./controllers/worksheetRegisterController.js";
 import {
-  CreateWorksheetRegisterSchema, UpdateWorksheetRegisterSchema, AcknowledgeRegisterExceptionsSchema,
+  PreviewWorksheetRegisterSchema, CreateWorksheetRegisterSchema, UpdateWorksheetRegisterSchema, AcknowledgeRegisterExceptionsSchema,
   ReviewWorksheetRegisterSchema, CancelWorksheetRegisterSchema, ReconcileWorksheetRegisterSchema
 } from "./worksheetRegisterSchemas.js";
 import { CreateTimesheetSchemaV2, UpdateTimesheetSchemaV2 } from "./timesheetSchemasV2.js";
@@ -254,6 +254,7 @@ router.post("/contractor_log_sheets/:id/review", validate(ReviewContractorLogSch
 // Worksheet (explicit routes, deliberately not in the generic `collections` list below).
 router.get("/legacy_timesheets", listLegacyTimesheets);
 router.get("/worksheet_registers", listWorksheetRegisters);
+router.post("/worksheet_registers/preview", validate(PreviewWorksheetRegisterSchema), previewWorksheetRegister);
 router.post("/worksheet_registers", validate(CreateWorksheetRegisterSchema), createWorksheetRegister);
 router.get("/worksheet_registers/:id", getWorksheetRegister);
 router.patch("/worksheet_registers/:id", validate(UpdateWorksheetRegisterSchema), updateWorksheetRegister);
