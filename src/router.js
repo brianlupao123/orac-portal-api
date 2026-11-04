@@ -3,6 +3,7 @@ import {
   getTimesheetPolicy, updateTimesheetPolicy, listTimesheetAuthorities, createTimesheetAuthority, revokeTimesheetAuthority,
   setClientCutover, listTimesheetsRateFree, capturePaperTimesheet, logPaperCustody, batchConfirmTimesheets,
   runTimesheetReminders, getPaperSampling, getInvoiceVariance, requestVarianceOverride, approveVarianceOverride, resolvePostInvoiceRevision,
+  getRegisterPoVariance, getDispatchPoVariance, attachPoScopeEvidence,
   getV5BillingReadiness
 } from "./controllers/timesheetWorkflowController.js";
 import {
@@ -299,6 +300,9 @@ router.post("/field_worksheets/batch-confirm", batchConfirmTimesheets);
 router.post("/timesheets/reminders/run", runTimesheetReminders);
 router.get("/timesheets/paper-sampling", getPaperSampling);
 router.get("/dispatch_cards/:id/invoice-variance", getInvoiceVariance);
+router.get("/dispatch_cards/:id/po-variance", getDispatchPoVariance);
+router.get("/worksheet_registers/:id/po-variance", getRegisterPoVariance);
+router.post("/quotes/:id/po-scope-evidence", attachPoScopeEvidence);
 router.post("/dispatch_cards/:id/variance-override", requestVarianceOverride);
 router.post("/variance-overrides/:id/approve", approveVarianceOverride);
 router.post("/field_worksheets/:id/resolve-post-invoice", resolvePostInvoiceRevision);

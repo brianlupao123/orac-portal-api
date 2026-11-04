@@ -1,5 +1,6 @@
 import { isEligibleForDb } from "./timesheetEligibility.js";
 import { invoiceVarianceGate } from "./timesheetWorkflow.js";
+import { poScopeGate } from "./poVariance.js";
 import { countedTimesheets, pendingKioskTimesheets, reviewBlockedReason } from "./timesheetReview.js";
 
 function linkedTimesheetEvidenceBlock(db, job) {
@@ -111,6 +112,12 @@ export function invoiceReadinessBlock(db, job) {
   const variance = invoiceVarianceGate(db, job.id);
   if (!variance.allow) {
     return { code: "INVOICE_VARIANCE_BLOCK", message: variance.reason, status: 409 };
+  }
+
+  // Certified hours vs quoted/PO hours (dark under the same flag). Cleared only by Sales evidence for this exact overrun.
+  const scope = poScopeGate(db, job);
+  if (!scope.allow) {
+    return { code: "PO_SCOPE_OVERRUN_UNRESOLVED", message: scope.reason, status: 409 };
   }
 
   return null;

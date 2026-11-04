@@ -135,6 +135,10 @@ const NEW_PERMISSIONS = {
   logPaperCustody: [A, S, O],
   viewInvoiceVariance: [A, F],
   overrideInvoiceVariance: [A, F],
+  // Phase 3: certified hours vs quoted/PO hours. Everyone who reviews or invoices may see the hours position;
+  // money figures are stripped server-side unless the viewer also holds viewInvoiceVariance (Sales stays rate-free).
+  viewPoVariance: [A, M, S, F],
+  attachPoScopeEvidence: [A, S],
   resolvePostInvoiceRevision: [A, F],
   viewPaperSampling: [A, F],
   runTimesheetReminders: [A, S]

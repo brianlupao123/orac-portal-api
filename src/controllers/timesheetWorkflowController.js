@@ -2,7 +2,7 @@
 // it refuses with 409 FEATURE_DISABLED unless its flag is enabled. No stock
 // movement is ever created here; no rate field is ever read or returned except
 // by the Finance/Admin variance handlers (hours only).
-import { requirePermission, roles } from "../permissions.js";
+import { requirePermission, hasPermission, roles } from "../permissions.js";
 function getActor(req) {
   return req.user?.id ? req.db.users.find((user) => user.id === req.user.id) : null;
 }
@@ -13,6 +13,7 @@ import {
   poPosition, paperSamplingPlan, businessDaysBetween, reminderStage, anyActiveAuthority, workDateValidity, swapRevisionIfEligible, resolveAuthorityGate
 } from "../timesheetWorkflow.js";
 import { createHash } from "node:crypto";
+import { computePoVarianceCore, presentPoVariance, resolveRegisterQuote, registerPeriodHours, validateEvidenceInput, NO_BASELINE_LABEL } from "../poVariance.js";
 import { v5Enabled, allocatedMaterialsByQuoteLine } from "../v5CommercialWorkflow.js";
 import { v5VerifiedHoursByQuoteLine } from "../v5SignatureEvidence.js";
 import { PAPER_SOURCE, PAPER_CAPTURE_METHOD } from "../paperEntry.js";
@@ -319,4 +320,72 @@ export function resolvePostInvoiceRevision(req, res) {
   req.store.audit(req.db, actor, "field_worksheet", rev.id, "POST_INVOICE_REVISION_RESOLVED", null, rev);
   res.json({ success: true, data: rev });
 }
+
+// ---- Phase 3: certified hours vs quoted / PO hours ----------------------------------
+// Money figures are stripped inside presentPoVariance() unless the viewer may also see invoice variance
+// (Finance/Admin). Sales gets the hours position and a yes/no on PO value, never a rate-derived amount.
+const showAmounts = (actor) => hasPermission(actor, "viewInvoiceVariance");
+
+export function getRegisterPoVariance(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "viewPoVariance");
+  requirePermission(actor, "viewWorksheetRegister");
+  if (!flag("INVOICE_VARIANCE")) return off(res, "PO scope variance");
+  const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: "Worksheet register not found." });
+  const scope = resolveRegisterQuote(req.db, record.scope || {});
+  if (!scope.quote_id) {
+    return res.json({ success: true, data: { quote_id: null, status: "no_baseline", label: NO_BASELINE_LABEL, reason: scope.reason, blocks_invoicing: false, issue_disabled_reason: null } });
+  }
+  const core = computePoVarianceCore(req.db, scope.quote_id, { preferredPoId: scope.purchase_order_id });
+  res.json({ success: true, data: presentPoVariance(core, { canSeeAmounts: showAmounts(actor), periodHours: registerPeriodHours(record) }) });
+}
+
+export function getDispatchPoVariance(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "viewPoVariance");
+  if (!flag("INVOICE_VARIANCE")) return off(res, "PO scope variance");
+  const job = (req.db.dispatch_cards || []).find((d) => d.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
+  const core = computePoVarianceCore(req.db, job.quotation_id, { preferredPoId: job.purchase_order_id || null });
+  res.json({ success: true, data: presentPoVariance(core, { canSeeAmounts: showAmounts(actor) }) });
+}
+
+// Sales attaches an amendment note or a revised PO reference to ONE exact overrun (variance_hash).
+// This clears only this gate. It does not raise the PO amount, and the existing PO-value gates
+// (INVOICE_EXCEEDS_PO_REMAINING / PO_AMENDMENT_REQUIRED) still need an approved PO amendment.
+export function attachPoScopeEvidence(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "attachPoScopeEvidence");
+  if (!flag("INVOICE_VARIANCE")) return off(res, "PO scope variance");
+  const b = req.body || {};
+  const quote = (req.db.quotes || []).find((q) => q.id === req.params.id);
+  if (!quote) return res.status(404).json({ success: false, message: "Quote not found." });
+  const core = computePoVarianceCore(req.db, quote.id, { preferredPoId: b.purchase_order_id || null });
+  if (quote.v5_commercial_workflow) return res.status(409).json({ success: false, code: "V5_AMENDMENT_PATH_REQUIRED", message: "This quotation uses the V5 amendment workflow. Resolve the overrun with an approved amendment instead." });
+  if (core.status !== "overrun") return res.status(400).json({ success: false, code: "NO_SCOPE_OVERRUN", message: "There is no scope overrun to attach evidence to." });
+  if (!b.variance_hash || b.variance_hash !== core.hash) {
+    return res.status(409).json({ success: false, code: "STALE_VARIANCE", message: "The hours changed since you opened this. Reload and review the current figures before attaching evidence." });
+  }
+  const invalid = validateEvidenceInput(core, b);
+  if (invalid) return res.status(400).json({ success: false, message: invalid });
+
+  const now = new Date().toISOString();
+  req.db.po_scope_evidence ||= [];
+  for (const old of req.db.po_scope_evidence) {
+    if (old.quote_id === quote.id && !old.voided_at && !old.consumed_invoice_id) { old.voided_at = now; old.voided_reason = "Superseded by newer evidence."; }
+  }
+  const rec = {
+    id: req.store.id("pose"), quote_id: quote.id, variance_hash: core.hash, kind: b.kind,
+    note: String(b.note || "").trim() || null, revised_po_reference: b.kind === "revised_po" ? String(b.revised_po_reference).trim() : null,
+    hours_at_attach: { quoted: core.hours.quoted, certified: core.hours.certified, overrun_hours: core.hours.overrun_hours }, // hours only: no money in the record
+    amount_overrun_at_attach: core.amount.overrun,
+    attached_by: actor.id, attached_by_name: actor.name || null, attached_at: now, voided_at: null
+  };
+  req.db.po_scope_evidence.push(rec);
+  req.store.audit(req.db, actor, "po_scope_evidence", rec.id, "PO_SCOPE_EVIDENCE_ATTACHED", null, rec);
+  const after = computePoVarianceCore(req.db, quote.id, { preferredPoId: b.purchase_order_id || null });
+  res.status(201).json({ success: true, data: { evidence_id: rec.id, variance: presentPoVariance(after, { canSeeAmounts: showAmounts(actor) }) } });
+}
+
 export const _internal = { createHash };

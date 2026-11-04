@@ -1,5 +1,6 @@
 import { requirePermission } from "./permissions.js";
 import { invoiceVarianceGate, lockTimesheetsForInvoice } from "./timesheetWorkflow.js";
+import { poScopeGate } from "./poVariance.js";
 import { countedTimesheets } from "./timesheetReview.js";
 import { calculateLegacyInvoiceAmounts, invoiceReadinessBlock } from "./invoiceReadiness.js";
 
@@ -137,6 +138,9 @@ export function createLegacyInvoice(db, store, quote, actor) {
   // Dark by default (TIMESHEET_INVOICE_VARIANCE): billed hours may never exceed eligible hours without a second-approved override.
   const gate = invoiceVarianceGate(db, job.id);
   if (!gate.allow) throw Object.assign(new Error(gate.reason), { status: 409, code: "INVOICE_VARIANCE_BLOCK" });
+  // Same flag: certified hours may not outgrow the quoted/PO hours without Sales evidence for that exact overrun.
+  const scopeGate = poScopeGate(db, job);
+  if (!scopeGate.allow) throw Object.assign(new Error(scopeGate.reason), { status: 409, code: "PO_SCOPE_OVERRUN_UNRESOLVED" });
 
   const invoice = {
     id: store.id("inv"),
@@ -152,6 +156,8 @@ export function createLegacyInvoice(db, store, quote, actor) {
 
   db.invoices.push(invoice);
   if (gate.overridden) { const o = (db.timesheet_variance_overrides || []).find((x) => x.dispatch_card_id === job.id && !x.voided_at && !x.consumed_invoice_id); if (o) o.consumed_invoice_id = invoice.id; }
+  // Sales evidence that cleared a quoted-scope overrun is single-use: record which invoice relied on it.
+  if (scopeGate.evidence) scopeGate.evidence.consumed_invoice_id = invoice.id;
   if (!gate.skipped) lockTimesheetsForInvoice(db, job.id, invoice.id, invoice.generated_at);
   // A labour line is written unless the invoice is materials-only. Without this
   // guard a materials-only invoice put the whole total on the labour line and

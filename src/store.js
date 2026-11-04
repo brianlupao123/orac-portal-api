@@ -154,6 +154,8 @@ function seedData() {
     timesheet_authorities: [],
     timesheet_paper_custody: [],
     timesheet_variance_overrides: [],
+    // Phase 3: Sales-attached amendment notes / revised PO references that clear a quoted-scope overrun.
+    po_scope_evidence: [],
     // V5 paper-signature evidence (dark, append-only). Auto-backfilled onto an existing data file by normalizeDb().
     v5_client_supervisor_contacts: [],
     v5_paper_signatures: [],
