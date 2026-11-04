@@ -37,6 +37,8 @@ export const permissions = {
   createDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
   reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
+  viewTechnicianProfiles: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
   createContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   submitContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   reviewContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],

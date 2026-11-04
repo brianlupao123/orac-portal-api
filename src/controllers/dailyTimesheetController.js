@@ -1,5 +1,6 @@
 import { requirePermission, roles } from "../permissions.js";
 import { validateDailyTimesheetEntries, voidStartIndex } from "../dailyTimesheetValidation.js";
+import { isTechnicianRecord, technicianDisplayName } from "../technicianProfiles.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -23,8 +24,11 @@ export const createDailyTimesheet = (req, res) => {
   // A Technician can only ever file their own sheet; staff roles may file on
   // behalf of a crew member (parallel to how the kiosk batches technician time).
   const technicianId = actor.role === roles.TECHNICIAN ? actor.id : (body.technician_id || null);
+  // The technician is either a registered Technician user or a password-less
+  // artisan staff profile (see technicianProfiles.js). Inactive ones are refused.
+  let technician = null;
   if (technicianId) {
-    const technician = req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN && user.is_active);
+    technician = req.db.users.find((user) => user.id === technicianId && user.is_active && isTechnicianRecord(user));
     if (!technician) return res.status(400).json({ success: false, message: "technician_id must reference an active Technician." });
   }
 
@@ -37,6 +41,10 @@ export const createDailyTimesheet = (req, res) => {
     id: req.store.id("dts"),
     technician_id: technicianId,
     name_on_form: body.name_on_form,
+    // Snapshot of the artisan's identity at filing time (null when no technician is linked).
+    worker_name: technician ? technicianDisplayName(technician) : null,
+    technician_trade: technician?.trade ?? null,
+    national_id: technician?.national_id ?? null,
     category: String(body.category || "").trim(),
     department_section: String(body.department_section || "").trim(),
     cell_number: String(body.cell_number || "").trim(),

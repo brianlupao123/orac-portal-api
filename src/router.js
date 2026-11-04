@@ -51,6 +51,7 @@ import {
   createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet,
   reviewDailyTimesheet, getDailyTimesheetDocument
 } from "./controllers/dailyTimesheetController.js";
+import { listTechnicianProfiles } from "./controllers/technicianProfilesController.js";
 import {
   createContractorLog, updateContractorLog, submitContractorLog,
   reviewContractorLog, getContractorLogDocument
@@ -240,6 +241,7 @@ const legacyFormCreationGate = (req, res, next) => {
   if (process.env.LEGACY_TIMESHEET_FORM_CREATION === "enabled") return next();
   return res.status(409).json({ success: false, code: "LEGACY_FORM_READ_ONLY", message: "Daily Time Sheets and Contractor Logs are now read-only history. Record the work on a Timesheet." });
 };
+router.get("/technician-profiles", listTechnicianProfiles);
 router.post("/daily_timesheets", legacyFormCreationGate, validate(CreateDailyTimesheetSchema), createDailyTimesheet);
 router.patch("/daily_timesheets/:id", validate(UpdateDailyTimesheetSchema), updateDailyTimesheet);
 router.post("/daily_timesheets/:id/submit", submitDailyTimesheet);
