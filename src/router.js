@@ -77,7 +77,7 @@ import { getInvoiceSettlement, recordInvoicePayment, voidInvoicePayment, createI
 import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft, listLegacyInvoiceDrafts } from "./controllers/legacyInvoiceDraftController.js";
 import { getQuoteTrail } from "./controllers/trailController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
-import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport } from "./controllers/reportsController.js";
+import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport, getTechnicianPayrollReport, exportTechnicianPayrollPastel } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile, assignCommercialOwnership } from "./controllers/adminController.js";
 import { getSalesPortfolioDispatches, getSalesDispatchProgress, getSalesApprovedWorkSummary, getSalesMaterialsSummary, getSalesPortfolioInvoices } from "./controllers/salesPortfolioController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport, getInventoryReconciliation } from "./controllers/inventoryController.js";
@@ -174,6 +174,8 @@ router.get("/reports/dispatch", getDispatchReport);
 router.get("/reports/worksheets", getWorksheetReport);
 router.get("/reports/invoice-ready", getInvoiceReadyReport);
 router.get("/reports/variance", getVarianceReport);
+router.get("/reports/technician-payroll", getTechnicianPayrollReport);
+router.get("/exports/pastel-payroll.csv", exportTechnicianPayrollPastel);
 // Admin Settings (Phase 05)
 router.post("/admin/users", validate(AdminCreateUserSchema), createUser);
 router.patch("/admin/users/:id", validate(AdminUpdateUserSchema), updateUser);

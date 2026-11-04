@@ -110,15 +110,19 @@ const sensitiveAuditKeys = new Set([
   "reset_token_expires_at"
 ]);
 
-function redactSensitiveFields(value) {
-  if (Array.isArray(value)) return value.map(redactSensitiveFields);
+function redactSensitiveFields(value, extraKeys = new Set()) {
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, extraKeys));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => !sensitiveAuditKeys.has(key))
-      .map(([key, entry]) => [key, redactSensitiveFields(entry)])
+      .filter(([key]) => !sensitiveAuditKeys.has(key) && !extraKeys.has(key))
+      .map(([key, entry]) => [key, redactSensitiveFields(entry, extraKeys)])
   );
 }
+
+// National ID is payroll PII: Admin may manage it on the user record, but it is
+// never copied into the audit-log view (which Management and Finance can open).
+const auditOnlyRedactedKeys = new Set(["national_id"]);
 
 // Master-data collections in the Client -> Mine Site -> Plant -> Plant
 // Section -> Equipment Tag hierarchy get their readable-name/breadcrumb
@@ -134,9 +138,8 @@ const hierarchyEnrichers = {
 };
 
 function collectionResponseData(collectionName, data, db) {
-  if (collectionName === "users" || collectionName === "audit_logs") {
-    return redactSensitiveFields(data);
-  }
+  if (collectionName === "audit_logs") return redactSensitiveFields(data, auditOnlyRedactedKeys);
+  if (collectionName === "users") return redactSensitiveFields(data);
   if (collectionName === "stock_movements") {
     return data.map((movement) => decorateMovementForDisplay(db, movement));
   }

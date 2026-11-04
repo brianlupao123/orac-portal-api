@@ -72,6 +72,9 @@ export const permissions = {
   // Invoice Ready report. This does not grant invoice creation.
   viewInvoiceReadiness: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.SALES],
   exportPastel: [roles.ADMIN, roles.FINANCE],
+  // Technician payroll summary: certified hours only (no rates or amounts). Export to
+  // Pastel stays behind exportPastel (Admin, Finance); Management is read-only.
+  viewTechnicianPayroll: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   viewAudit: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   manageUsers: [roles.ADMIN],
   // Who may open the access-request inbox and be notified of new requests.

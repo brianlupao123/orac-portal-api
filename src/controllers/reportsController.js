@@ -1,4 +1,5 @@
-import { roles } from "../permissions.js";
+import { roles, requirePermission } from "../permissions.js";
+import { computeTechnicianPayroll, buildPastelPayrollCsv, isPayrollMonth } from "../payroll.js";
 import { scopeOperationalData } from "./coreController.js";
 import {
   computePipelineReport,
@@ -52,3 +53,50 @@ export const getDispatchReport = makeReportHandler("dispatch", computeDispatchRe
 export const getWorksheetReport = makeReportHandler("worksheets", computeWorksheetReport);
 export const getInvoiceReadyReport = makeReportHandler("invoice-ready", computeInvoiceReadyReport);
 export const getVarianceReport = makeReportHandler("variance", computeVarianceReport);
+
+// ---- Technician payroll (Finance) ----
+const monthProblem = (req) => (isPayrollMonth(req.query?.month) ? null : "month is required in YYYY-MM format.");
+
+export function getTechnicianPayrollReport(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "viewTechnicianPayroll");
+  const problem = monthProblem(req);
+  if (problem) return res.status(400).json({ success: false, message: problem });
+  const payroll = computeTechnicianPayroll(req.db, req.query.month);
+  // National ID is Finance/Admin/Management payroll data; the per-day lines are export detail only.
+  const employees = payroll.employees.map(({ daily, ...row }) => row);
+  res.json({ success: true, data: { ...payroll, employees } });
+}
+
+export function exportTechnicianPayrollPastel(req, res) {
+  const actor = getActor(req);
+  requirePermission(actor, "exportPastel");
+  const problem = monthProblem(req);
+  if (problem) return res.status(400).json({ success: false, message: problem });
+  const month = req.query.month;
+  const payroll = computeTechnicianPayroll(req.db, month);
+  if (payroll.employees.length === 0) {
+    return res.status(404).json({ success: false, message: `No approved Worksheet hours found for ${month}.` });
+  }
+  const blocked = payroll.employees.filter((e) => !e.export_ready);
+  if (blocked.length) {
+    return res.status(422).json({
+      success: false,
+      message: "Some employees cannot be exported to Pastel. Fix them first so nobody has to be re-typed.",
+      blocked: blocked.map((e) => ({ full_name: e.full_name, reasons: e.export_blockers }))
+    });
+  }
+  const csv = buildPastelPayrollCsv(payroll, { header: req.query.header !== "0" });
+  req.store.audit(req.db, actor, "pastel_export", "technician_payroll", "PASTEL_PAYROLL_EXPORT_GENERATED", null, {
+    export_type: "technician_payroll",
+    month,
+    accounting_posted: false,
+    employee_count: payroll.employees.length,
+    row_count: Math.max(0, csv.split("\r\n").filter(Boolean).length - (req.query.header === "0" ? 0 : 1)),
+    totals: payroll.totals,
+    source_registers: payroll.source_registers
+  });
+  res.header("Content-Type", "text/csv; charset=utf-8");
+  res.header("Content-Disposition", `attachment; filename=orac-pastel-payroll-${month}.csv`);
+  res.send(csv);
+}

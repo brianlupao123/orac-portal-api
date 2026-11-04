@@ -56,6 +56,8 @@ export const createUser = (req, res) => {
     is_active: body.is_active !== undefined ? body.is_active : true,
     client_id: body.client_id || null,
     trade: body.role === "Technician" ? (body.trade || null) : null,
+    national_id: body.role === "Technician" ? (body.national_id || null) : null,
+    employee_code: body.role === "Technician" ? (body.employee_code || null) : null,
     password_hash: bcrypt.hashSync(body.password, 10),
     created_at: new Date().toISOString()
   };
@@ -77,10 +79,10 @@ export const updateUser = (req, res) => {
   const linkProblem = clientLinkProblem(req.db, finalRole, finalClientId || null);
   if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
   const before = safeUser(target);
-  ["name", "email", "role", "is_active", "client_id", "trade"].forEach((k) => {
+  ["name", "email", "role", "is_active", "client_id", "trade", "national_id", "employee_code"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
-  if (target.role !== "Technician") target.trade = null;
+  if (target.role !== "Technician") { target.trade = null; target.national_id = null; target.employee_code = null; }
   if (req.body.password !== undefined) {
     target.password_hash = bcrypt.hashSync(req.body.password, 10);
     // Ends every session issued before this moment (checked in middleware/auth.js).
