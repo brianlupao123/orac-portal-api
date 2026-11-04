@@ -11,9 +11,9 @@ export function buildCuratedDemoData(users = []) {
   const supervisorId = userIdByRole(users, "Supervisor");
 
   const clients = [
-    { id: "c_zimplats", name: "Zimplats", client_type: "permanent", contact_person: "Procurement Office", email: "procurement@zimplats.example", is_active: true },
-    { id: "c_mimosa", name: "Mimosa Mining Company", client_type: "permanent", contact_person: "Maintenance Office", email: "maintenance@mimosa.example", is_active: true },
-    { id: "c_unki", name: "Unki Platinum Mine", client_type: "permanent", contact_person: "Plant Maintenance", email: "maintenance@unki.example", is_active: true }
+    { id: "c_zimplats", name: "Zimplats", client_type: "permanent", contact_person: "Procurement Office", email: "procurement@zimplats.example", is_active: true, primary_sales_owner_id: salesId, account_team_user_ids: [] },
+    { id: "c_mimosa", name: "Mimosa Mining Company", client_type: "permanent", contact_person: "Maintenance Office", email: "maintenance@mimosa.example", is_active: true, primary_sales_owner_id: salesId, account_team_user_ids: [] },
+    { id: "c_unki", name: "Unki Platinum Mine", client_type: "permanent", contact_person: "Plant Maintenance", email: "maintenance@unki.example", is_active: true, primary_sales_owner_id: salesId, account_team_user_ids: [] }
   ];
 
   const mine_sites = [
@@ -52,12 +52,12 @@ export function buildCuratedDemoData(users = []) {
   ];
 
   const quotes = [
-    { id: "q_demo_001", quotation_number: "Q-2026-001", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0102", status: "Draft", total_amount: 12_500, created_by: salesId, created_at: daysAgo(21) },
-    { id: "q_demo_002", quotation_number: "Q-2026-002", client_id: "c_mimosa", equipment_tag_id: "eq_smelt_0041", status: "Sent", total_amount: 34_200, created_by: salesId, created_at: daysAgo(16) },
-    { id: "q_demo_003", quotation_number: "Q-2026-003", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0207", status: "Approved_Pending_PO", total_amount: 22_000, created_by: salesId, created_at: daysAgo(12) },
-    { id: "q_demo_004", quotation_number: "Q-2026-004", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0102", status: "PO_Verified", total_amount: 45_000, created_by: salesId, created_at: daysAgo(28) },
-    { id: "q_demo_005", quotation_number: "Q-2026-005", client_id: "c_mimosa", equipment_tag_id: "eq_smelt_0041", status: "PO_Verified", total_amount: 29_800, created_by: salesId, created_at: daysAgo(36) },
-    { id: "q_demo_006", quotation_number: "Q-2026-006", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0207", status: "Invoiced", total_amount: 37_200, created_by: salesId, created_at: daysAgo(50) }
+    { id: "q_demo_001", quotation_number: "Q-2026-001", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0102", status: "Draft", total_amount: 12_500, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(21) },
+    { id: "q_demo_002", quotation_number: "Q-2026-002", client_id: "c_mimosa", equipment_tag_id: "eq_smelt_0041", status: "Sent", total_amount: 34_200, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(16) },
+    { id: "q_demo_003", quotation_number: "Q-2026-003", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0207", status: "Approved_Pending_PO", total_amount: 22_000, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(12) },
+    { id: "q_demo_004", quotation_number: "Q-2026-004", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0102", status: "PO_Verified", total_amount: 45_000, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(28) },
+    { id: "q_demo_005", quotation_number: "Q-2026-005", client_id: "c_mimosa", equipment_tag_id: "eq_smelt_0041", status: "PO_Verified", total_amount: 29_800, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(36) },
+    { id: "q_demo_006", quotation_number: "Q-2026-006", client_id: "c_zimplats", equipment_tag_id: "eq_smc_0207", status: "Invoiced", total_amount: 37_200, created_by: salesId, sales_owner_id: salesId, created_at: daysAgo(50) }
   ];
 
   const purchase_orders = [
