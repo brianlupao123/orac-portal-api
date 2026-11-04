@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { collectionGuards, getCollection } from "../src/controllers/coreController.js";
-import { roles } from "../src/permissions.js";
+import { roles, hasPermission, effectivePermissionRoles } from "../src/permissions.js";
 
 function createResponse() {
   return {
@@ -168,4 +168,61 @@ test("generic collection reads enforce the complete eight-role matrix", () => {
       );
     }
   }
+});
+
+// ---- Phase 2: Sales Desk native paper entry ----------------------------------------------------
+const FIELD_ENTRY_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES];
+
+test("Sales holds create/submit rights for Timesheets and Daily Time Sheets, and exactly the intended roles do", () => {
+  for (const permission of ["createWorksheet", "submitWorksheet", "createDailyTimesheet", "submitDailyTimesheet"]) {
+    const allowed = effectivePermissionRoles(permission);
+    assert.ok(allowed.includes(roles.SALES), `${permission} must include Sales`);
+    assert.deepEqual([...allowed].sort(), [...FIELD_ENTRY_ROLES].sort(), `${permission} must not widen beyond Sales`);
+    for (const role of [roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER]) {
+      assert.equal(hasPermission({ role, is_active: true }, permission), false, `${role} must stay denied ${permission}`);
+    }
+  }
+  assert.equal(hasPermission({ role: roles.SALES, is_active: false }, "createWorksheet"), false, "an inactive Sales account gets nothing");
+});
+
+test("Sales gains entry only: review, approval, materials and client acknowledgement stay closed to Sales", () => {
+  for (const permission of [
+    "reviewWorksheet", "reviewDailyTimesheet", "addTimesheet", "addMaterials", "acknowledgeWorksheet",
+    "reviewContractorLog", "createContractorLog", "approveAmendment", "invoice"
+  ]) {
+    assert.equal(hasPermission({ role: roles.SALES, is_active: true }, permission), false, `Sales must not hold ${permission}`);
+  }
+});
+
+test("granting Sales entry rights does not widen generic collection reads", () => {
+  const sales = { id: "sales-1", role: "Sales", is_active: true };
+  for (const collectionName of ["users", "audit_logs", "invoices", "purchase_orders", "contractor_log_sheets"]) {
+    expectDenied(collectionName, sales);
+  }
+});
+
+test("Sales sees only portfolio worksheets and its own paper entries, never another desk's", () => {
+  const sales = { id: "sales-1", role: "Sales", is_active: true };
+  const req = requestFor(sales);
+  req.db.users.push({ id: "sales-2", role: "Sales", is_active: true });
+  req.db.quotes = [{ id: "quote-a", client_id: "client-a", sales_owner_id: "sales-1" }, { id: "quote-b", client_id: "client-b", sales_owner_id: "sales-2" }];
+  req.db.clients = [{ id: "client-a" }, { id: "client-b" }];
+  req.db.dispatch_cards = [{ id: "dispatch-a", quotation_id: "quote-a" }, { id: "dispatch-b", quotation_id: "quote-b" }];
+  req.db.field_worksheets = [
+    { id: "ws-mine", dispatch_card_id: "dispatch-a", source: "paper_entry", created_by: "sales-1" },
+    { id: "ws-other", dispatch_card_id: "dispatch-b", source: "paper_entry", created_by: "sales-2" }
+  ];
+  req.db.daily_timesheets = [
+    { id: "dts-mine", source: "paper_entry", created_by: "sales-1" },
+    { id: "dts-other", source: "paper_entry", created_by: "sales-2" },
+    { id: "dts-tech", technician_id: "tech-1", created_by: "tech-1" }
+  ];
+
+  const worksheets = createResponse();
+  getCollection("field_worksheets")(req, worksheets);
+  assert.deepEqual(worksheets.body.data.map((row) => row.id), ["ws-mine"]);
+
+  const dailies = createResponse();
+  getCollection("daily_timesheets")(req, dailies);
+  assert.deepEqual(dailies.body.data.map((row) => row.id), ["dts-mine"], "Sales sees the daily paper entries it keyed in, and no one else's");
 });

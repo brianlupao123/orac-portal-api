@@ -31,11 +31,13 @@ export const permissions = {
   // roles remain restricted to dispatches they are assigned to.
   viewDispatchJobCard: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   addMaterials: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
-  createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
-  submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR],
+  // Sales Desk (Phase 2): keys signed paper in under its OWN account. Sales is limited in the controllers to
+  // paper entries (source paper_entry) that it created itself, on dispatches in its own portfolio.
+  createWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR, roles.SALES],
+  submitWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.TECHNICIAN, roles.SUPERVISOR, roles.SALES],
   reviewWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
-  createDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
-  submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN],
+  createDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
+  submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
   viewTechnicianProfiles: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],

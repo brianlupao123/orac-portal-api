@@ -11,6 +11,10 @@ import { v5Enabled } from "../v5CommercialWorkflow.js";
 import { v5SupervisorAssignmentRefusal } from "../v5SignatureEvidence.js";
 import { calculatePurchaseOrderEvidenceValue } from "../store.js";
 import { invoiceReadinessBlock, invoiceReadinessSummary } from "../invoiceReadiness.js";
+import { isDispatchInSalesPortfolio } from "./coreController.js";
+import {
+  PAPER_SOURCE, paperEntryCreateRefusal, stampPaperEntry, salesOwnPaperEntryRefusal, paperEntryUpdateRefusal, applyPaperEntryUpdate
+} from "../paperEntry.js";
 
 const STAFF_ROLES = [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR];
 const normName = (v) => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -25,7 +29,8 @@ const sameWorker = (a, b) => (a.technician_id && b.technician_id ? a.technician_
 function timesheetFingerprint(dispatchId, technicianId, body) {
   return createHash("sha256").update(JSON.stringify([
     dispatchId, technicianId, body.worker_name || "", body.work_date || "", body.activity, body.hours_breakdown || body.hours, body.quote_line_id || "",
-    body.start_time || "", body.end_time || "", body.materials_used || [], body.outcomes || "", body.signatures || {}, body.signed_copy_image ? "img" : "", body.submit === true
+    body.start_time || "", body.end_time || "", body.materials_used || [], body.outcomes || "", body.signatures || {}, body.signed_copy_image ? "img" : "", body.submit === true,
+    ...(body.source ? [body.source, body.client_paper_reference || "", body.signatory_name_on_paper || "", body.scan_reference || "", body.scan_hash || ""] : [])
   ])).digest("hex");
 }
 
@@ -280,6 +285,17 @@ function requireAssignedDispatch(actor, dispatch, db, res) {
   if (isAssignedToDispatch(actor, dispatch, db)) return true;
   res.status(403).json({ success: false, message: "This role may work only on an assigned dispatch." });
   return false;
+}
+
+// Timesheet create/update/submit only. The Sales Desk keys in signed paper for dispatches in its own
+// commercial portfolio; every other role keeps the unchanged assigned-dispatch rule.
+function requireWorksheetDispatchAccess(actor, dispatch, db, res) {
+  if (actor.role === roles.SALES) {
+    if (isDispatchInSalesPortfolio(dispatch, actor, db)) return true;
+    res.status(403).json({ success: false, message: "Sales may enter paper timesheets only for dispatches in their own portfolio." });
+    return false;
+  }
+  return requireAssignedDispatch(actor, dispatch, db, res);
 }
 
 // V5 never stores a rate on a Timesheet. Instead, its daily source record
@@ -546,16 +562,26 @@ export const createWorksheet = (req, res) => {
   const dispatchId = req.params.id;
   const job = req.db.dispatch_cards.find((item) => item.id === dispatchId);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
-  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (!requireWorksheetDispatchAccess(actor, job, req.db, res)) return;
 
   const body = req.body;
-  const isContractorOnBehalf = body.worker_type === "contractor" && !body.technician_id && STAFF_ROLES.includes(actor.role);
+  // Sales Desk paper entry: Sales enters signed paper under its own account, never as a Supervisor.
+  const paperError = paperEntryCreateRefusal(actor, body);
+  if (paperError) return res.status(400).json({ success: false, code: "PAPER_ENTRY_INVALID", message: paperError });
+  const isPaperEntryRequest = body.source === PAPER_SOURCE;
+  if (isPaperEntryRequest && body.hours_breakdown === undefined) {
+    return res.status(400).json({ success: false, code: "PAPER_ENTRY_INVALID", message: "A paper entry must give Normal, 1.5 and 2.0 hours exactly as written on the paper." });
+  }
+  const isContractorOnBehalf = body.worker_type === "contractor" && !body.technician_id && (STAFF_ROLES.includes(actor.role) || actor.role === roles.SALES);
   if (isContractorOnBehalf && !String(body.worker_name || "").trim()) {
     return res.status(400).json({ success: false, message: "A contractor name is required when entering a Timesheet for a contractor without an account." });
   }
-  const technicianId = isContractorOnBehalf ? null : ([roles.ADMIN, roles.OPERATIONS].includes(actor.role)
-    ? (body.technician_id || job.assigned_technician_id || (job.assigned_technician_ids || [])[0])
-    : actor.id);
+  // Sales is never the worker: the paper names the Technician (or contractor), so Sales must say who.
+  const technicianId = isContractorOnBehalf ? null : (actor.role === roles.SALES
+    ? (body.technician_id || null)
+    : [roles.ADMIN, roles.OPERATIONS].includes(actor.role)
+      ? (body.technician_id || job.assigned_technician_id || (job.assigned_technician_ids || [])[0])
+      : actor.id);
   const technician = technicianId ? req.db.users.find((user) => user.id === technicianId && user.role === roles.TECHNICIAN) : null;
   if (!technician && !isContractorOnBehalf) return res.status(400).json({ success: false, message: "A valid Technician is required for a timesheet." });
   const quoteLine = v5QuoteLineForWorksheet(req.db, job, body.quote_line_id);
@@ -601,6 +627,8 @@ export const createWorksheet = (req, res) => {
 
   const fieldError = applyTimesheetFields(worksheet, body, actor, { creating: true });
   if (fieldError) return res.status(400).json({ success: false, message: fieldError });
+  // created_by stays the real actor (set above); this adds source, capture_method and the paper evidence block.
+  if (isPaperEntryRequest) stampPaperEntry(worksheet, actor, body, worksheet.created_at);
   if (isTimesheetV2(worksheet)) {
     if (!isIsoDate(worksheet.work_date)) return res.status(400).json({ success: false, message: "Work date must be a valid date (YYYY-MM-DD)." });
     // One worker + one date + one dispatch = one Timesheet. A second one is refused, not merged.
@@ -633,10 +661,12 @@ export const updateWorksheet = (req, res) => {
   if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
-  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (!requireWorksheetDispatchAccess(actor, job, req.db, res)) return;
   if (actor.role === roles.TECHNICIAN && worksheet.technician_id !== actor.id) {
     return res.status(403).json({ success: false, message: "A Technician may edit only their own worksheet." });
   }
+  const salesScope = salesOwnPaperEntryRefusal(actor, worksheet);
+  if (salesScope) return res.status(403).json({ success: false, message: salesScope });
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
     return res.status(400).json({ success: false, message: `Timesheet cannot be edited in ${worksheet.status} status.` });
@@ -644,6 +674,8 @@ export const updateWorksheet = (req, res) => {
 
   const before = { ...worksheet };
   const body = req.body;
+  const paperUpdateError = paperEntryUpdateRefusal(worksheet, body);
+  if (paperUpdateError) return res.status(400).json({ success: false, code: "PAPER_ENTRY_INVALID", message: paperUpdateError });
   
   if (body.activity !== undefined) worksheet.activity = body.activity;
   if (body.quote_line_id !== undefined) {
@@ -653,6 +685,7 @@ export const updateWorksheet = (req, res) => {
   }
   const updateError = applyTimesheetFields(worksheet, body, actor, { creating: false });
   if (updateError) return res.status(400).json({ success: false, message: updateError });
+  applyPaperEntryUpdate(worksheet, body);
   if (isTimesheetV2(worksheet)) worksheet.server_checks = classifyTimesheet(worksheet);
   if (body.tools_used !== undefined) worksheet.tools_used = String(body.tools_used || "").trim();
   if (body.outcomes !== undefined) worksheet.outcomes = String(body.outcomes || "").trim();
@@ -673,10 +706,12 @@ export const submitWorksheet = (req, res) => {
   if (!worksheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
   const job = req.db.dispatch_cards.find((item) => item.id === worksheet.dispatch_card_id);
   if (!job) return res.status(404).json({ success: false, message: "Dispatch card not found." });
-  if (!requireAssignedDispatch(actor, job, req.db, res)) return;
+  if (!requireWorksheetDispatchAccess(actor, job, req.db, res)) return;
   if (actor.role === roles.TECHNICIAN && worksheet.technician_id !== actor.id) {
     return res.status(403).json({ success: false, message: "A Technician may submit only their own worksheet." });
   }
+  const salesScope = salesOwnPaperEntryRefusal(actor, worksheet);
+  if (salesScope) return res.status(403).json({ success: false, message: salesScope });
   
   if (!["Draft", "Returned_For_Correction"].includes(worksheet.status)) {
     return res.status(400).json({ success: false, message: `Timesheet cannot be submitted from ${worksheet.status}.` });

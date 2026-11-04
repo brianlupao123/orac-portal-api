@@ -257,7 +257,13 @@ export const CreateDailyTimesheetSchema = z.object({
     customer_representative: SignatureSchema.optional()
   }).optional(),
   signed_copy_image: z.string().optional(),
-  submit: z.boolean().optional()
+  submit: z.boolean().optional(),
+  // Sales Desk paper entry (capture_method and entered_by are server-stamped, never accepted from the client).
+  source: z.literal("paper_entry").optional(),
+  client_paper_reference: z.string().max(200).optional(),
+  signatory_name_on_paper: z.string().max(120).optional(),
+  scan_reference: z.string().max(500).optional(),
+  scan_hash: z.string().max(200).optional()
 });
 
 export const UpdateDailyTimesheetSchema = CreateDailyTimesheetSchema.partial();

@@ -245,6 +245,8 @@ export function scopeOperationalData(data, collectionName, actor, db) {
     }
     if (collectionName === "daily_timesheets") {
       return data.filter((sheet) => {
+        // Daily Time Sheets carry no dispatch link, so Sales also sees the paper entries it keyed in itself.
+        if (sheet.source === "paper_entry" && sheet.created_by === actor.id) return true;
         const dispatch = (db?.dispatch_cards || []).find((d) => d.id === sheet.dispatch_card_id);
         return dispatch && isDispatchInSalesPortfolio(dispatch, actor, db);
       });

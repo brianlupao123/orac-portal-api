@@ -15,6 +15,7 @@ import {
 import { createHash } from "node:crypto";
 import { v5Enabled, allocatedMaterialsByQuoteLine } from "../v5CommercialWorkflow.js";
 import { v5VerifiedHoursByQuoteLine } from "../v5SignatureEvidence.js";
+import { PAPER_SOURCE, PAPER_CAPTURE_METHOD } from "../paperEntry.js";
 
 const off = (res, name) => res.status(409).json({ success: false, code: "FEATURE_DISABLED", message: `${name} is not enabled yet.` });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -175,14 +176,15 @@ export function capturePaperTimesheet(req, res) {
   const complete = check.complete;
   Object.assign(candidate, {
     status: complete ? "Captured_From_Signed_Paper" : "Draft",
+    source: PAPER_SOURCE, capture_method: PAPER_CAPTURE_METHOD,
     created_by: actor.id, created_at: now, updated_at: now, submitted_by: null, supervisor_comment: "",
     signatures: { employee: { name: b.signatory_name_on_paper || b.worker_name || "Worker (per signed paper)", date: b.work_date, method: "paper_scan" } },
     signed_copy_image: b.scan_reference || b.scan_hash || null,
     paper_capture: {
-      captured_by: actor.id, captured_by_name: actor.name || null, captured_at: now, reason_code: b.reason_code, reason_text: b.reason_text || null,
+      captured_by: actor.id, captured_by_name: actor.name || null, captured_by_role: actor.role, capture_method: PAPER_CAPTURE_METHOD, captured_at: now, reason_code: b.reason_code, reason_text: b.reason_text || null,
       source_channel: b.source_channel, client_paper_reference: b.client_paper_reference, received_date: b.received_date,
       custodian_user_id: b.custodian_user_id, custody_location: b.custody_location, retention_category: b.retention_category,
-      scan_hash: b.scan_hash, signatory_name_as_written: b.signatory_name_on_paper || null, signatory_authenticated: false,
+      scan_hash: b.scan_hash, scan_reference: b.scan_reference || null, signatory_name_as_written: b.signatory_name_on_paper || null, signatory_authenticated: false,
       finance_sampling: check.sampled, missing_fields: check.missing
     },
     paper_evidence: { complete }

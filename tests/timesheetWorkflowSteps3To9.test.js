@@ -8,6 +8,8 @@ import { acknowledgeWorksheet } from "../src/controllers/timesheetAcknowledgemen
 import { isEligibleForDb } from "../src/timesheetEligibility.js";
 import { issueLegacyInvoice, transitionQuote } from "../src/stateMachine.js";
 import { makeRes, makeReq } from "./_http.js";
+import { createWorksheet, updateWorksheet, submitWorksheet } from "../src/controllers/dispatchController.js";
+import { CreateTimesheetSchemaV2 } from "../src/timesheetSchemasV2.js";
 
 const ALL = ["TIMESHEET_ELIGIBILITY_CUTOVER", "TIMESHEET_CLIENT_RETURN", ...Object.values(W.FLAGS)];
 const withFlags = (flags, fn) => async () => {
@@ -256,4 +258,138 @@ test("revision swap: original stays eligible until the revision is eligible; inv
   const o2 = ws({ id: "o2", status: "Supervisor_Approved", invoice_locked: { invoice_id: "i" } }); const r2 = ws({ id: "r2", status: "Supervisor_Approved", revises_worksheet_id: "o2", post_invoice: true });
   const db2 = makeDb([o2, r2]); assert.equal(W.swapRevisionIfEligible(db2, st, { id: "x" }, r2), false);
   assert.equal(call(C.resolvePostInvoiceRevision, { db: { ...db2 }, user: "fin1", params: { id: "r2" } }).statusCode, 409); // flag off -> FEATURE_DISABLED path
+}));
+
+// ---- Phase 2: Dual-Desk entry - Sales keys in signed paper under its OWN account -----------------
+const paperBody = (o = {}) => ({
+  activity: "Pump overhaul", work_date: "2026-03-04", technician_id: "t1", hours_breakdown: { normal: 8, ot_15: 0, ot_20: 0 },
+  source: "paper_entry", client_paper_reference: "Booklet #104, Sheet 12", signatory_name_on_paper: "E. Moyo",
+  signatures: { employee: { name: "W Worker", date: "2026-03-04", method: "paper_scan" } }, ...o });
+const salesDb = () => { const db = makeDb(); db.quotes[0].sales_owner_id = "sales1"; return db; };
+const enter = (db, user, body, id = "d1") => call(createWorksheet, { db, user, params: { id }, body });
+
+test("Phase 2 permissions: Sales can create/submit Timesheets and Daily Time Sheets but still cannot review or confirm", withFlags([], () => {
+  for (const p of ["createWorksheet", "submitWorksheet", "createDailyTimesheet", "submitDailyTimesheet"]) assert.equal(hasPermission(u("s", "Sales"), p), true, p);
+  for (const p of ["reviewWorksheet", "reviewDailyTimesheet", "acknowledgeWorksheet", "addTimesheet", "addMaterials"]) assert.equal(hasPermission(u("s", "Sales"), p), false, p);
+  for (const role of ["Finance", "Management", "Client Viewer"]) assert.equal(hasPermission(u("x", role), "createWorksheet"), false, role);
+}));
+
+test("Phase 2: Sales enters a Timesheet natively - created_by is Sales, capture_method and paper evidence recorded, never a client confirmation", withFlags([], () => {
+  const db = salesDb();
+  const res = enter(db, "sales1", paperBody({ scan_reference: "scans/b104-s12.pdf", scan_hash: "abc123", submit: true }));
+  assert.equal(res.statusCode, 200);
+  const rec = db.field_worksheets[0];
+  assert.equal(rec.created_by, "sales1"); assert.equal(rec.submitted_by, "sales1"); assert.equal(rec.status, "Submitted");
+  assert.equal(rec.technician_id, "t1"); assert.equal(rec.worker_name, "t1");
+  assert.equal(rec.source, "paper_entry"); assert.equal(rec.capture_method, "paper_transcription");
+  assert.deepEqual({ ...rec.paper_entry, entered_at: undefined }, { entered_by: "sales1", entered_by_name: "sales1", entered_by_role: "Sales", entered_at: undefined,
+    client_paper_reference: "Booklet #104, Sheet 12", signatory_name_on_paper: "E. Moyo", signatory_authenticated: false, scan_reference: "scans/b104-s12.pdf", scan_hash: "abc123" });
+  assert.equal(rec.signed_copy_image, "scans/b104-s12.pdf");
+  // The worker's declaration stays the worker's: the client signatory is NOT written over it.
+  assert.equal(rec.signatures.employee.name, "W Worker");
+  assert.equal(rec.client_acknowledgement, undefined);
+  assert.equal(isEligibleForDb(db, rec), false, "a Submitted paper entry still needs client confirmation and review");
+  assert.equal(db.stock_movements.length, 0); assert.equal(db.material_usage.length, 0);
+  assert.equal(stores.get(db).audits.at(-1).action, "WORKSHEET_SUBMITTED");
+}));
+
+test("Phase 2: the scan is optional for a Draft, but Sales cannot submit without a signed copy until the scan is added", withFlags([], () => {
+  const db = salesDb();
+  const draft = enter(db, "sales1", paperBody());
+  assert.equal(draft.statusCode, 200); assert.equal(db.field_worksheets[0].status, "Draft");
+  assert.equal(db.field_worksheets[0].paper_entry.scan_reference, null);
+  const id = db.field_worksheets[0].id;
+  const blocked = call(submitWorksheet, { db, user: "sales1", params: { id } });
+  assert.equal(blocked.statusCode, 400); assert.equal(blocked.body.code, "SIGNOFF_INCOMPLETE");
+  assert.equal(call(updateWorksheet, { db, user: "sales1", params: { id }, body: { scan_reference: "scans/b104-s12.pdf" } }).statusCode, 200);
+  assert.equal(db.field_worksheets[0].signed_copy_image, "scans/b104-s12.pdf");
+  assert.equal(call(submitWorksheet, { db, user: "sales1", params: { id } }).statusCode, 200);
+  assert.equal(db.field_worksheets[0].submitted_by, "sales1");
+}));
+
+test("Phase 2: Sales may only enter paper, with its reference and signatory, for a named Technician or contractor", withFlags([], () => {
+  const db = salesDb();
+  const refused = (body) => { const r = enter(db, "sales1", body); assert.equal(r.statusCode, 400); return r; };
+  assert.equal(refused(paperBody({ source: undefined })).body.code, "PAPER_ENTRY_INVALID");
+  assert.equal(refused(paperBody({ client_paper_reference: " " })).body.code, "PAPER_ENTRY_INVALID");
+  assert.equal(refused(paperBody({ signatory_name_on_paper: undefined })).body.code, "PAPER_ENTRY_INVALID");
+  assert.equal(refused(paperBody({ hours_breakdown: undefined, hours: 8 })).body.code, "PAPER_ENTRY_INVALID");
+  assert.match(refused(paperBody({ signatures: { employee: { name: "W", date: "2026-03-04", method: "on_device", attest: true } } })).body.message, /on-device/);
+  refused(paperBody({ technician_id: undefined }));          // Sales is never the worker
+  refused(paperBody({ technician_id: "sales2" }));           // and cannot name a non-Technician
+  assert.equal(db.field_worksheets.length, 0);
+  // contractor without an account is allowed, by name
+  const c = enter(db, "sales1", paperBody({ technician_id: undefined, worker_type: "contractor", worker_name: "Contractor Joe" }));
+  assert.equal(c.statusCode, 200); assert.equal(db.field_worksheets[0].technician_id, null); assert.equal(db.field_worksheets[0].worker_name, "Contractor Joe");
+}));
+
+test("Phase 2: Sales is limited to its own portfolio and to the paper entries it created", withFlags([], () => {
+  const db = salesDb();
+  assert.equal(enter(db, "sales2", paperBody()).statusCode, 403, "another Sales user's client");
+  assert.equal(enter(db, "sales1", paperBody(), "missing").statusCode, 404);
+  assert.equal(enter(db, "sales1", paperBody()).statusCode, 200);
+  const mine = db.field_worksheets[0].id;
+  assert.equal(call(updateWorksheet, { db, user: "sales2", params: { id: mine }, body: { activity: "x" } }).statusCode, 403);
+  assert.equal(call(submitWorksheet, { db, user: "sales2", params: { id: mine } }).statusCode, 403);
+  // a Technician's own Draft is not Sales' to edit, even inside the portfolio
+  db.field_worksheets.push({ id: "tech-draft", dispatch_card_id: "d1", technician_id: "t1", status: "Draft", created_by: "t1", work_date: "2026-03-09", hours: 8, timesheet_version: 2, hours_breakdown: { normal: 8, ot_15: 0, ot_20: 0 } });
+  assert.equal(call(updateWorksheet, { db, user: "sales1", params: { id: "tech-draft" }, body: { activity: "x" } }).statusCode, 403);
+  assert.equal(call(submitWorksheet, { db, user: "sales1", params: { id: "tech-draft" } }).statusCode, 403);
+  // an Admin may still correct a paper entry, and entered_by is never rewritten
+  assert.equal(call(updateWorksheet, { db, user: "admin", params: { id: mine }, body: { client_paper_reference: "Booklet #104, Sheet 13" } }).statusCode, 200);
+  assert.equal(db.field_worksheets[0].paper_entry.client_paper_reference, "Booklet #104, Sheet 13");
+  assert.equal(db.field_worksheets[0].paper_entry.entered_by, "sales1");
+}));
+
+test("Phase 2: duplicates and offline replays behave as before for paper entries", withFlags([], () => {
+  const db = salesDb();
+  const body = paperBody({ client_request_id: "paper-req-0001" });
+  assert.equal(enter(db, "sales1", body).statusCode, 200);
+  const replay = enter(db, "sales1", body);
+  assert.equal(replay.statusCode, 200); assert.equal(replay.body.replayed, true); assert.equal(db.field_worksheets.length, 1);
+  assert.equal(enter(db, "sales1", { ...body, client_paper_reference: "Booklet #104, Sheet 99" }).statusCode, 409, "same reference, different paper evidence");
+  assert.equal(enter(db, "sales1", paperBody()).body.code, "DUPLICATE_TIMESHEET", "one worker + date + dispatch = one Timesheet");
+}));
+
+test("Phase 2: non-Sales roles are unchanged (no paper stamp unless they send source paper_entry) and cannot send stray paper details", withFlags([], () => {
+  const db = makeDb();
+  const plain = call(createWorksheet, { db, user: "admin", params: { id: "d1" }, body: { activity: "Inspection", work_date: "2026-03-10", technician_id: "t1", hours_breakdown: { normal: 8, ot_15: 0, ot_20: 0 } } });
+  assert.equal(plain.statusCode, 200);
+  const rec = db.field_worksheets[0];
+  assert.equal(rec.source, undefined); assert.equal(rec.capture_method, undefined); assert.equal(rec.paper_entry, undefined);
+  const stray = call(createWorksheet, { db, user: "admin", params: { id: "d1" }, body: { activity: "x", work_date: "2026-03-11", technician_id: "t1", hours_breakdown: { normal: 8, ot_15: 0, ot_20: 0 }, scan_hash: "abc" } });
+  assert.equal(stray.statusCode, 400);
+}));
+
+test("Phase 2: request schema accepts the paper metadata, and rejects stray paper fields or a client-supplied capture_method", () => {
+  const base = { activity: "Pump overhaul", hours_breakdown: { normal: 8 }, technician_id: "t1" };
+  const ok = CreateTimesheetSchemaV2.safeParse({ ...base, source: "paper_entry", client_paper_reference: "Booklet #104, Sheet 12", signatory_name_on_paper: "E. Moyo", scan_reference: "scans/x.pdf", scan_hash: "abc123" });
+  assert.equal(ok.success, true);
+  assert.equal(CreateTimesheetSchemaV2.safeParse({ ...base, source: "paper_entry", client_paper_reference: "R" }).success, false, "signatory required");
+  assert.equal(CreateTimesheetSchemaV2.safeParse({ ...base, client_paper_reference: "R" }).success, false, "paper fields need source");
+  assert.equal(CreateTimesheetSchemaV2.safeParse({ ...base, source: "kiosk" }).success, false);
+  assert.equal(CreateTimesheetSchemaV2.safeParse({ ...base, source: "paper_entry", client_paper_reference: "R", signatory_name_on_paper: "S", capture_method: "typed" }).success, false, "capture_method is server-stamped");
+  assert.equal(CreateTimesheetSchemaV2.safeParse(base).success, true, "ordinary Timesheet bodies are unchanged");
+});
+
+test("Phase 2: the existing PAPER_CAPTURE model stamps source and capture_method, and still keeps its owner-config gates", withFlags(["TIMESHEET_PAPER_CAPTURE"], () => {
+  const db = makeDb(); cfg(db);
+  const res = call(C.capturePaperTimesheet, { db, user: "sales1", body: capture({ scan_reference: "scans/p1.pdf" }) });
+  assert.equal(res.statusCode, 201);
+  const rec = db.field_worksheets[0];
+  assert.equal(rec.created_by, "sales1"); assert.equal(rec.source, "paper_entry"); assert.equal(rec.capture_method, "paper_transcription");
+  assert.equal(rec.paper_capture.capture_method, "paper_transcription"); assert.equal(rec.paper_capture.captured_by_role, "Sales");
+  assert.equal(rec.paper_capture.scan_reference, "scans/p1.pdf"); assert.equal(rec.paper_capture.signatory_authenticated, false);
+  assert.equal(rec.signed_copy_image, "scans/p1.pdf");
+  // an unlisted Sales user is still blocked by owner confirmation #3
+  assert.equal(call(C.capturePaperTimesheet, { db, user: "sales2", body: capture({ work_date: "2026-03-08" }) }).statusCode, 409);
+}));
+
+test("Phase 2: a Sales user who entered paper cannot review a Worksheet that includes it (segregation)", withFlags(["TIMESHEET_SALES_ACCESS"], () => {
+  const db = makeDb([ws({ id: "e1", paper_entry: { entered_by: "sales2" } })]);
+  db.users.push(u("sales3", "Sales"));
+  const rec = { built_by: "fin1", submitted_by: "fin1", roster: [], lines: [{ sources: [{ source_type: "timesheet", record_id: "e1" }] }] };
+  assert.match(W.worksheetReviewerRefusal(db, rec, db.users.find((x) => x.id === "sales2")), /entered paper/);
+  assert.equal(W.worksheetReviewerRefusal(db, rec, db.users.find((x) => x.id === "sales3")), null);
+  assert.deepEqual(W.eligibleWorksheetReviewers(db, rec).map((x) => x.id).sort(), ["sales1", "sales3"]);
 }));

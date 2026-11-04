@@ -166,6 +166,7 @@ export function worksheetReviewerRefusal(db, record, actor) {
   const ids = new Set((record.lines || []).flatMap((l) => (l.sources || []).map((s) => s.record_id)));
   for (const ws of db.field_worksheets || []) {
     if (ids.has(ws.id) && ws.paper_capture?.captured_by === actor.id) return "You captured paper included in this Worksheet and cannot review it.";
+    if (ids.has(ws.id) && ws.paper_entry?.entered_by === actor.id) return "You entered paper included in this Worksheet and cannot review it.";
   }
   if ((record.roster || []).some((r) => r.technician_id && r.technician_id === actor.id)) return "You are on this Worksheet's roster and cannot review your own time.";
   return null;

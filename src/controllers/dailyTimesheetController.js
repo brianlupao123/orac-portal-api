@@ -1,5 +1,8 @@
 import { requirePermission, roles } from "../permissions.js";
 import { validateDailyTimesheetEntries, voidStartIndex } from "../dailyTimesheetValidation.js";
+import {
+  PAPER_SOURCE, isPaperEntry, paperEntryCreateRefusal, stampPaperEntry, paperEntryUpdateRefusal, applyPaperEntryUpdate
+} from "../paperEntry.js";
 import { isTechnicianRecord, technicianDisplayName } from "../technicianProfiles.js";
 
 function getActor(req) {
@@ -10,8 +13,9 @@ function deny(res, message) {
   return res.status(403).json({ success: false, message });
 }
 
-/** Admin/Operations/Supervisor may act on anyone's sheet; a Technician only ever their own. */
+/** Admin/Operations/Supervisor may act on anyone's sheet; a Technician only ever their own; Sales only the paper entries it created. */
 function canActOnOwnerRecord(actor, record) {
+  if (actor.role === roles.SALES) return isPaperEntry(record) && record.created_by === actor.id;
   if ([roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.MANAGEMENT].includes(actor.role)) return true;
   return record.technician_id === actor.id;
 }
@@ -21,6 +25,9 @@ export const createDailyTimesheet = (req, res) => {
   requirePermission(actor, "createDailyTimesheet");
 
   const body = req.body;
+  // Sales Desk paper entry: Sales enters signed paper under its own account and may only send paper entries.
+  const paperError = paperEntryCreateRefusal(actor, body);
+  if (paperError) return res.status(400).json({ success: false, code: "PAPER_ENTRY_INVALID", message: paperError });
   // A Technician can only ever file their own sheet; staff roles may file on
   // behalf of a crew member (parallel to how the kiosk batches technician time).
   const technicianId = actor.role === roles.TECHNICIAN ? actor.id : (body.technician_id || null);
@@ -62,6 +69,9 @@ export const createDailyTimesheet = (req, res) => {
     updated_at: now
   };
 
+  // created_by stays the real actor; this adds source, capture_method and the paper evidence block.
+  if (body.source === PAPER_SOURCE) stampPaperEntry(record, actor, body, now);
+
   req.db.daily_timesheets.push(record);
   req.store.audit(req.db, actor, "daily_timesheet", record.id, record.status === "Submitted" ? "DAILY_TIMESHEET_SUBMITTED" : "DAILY_TIMESHEET_CREATED", null, record);
 
@@ -84,6 +94,8 @@ export const updateDailyTimesheet = (req, res) => {
     const entryErrors = validateDailyTimesheetEntries(body.entries);
     if (entryErrors.length) return res.status(400).json({ success: false, message: "Daily time sheet entries are invalid.", errors: entryErrors });
   }
+  const paperUpdateError = paperEntryUpdateRefusal(record, body);
+  if (paperUpdateError) return res.status(400).json({ success: false, code: "PAPER_ENTRY_INVALID", message: paperUpdateError });
 
   const before = { ...record };
   if (body.name_on_form !== undefined) record.name_on_form = body.name_on_form;
@@ -93,6 +105,7 @@ export const updateDailyTimesheet = (req, res) => {
   if (body.entries !== undefined) record.entries = body.entries;
   if (body.signatures !== undefined) record.signatures = { ...record.signatures, ...body.signatures };
   if (body.signed_copy_image !== undefined) record.signed_copy_image = body.signed_copy_image;
+  applyPaperEntryUpdate(record, body);
   record.updated_at = new Date().toISOString();
 
   req.store.audit(req.db, actor, "daily_timesheet", record.id, "DAILY_TIMESHEET_UPDATED", before, record);

@@ -20,6 +20,16 @@ const EmployeeSignoff = z.object({
   attest: z.boolean().optional()
 }).strict();
 
+// Sales Desk paper entry. capture_method and who entered it are server-stamped, so they are NOT accepted here.
+const PaperEntryFields = {
+  source: z.literal("paper_entry").optional(),
+  client_paper_reference: z.string().trim().max(200).optional(),
+  signatory_name_on_paper: z.string().trim().max(120).optional(),
+  scan_reference: z.string().trim().max(500).optional(),
+  scan_hash: z.string().trim().max(200).optional()
+};
+const PAPER_KEYS = ["client_paper_reference", "signatory_name_on_paper", "scan_reference", "scan_hash"];
+
 const shared = {
   activity: z.string().trim().min(1, "Work description is required").max(2000),
   hours_breakdown: Breakdown.optional(),
@@ -41,9 +51,15 @@ const shared = {
   signed_copy_image: z.string().optional(),
   client_request_id: z.string().min(8, "Submission reference is too short").max(100, "Submission reference is too long").optional(),
   captured_offline_at: z.string().max(40).optional(),
-  submit: z.boolean().optional()
+  submit: z.boolean().optional(),
+  ...PaperEntryFields
 };
 
 const needHours = (v) => v.hours_breakdown !== undefined || v.hours !== undefined;
-export const CreateTimesheetSchemaV2 = z.object(shared).strict().refine(needHours, { message: "Normal, 1.5 and 2.0 hours are required.", path: ["hours_breakdown"] });
+const paperConsistent = (v) => (v.source === "paper_entry"
+  ? Boolean(v.client_paper_reference) && Boolean(v.signatory_name_on_paper)
+  : PAPER_KEYS.every((k) => !v[k]));
+export const CreateTimesheetSchemaV2 = z.object(shared).strict()
+  .refine(needHours, { message: "Normal, 1.5 and 2.0 hours are required.", path: ["hours_breakdown"] })
+  .refine(paperConsistent, { message: "A paper entry needs source paper_entry with client_paper_reference and signatory_name_on_paper; paper details cannot be sent without it.", path: ["source"] });
 export const UpdateTimesheetSchemaV2 = z.object(shared).partial().strict();
