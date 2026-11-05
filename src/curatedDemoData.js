@@ -67,9 +67,9 @@ export function buildCuratedDemoData(users = []) {
   ];
 
   const dispatch_cards = [
-    { id: "dc_demo_004", dispatch_number: "DC-2026-004", quotation_id: "q_demo_004", purchase_order_id: "po_demo_004", equipment_tag_id: "eq_smc_0102", status: "In_Progress", assigned_technician_id: technicianId, scheduled_start: daysAgo(5), started_before_po: false },
-    { id: "dc_demo_005", dispatch_number: "DC-2026-005", quotation_id: "q_demo_005", purchase_order_id: "po_demo_005", equipment_tag_id: "eq_smelt_0041", status: "In_Progress", assigned_technician_id: technicianId, scheduled_start: daysAgo(8), started_before_po: false },
-    { id: "dc_demo_006", dispatch_number: "DC-2026-006", quotation_id: "q_demo_006", purchase_order_id: "po_demo_006", equipment_tag_id: "eq_smc_0207", status: "Completed", assigned_technician_id: technicianId, scheduled_start: daysAgo(42), started_before_po: false }
+    { id: "dc_demo_004", dispatch_number: "DC-2026-004", quotation_id: "q_demo_004", purchase_order_id: "po_demo_004", equipment_tag_id: "eq_smc_0102", status: "In_Progress", assigned_technician_id: technicianId, assigned_supervisor_id: supervisorId, scheduled_start: daysAgo(5), started_before_po: false },
+    { id: "dc_demo_005", dispatch_number: "DC-2026-005", quotation_id: "q_demo_005", purchase_order_id: "po_demo_005", equipment_tag_id: "eq_smelt_0041", status: "In_Progress", assigned_technician_id: technicianId, assigned_supervisor_id: supervisorId, scheduled_start: daysAgo(8), started_before_po: false },
+    { id: "dc_demo_006", dispatch_number: "DC-2026-006", quotation_id: "q_demo_006", purchase_order_id: "po_demo_006", equipment_tag_id: "eq_smc_0207", status: "Completed", assigned_technician_id: technicianId, assigned_supervisor_id: supervisorId, scheduled_start: daysAgo(42), started_before_po: false }
   ];
 
   const field_worksheets = [
