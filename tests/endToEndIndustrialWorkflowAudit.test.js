@@ -14,7 +14,7 @@ import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreControll
 import { acknowledgeWorksheet } from "../src/controllers/timesheetAcknowledgementController.js";
 import { worksheetReviewerRefusal } from "../src/timesheetWorkflow.js";
 import { previewWorksheetRegister, createWorksheetRegister, submitWorksheetRegister, reviewWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
-import { computeTechnicianPayroll, buildPastelPayrollCsv, PASTEL_HEADERS } from "../src/payroll.js";
+import { computeTechnicianPayroll, buildPastelPayrollCsv, computeLabourCost, PASTEL_HEADERS } from "../src/payroll.js";
 import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
 
 const call = (fn, db, user, body = {}, params = {}, query = {}) => {
@@ -333,12 +333,18 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     // Commercial Margin Evaluation:
     // Billed client revenue: 22h @ $12.50 = $275.00
     const clientRevenue = 275.00;
-    // Worker 1: 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
-    // Worker 2: 8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
+
+    // Direct artisan wage cost computed dynamically from payroll summary:
+    // Worker 1 (Fitter, $6.50/hr): 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
+    // Worker 2 (Rigger, $6.50/hr): 8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
     // Total internal labour cost = $175.50
-    // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% gross margin)
-    const internalCost = 175.50;
-    const grossMargin = clientRevenue - internalCost;
+    const labourCost = computeLabourCost(payrollSummary, { Fitter: 6.50, Rigger: 6.50 });
+    assert.equal(labourCost.total_cost, 175.50);
+    assert.equal(labourCost.employees.length, 2);
+    assert.equal(labourCost.employees[0].total_cost, 71.50);
+    assert.equal(labourCost.employees[1].total_cost, 104.00);
+
+    const grossMargin = clientRevenue - labourCost.total_cost;
     assert.ok(grossMargin > 0, "Commercial gross margin must be strictly positive");
     assert.equal(grossMargin, 99.50);
     const marginPercent = ((grossMargin / clientRevenue) * 100).toFixed(2);

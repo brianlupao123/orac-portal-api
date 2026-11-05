@@ -52,6 +52,9 @@ class Mutex {
 
 /* ── Seed data ── */
 function seedData() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("seedData() must never run in production. Demo accounts and default passwords cannot be seeded.");
+  }
   const users = [
     { id: "u_admin", name: "Admin User", email: "admin@orac.co.zw", role: "Admin", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
     { id: "u_management", name: "Management User", email: "management@orac.co.zw", role: "Management", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
@@ -219,10 +222,30 @@ function seedData() {
   };
 }
 
-export function normalizeDb(db, { seedDemoRecords = true } = {}) {
-  const seeded = seedData();
-  for (const [key, value] of Object.entries(seeded)) {
-    if (!Array.isArray(value)) continue;
+export const SCHEMA_COLLECTIONS = [
+  "users", "clients", "mine_sites", "plants", "plant_sections", "equipment_tags",
+  "catalog_items", "leads", "idempotency_keys", "quotes", "quote_lines",
+  "purchase_orders", "po_amendments", "dispatch_cards", "field_worksheets",
+  "timesheets", "daily_timesheets", "contractor_log_sheets", "worksheet_registers",
+  "timesheet_authorities", "timesheet_paper_custody", "timesheet_variance_overrides",
+  "po_scope_evidence", "v5_client_supervisor_contacts", "v5_paper_signatures",
+  "v5_supervisor_confirmations", "v5_material_allocations", "v5_amendment_dispatch_links",
+  "v5_amendment_evidence_allocations", "v5_invoice_drafts", "v5_invoices",
+  "v5_invoice_lines", "v5_invoice_source_consumption", "v5_invoice_events",
+  "v5_invoice_number_ledger", "v5_line_completions", "v5_amendment_supersessions",
+  "v5_allocation_remaps", "v5_invoice_idempotency", "material_usage", "invoices",
+  "legacy_invoice_drafts", "legacy_invoice_idempotency", "invoice_lines",
+  "invoice_payments", "invoice_credit_notes", "pastel_export_batches",
+  "pastel_export_lines", "suppliers", "stock_items", "stock_movements",
+  "contracts", "maintenance_schedules", "audit_logs", "notifications",
+  "access_requests", "service_requests", "internal_work_requests"
+];
+
+export function normalizeDb(db, { seedDemoRecords = process.env.NODE_ENV !== "production" } = {}) {
+  if (process.env.NODE_ENV === "production" && seedDemoRecords) {
+    throw new Error("Demo records cannot be seeded in production environments.");
+  }
+  for (const key of SCHEMA_COLLECTIONS) {
     if (!Array.isArray(db[key])) db[key] = [];
   }
 
@@ -368,6 +391,10 @@ export function createStore(filePath) {
         return { db, release };
       } catch (err) {
         if (err?.code === "ENOENT") {
+          if (process.env.NODE_ENV === "production") {
+            release();
+            throw new Error("Production file store missing; auto-seeding with demo records is forbidden.");
+          }
           // The file was removed: there is nothing to lose, start from seed data.
           const db = seedData();
           writeFileSync(filePath, JSON.stringify(db, null, 2));

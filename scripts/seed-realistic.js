@@ -217,7 +217,7 @@ const stock_movements = [
 const access_requests = [
   { id: "ar_001", name: "Tatenda Moyo",    email: "tatenda.moyo@example.com",    requested_role: "Technician",    reason: "Joining field service team at Ngezi site",           status: "Pending",  created_at: daysAgo(3) },
   { id: "ar_002", name: "Rumbidzai Choto", email: "rumbi.choto@example.com",     requested_role: "Sales",         reason: "New sales representative for Southern region",       status: "Pending",  created_at: daysAgo(5) },
-  { id: "ar_003", name: "Brian Mapfumo",   email: "brian.mapfumo@example.com",   requested_role: "Operations",    reason: "Promoted to operations coordinator",                 status: "Approved", created_at: daysAgo(15) },
+  { id: "ar_003", name: "Blessing Mapfumo",   email: "blessing.mapfumo@example.com",   requested_role: "Operations",    reason: "Promoted to operations coordinator",                 status: "Approved", created_at: daysAgo(15) },
   { id: "ar_004", name: "Grace Mutasa",    email: "grace.mutasa@zimplats.co.zw", requested_role: "Client Viewer", reason: "Need access to view Zimplats quotes and invoices",   status: "Approved", created_at: daysAgo(20) },
   { id: "ar_005", name: "Tinashe Dube",    email: "tinashe.dube@example.com",    requested_role: "Finance",       reason: "New finance clerk",                                  status: "Rejected", created_at: daysAgo(30) },
 ];

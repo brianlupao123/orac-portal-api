@@ -18,7 +18,7 @@ The implementation belongs to the backend integration checkout:
 | Field | Value |
 |---|---|
 | Repository root | `/workspace/orac-backend` |
-| Git remote | `https://github.com/brianlupao123/orac-portal-api.git` |
+| Git remote | `https://github.com/orac-systems/orac-portal-api.git` |
 | Branch | `codex/fix-fictional-pilot-json-store` |
 | Base commit | `490822b9a4b1c37751b10ddcf85feacf8e713e29` |
 | Change state | Local working-tree changes; no commit or push |
@@ -33,7 +33,7 @@ The tracked implementation is in:
 - `tests/leadIdempotency.test.js`: focused unit and HTTP behavior tests.
 - `src/persistenceMiddleware.js` and `src/postgresStore.js`: existing durable-write and transaction behavior used by this feature; these files were not changed.
 
-The detailed request/response contract for the public-web frontend is in [FRONTEND_CONTRACT.md](C:/Users/BRIAN%20LUPAO/Desktop/ffims-asset-register/reviewed-packets/ORAC-LEAD-RETRY-RESULTS/ORAC-LEAD-RETRY-IMPLEMENTATION-RESULTS/FRONTEND_CONTRACT.md). The controlling source is the API and tests in this repository.
+The detailed request/response contract for the public-web frontend is in [FRONTEND_CONTRACT.md](./docs/FRONTEND_CONTRACT.md). The controlling source is the API and tests in this repository.
 
 ## API Contract
 

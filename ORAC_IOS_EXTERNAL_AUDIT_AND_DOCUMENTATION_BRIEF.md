@@ -49,8 +49,8 @@ tag where applicable.
 
 | Area | Location | Status |
 | --- | --- | --- |
-| Frontend source | `brianlupao123/Orac-IOS-Industrial-Service-Management` | React/Vite static frontend on Render. |
-| Backend source | `brianlupao123/orac-portal-api` | Node.js/Express API on Render. |
+| Frontend source | `orac-systems/Orac-IOS-Industrial-Service-Management` | React/Vite static frontend on Render. |
+| Backend source | `orac-systems/orac-portal-api` | Node.js/Express API on Render. |
 | Database | Neon PostgreSQL JSONB store | Live pilot database. |
 | API health | `GET /healthz` | VERIFIED: HTTP 200 returned `success`, `status`, and `store_driver: postgres`. |
 | Backend tests | `npm test` | VERIFIED: 34 passing tests before data application. |
