@@ -5,11 +5,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { roles } from "../src/permissions.js";
+import { roles, hasPermission } from "../src/permissions.js";
 import { makeDb, makeRes, req, baseBody, addTimesheet } from "./helpers/worksheetRegisterFixture.js";
 import { previewWorksheetRegister, createWorksheetRegister, submitWorksheetRegister, reviewWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
 import { computeTechnicianPayroll, buildPastelPayrollCsv, PASTEL_HEADERS } from "../src/payroll.js";
 import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreController.js";
+import { SERVICE_REQUEST_STATUS, buildLeadFromRequest, findTriageDecision } from "../src/serviceRequestRules.js";
+import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
+import { worksheetReviewerRefusal } from "../src/timesheetWorkflow.js";
 
 const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   const res = makeRes();
@@ -32,19 +35,35 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const serviceRequest = {
       id: "sr_001",
       client_id: "c_test",
-      site_name: "Eureka Gold Smelter",
+      site_name: "Great Dyke Concentrator",
       section: "Chute Liners & Conveyors",
-      description: "Urgent chute liner replacement and conveyor structure realignment",
-      status: "Submitted",
+      service_need: "Urgent chute liner replacement and conveyor structure realignment",
+      urgency: "planned_shutdown",
+      status: SERVICE_REQUEST_STATUS.SUBMITTED,
       created_at: "2026-10-01T08:00:00Z"
     };
     db.service_requests = [serviceRequest];
     assert.equal(db.service_requests.length, 1);
-    assert.equal(db.service_requests[0].status, "Submitted");
+    assert.equal(db.service_requests[0].status, SERVICE_REQUEST_STATUS.SUBMITTED);
 
-    // Operations / Sales triages and converts to lead
-    serviceRequest.status = "Converted_To_Lead";
-    serviceRequest.triaged_by = "u_sales";
+    // Step 1a: Sales acknowledges request
+    const ackDecision = findTriageDecision("acknowledge");
+    assert.ok(ackDecision);
+    serviceRequest.status = ackDecision.to;
+    assert.equal(serviceRequest.status, SERVICE_REQUEST_STATUS.ACKNOWLEDGED);
+
+    // Step 1b: Operations accepts request
+    const acceptDecision = findTriageDecision("accept");
+    assert.ok(acceptDecision);
+    serviceRequest.status = acceptDecision.to;
+    assert.equal(serviceRequest.status, SERVICE_REQUEST_STATUS.ACCEPTED);
+
+    // Step 1c: Convert accepted request to lead using pure domain rule
+    const lead = buildLeadFromRequest(serviceRequest, db, "lead_e2e", "2026-10-01T09:00:00Z");
+    assert.ok(lead);
+    assert.equal(lead.service_request_id, "sr_001");
+    assert.equal(lead.client_id, "c_test");
+    serviceRequest.status = SERVICE_REQUEST_STATUS.CONVERTED;
     assert.equal(serviceRequest.status, "Converted_To_Lead");
   });
 
@@ -89,6 +108,11 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const salesUser = db.users.find((u) => u.id === "u_sales");
     const canSalesView = isPurchaseOrderInSalesPortfolio(po, salesUser, db);
     assert.equal(canSalesView, true, "Sales rep must view POs attached to quotes in their portfolio");
+
+    // Verify PO verification permission boundary: Sales cannot verify POs (Admin/Finance only)
+    assert.equal(hasPermission(salesUser, "verifyPo"), false, "Sales must not have verifyPo permission");
+    const financeUser = db.users.find((u) => u.id === "u_fin");
+    assert.equal(hasPermission(financeUser, "verifyPo"), true, "Finance must have verifyPo permission");
   });
 
   // --------------------------------------------------------------------------
@@ -114,7 +138,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   });
 
   // --------------------------------------------------------------------------
-  // STEP 5: Timesheet Capture (Digital On-Site & Paper Booklet Entry)
+  // STEP 5: Timesheet Capture (Digital On-Site & Certified Paper Booklet Entry)
   // --------------------------------------------------------------------------
   await t.test("Step 5: Daily Timesheets capture with auto-filled trade and artisan identity", () => {
     // Mode A: Digital site capture
@@ -129,7 +153,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
       approved: false
     });
 
-    // Mode B: Paper Booklet capture
+    // Mode B: Paper Booklet capture (certified status Captured_From_Signed_Paper)
     const ws2 = addTimesheet(db, {
       id: "ws_e2e_2",
       technician_id: "u_tech2",
@@ -137,13 +161,14 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
       date: "2026-10-05",
       breakdown: { normal: 8, ot_15: 0, ot_20: 4 },
       activity: "Conveyor pulley shaft alignment",
-      status: "Submitted",
+      status: STATUS_CAPTURED_FROM_PAPER,
       approved: false
     });
     ws2.entry_source = "paper";
     ws2.paper_reference = "Booklet #42 - Sheet 15";
 
     assert.equal(ws1.hours_breakdown.normal, 8);
+    assert.equal(ws2.status, STATUS_CAPTURED_FROM_PAPER);
     assert.equal(ws2.paper_reference, "Booklet #42 - Sheet 15");
   });
 
@@ -154,7 +179,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1")) {
       ws.status = "Client_Acknowledged";
       ws.client_acknowledgement = {
-        signer_name: "Eng. J. Phiri",
+        signer_name: "Eng. T. Moyo",
         signer_role: "Plant Manager",
         acknowledged_at: "2026-10-05T18:00:00Z",
         evidence_reference: "evd_client_sign"
@@ -176,6 +201,12 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     }
     const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1" && w.status === "Supervisor_Approved");
     assert.equal(approved.length, 2);
+
+    // Verify maker-checker rules:
+    // Rostered technician cannot review their own time
+    const techUser = db.users.find((u) => u.id === "u_tech1");
+    const techRefusal = worksheetReviewerRefusal(db, { roster: [{ technician_id: "u_tech1" }] }, techUser);
+    assert.ok(techRefusal, "A rostered technician must be refused as reviewer");
   });
 
   // --------------------------------------------------------------------------
@@ -184,7 +215,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   let createdRegister = null;
   await t.test("Step 8: Monthly register consolidation and PO variance tracking", () => {
     const registerBody = baseBody({
-      title: "Eureka Smelter October 2026 Register",
+      title: "Great Dyke Concentrator October 2026 Register",
       period_start: "2026-10-01",
       period_end: "2026-10-31",
       scope: { client_id: "c_test", project_title: "Fictional Shutdown", department_section: "", quote_id: "q_e2e" },
@@ -235,8 +266,13 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const reg = db.worksheet_registers[0];
     const totalBilledHours = reg.totals ? reg.totals.total_hours : 22;
     const invoiceSubtotal = totalBilledHours * clientBillingRate; // 22 * 12.50 = 275.00
-    const vatAmount = invoiceSubtotal * 0.15; // 15% VAT = 41.25
-    const invoiceTotal = invoiceSubtotal + vatAmount; // 316.25
+    
+    // V5 Commercial Invoice Tax Policy:
+    // Tax status defaults to "unconfigured" ($275.00 total) until accountant confirmation.
+    // When 15% VAT is confirmed: 15% VAT = $41.25 -> Total = $316.25.
+    const provisionalVatRate = 0.15;
+    const vatAmount = invoiceSubtotal * provisionalVatRate;
+    const invoiceTotalWithVat = invoiceSubtotal + vatAmount;
 
     const invoice = {
       id: "inv_e2e_001",
@@ -248,8 +284,9 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
       billed_hours: totalBilledHours,
       billing_rate: clientBillingRate,
       subtotal: invoiceSubtotal,
+      tax_status: "provisional_confirmed",
       vat_amount: vatAmount,
-      total_amount: invoiceTotal,
+      total_amount: invoiceTotalWithVat,
       status: "Issued",
       currency: "USD"
     };
@@ -275,17 +312,20 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const csvLines = pastelCsv.trim().split("\n");
     assert.equal(csvLines[0].trim(), PASTEL_HEADERS.join(","));
 
-    // Verify ORAC Commercial Margin
+    // Verify ORAC Commercial Margin (Contract Spread)
     // Client billed revenue for these 22 hours: $275.00
-    // Artisan wage cost: Boilermaker ($6.50 base) + Fitter ($6.50 base):
-    // Worker 1: 8h @ $6.50 + 2h @ ($6.50 * 1.5 = $9.75) = $52.00 + $19.50 = $71.50
-    // Worker 2: 8h @ $6.50 + 4h @ ($6.50 * 2.0 = $13.00) = $52.00 + $52.00 = $104.00
+    // Internal artisan wage cost (Finance only):
+    // Worker 1 (Boilermaker @ $6.50 base): 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
+    // Worker 2 (Fitter @ $6.50 base):      8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
     // Total internal artisan payroll cost: $175.50
-    // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% margin)
+    // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% gross margin)
+    // Note: OT weighting contract aligns with Owner Decision OD-04.
     const clientRevenue = 275.00;
     const internalCost = 175.50;
     const grossMargin = clientRevenue - internalCost;
     assert.ok(grossMargin > 0, "Commercial gross margin must be strictly positive");
     assert.equal(grossMargin, 99.50);
+    const marginPercent = ((grossMargin / clientRevenue) * 100).toFixed(2);
+    assert.equal(marginPercent, "36.18");
   });
 });

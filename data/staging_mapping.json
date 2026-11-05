@@ -1,12 +1,12 @@
 {
   "clients": [
     {
-      "client_id": "c_zimplats",
+      "client_id": "c_great_dyke",
       "primary_sales_owner_id": "u_sales",
       "account_team_user_ids": ["fx_sal_01"]
     },
     {
-      "client_id": "c_mimosa",
+      "client_id": "c_south_hill",
       "primary_sales_owner_id": "fx_sal_01",
       "account_team_user_ids": ["fx_sal_02"]
     },
