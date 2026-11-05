@@ -535,7 +535,7 @@ test("views omit history in lists, include it in detail, and hide the identity o
   const listed = inbox(db, store, "u_sales").body.data[0];
   assert.equal("history" in listed, false);
   assert.equal("history" in get(db, store, "u_sales", id).body.data, true);
-  assert.deepEqual(listed.related_entity, { type: "purchase_order", type_label: "Purchase order", id: null, label: null, viewable: false }, "Sales cannot read purchase orders");
+  assert.deepEqual(listed.related_entity, { type: "purchase_order", type_label: "Purchase order", id: "po_a", label: "PO-A", viewable: true }, "Sales can read portfolio purchase orders");
   assert.equal(listed.client_id, "c_a", "Sales may read clients");
   const asOps = inbox(db, store, "u_ops").body.data[0];
   assert.deepEqual(asOps.related_entity, { type: "purchase_order", type_label: "Purchase order", id: "po_a", label: "PO-A", viewable: true });

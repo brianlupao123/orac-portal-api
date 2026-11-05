@@ -53,9 +53,11 @@ test("permissions: only Admin/Management/Operations/Supervisor view; only Admin/
   assert.equal(can("Management", "manageWorksheetRegister"), false);
   assert.equal(can("Supervisor", "reconcileWorksheetRegister"), false);
   assert.equal(can("Operations", "reconcileWorksheetRegister"), true);
-  // Sales can view worksheet registers but cannot manage, submit, review or reconcile.
+  // Sales can view, manage and submit worksheet registers, but cannot review or reconcile.
   assert.equal(can("Sales", "viewWorksheetRegister"), true, "Sales viewWorksheetRegister");
-  for (const p of ["manageWorksheetRegister", "submitWorksheetRegister", "reviewWorksheetRegister", "reconcileWorksheetRegister"]) assert.equal(can("Sales", p), false, `Sales ${p}`);
+  assert.equal(can("Sales", "manageWorksheetRegister"), true, "Sales manageWorksheetRegister");
+  assert.equal(can("Sales", "submitWorksheetRegister"), true, "Sales submitWorksheetRegister");
+  for (const p of ["reviewWorksheetRegister", "reconcileWorksheetRegister"]) assert.equal(can("Sales", p), false, `Sales ${p}`);
 });
 
 test("Technician, Finance and Client Viewer are refused on every read and write handler", () => {
@@ -71,11 +73,9 @@ test("Technician, Finance and Client Viewer are refused on every read and write 
       assert.throws(() => fn(req(db, user, body, params), makeRes()), /cannot perform/, `${user} ${fn.name}`);
     }
   }
-  // Sales can read (list/get/document) but cannot write any worksheet register handler.
+  // Sales can read, create, update, submit and cancel (manage), but cannot review or reconcile.
   for (const [fn, params, body] of [
-    [createWorksheetRegister, {}, baseBody()], [updateWorksheetRegister, { id }, {}], [buildWorksheetRegister, { id }, {}],
-    [acknowledgeRegisterExceptions, { id }, { keys: ["x"], note: "abc" }], [submitWorksheetRegister, { id }, {}],
-    [reviewWorksheetRegister, { id }, { decision: "approve" }], [cancelWorksheetRegister, { id }, { reason: "abc" }],
+    [reviewWorksheetRegister, { id }, { decision: "approve" }],
     [reconcileWorksheetRegister, { id }, { confirm: true }]
   ]) {
     assert.throws(() => fn(req(db, "u_sales", body, params), makeRes()), /cannot perform/, `u_sales ${fn.name}`);

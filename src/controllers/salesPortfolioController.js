@@ -166,3 +166,28 @@ export function getSalesPortfolioInvoices(req, res) {
 
   res.json({ success: true, data: redacted });
 }
+
+export function getSalesPortfolioPurchaseOrders(req, res) {
+  const actor = getActor(req);
+  if (!actor || ![roles.ADMIN, roles.MANAGEMENT, roles.SALES].includes(actor.role)) {
+    return res.status(403).json({ success: false, message: "Unauthorized." });
+  }
+
+  const pos = (req.db.purchase_orders || []).filter((po) => {
+    if ([roles.ADMIN, roles.MANAGEMENT].includes(actor.role)) return true;
+    return isPurchaseOrderInSalesPortfolio(po, actor, req.db);
+  });
+
+  const redacted = pos.map((po) => ({
+    id: po.id,
+    po_reference: po.po_reference,
+    quotation_id: po.quotation_id || null,
+    client_id: po.client_id || null,
+    po_amount: po.po_amount || 0,
+    status: po.status,
+    requires_amendment: Boolean(po.requires_amendment),
+    created_at: po.created_at || null
+  }));
+
+  res.json({ success: true, data: redacted });
+}

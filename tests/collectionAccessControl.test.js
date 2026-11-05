@@ -194,11 +194,40 @@ test("Sales gains entry only: review, approval, materials and client acknowledge
   }
 });
 
-test("granting Sales entry rights does not widen generic collection reads", () => {
+test("granting Sales entry rights does not widen sensitive generic collection reads", () => {
   const sales = { id: "sales-1", role: "Sales", is_active: true };
-  for (const collectionName of ["users", "audit_logs", "invoices", "purchase_orders", "contractor_log_sheets"]) {
+  for (const collectionName of ["users", "audit_logs", "contractor_log_sheets"]) {
     expectDenied(collectionName, sales);
   }
+});
+
+test("Sales can list purchase orders and invoices scoped to its commercial portfolio", () => {
+  const sales = { id: "sales-1", role: "Sales", is_active: true };
+  const req = requestFor(sales);
+  req.db.users.push({ id: "sales-2", role: "Sales", is_active: true });
+  req.db.quotes = [
+    { id: "quote-a", client_id: "client-a", sales_owner_id: "sales-1" },
+    { id: "quote-b", client_id: "client-b", sales_owner_id: "sales-2" }
+  ];
+  req.db.clients = [{ id: "client-a" }, { id: "client-b" }];
+  req.db.purchase_orders = [
+    { id: "po-a", quotation_id: "quote-a", po_reference: "PO-A", po_amount: 1500 },
+    { id: "po-b", quotation_id: "quote-b", po_reference: "PO-B", po_amount: 2500 }
+  ];
+  req.db.invoices = [
+    { id: "inv-a", quotation_id: "quote-a", invoice_number: "INV-A", total_amount: 1500 },
+    { id: "inv-b", quotation_id: "quote-b", invoice_number: "INV-B", total_amount: 2500 }
+  ];
+
+  const poRes = createResponse();
+  getCollection("purchase_orders")(req, poRes);
+  assert.equal(poRes.statusCode, 200);
+  assert.deepEqual(poRes.body.data.map((p) => p.id), ["po-a"]);
+
+  const invRes = createResponse();
+  getCollection("invoices")(req, invRes);
+  assert.equal(invRes.statusCode, 200);
+  assert.deepEqual(invRes.body.data.map((i) => i.id), ["inv-a"]);
 });
 
 test("Sales sees only portfolio worksheets and its own paper entries, never another desk's", () => {

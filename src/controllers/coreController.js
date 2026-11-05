@@ -53,8 +53,8 @@ export const collectionGuards = {
   audit_logs: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
   // Client Viewers may read invoices only after the client-scoping step below
   // filters them to their own organisation.
-  invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.CLIENT_VIEWER],
-  purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT],
+  invoices: [roles.ADMIN, roles.FINANCE, roles.MANAGEMENT, roles.SALES, roles.CLIENT_VIEWER],
+  purchase_orders: [roles.ADMIN, roles.FINANCE, roles.OPERATIONS, roles.MANAGEMENT, roles.SALES],
   stock_movements: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SALES],
   mine_sites: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
   plants: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS],
@@ -218,6 +218,22 @@ export function isInvoiceInSalesPortfolio(invoice, actor, db) {
   return false;
 }
 
+export function isPurchaseOrderInSalesPortfolio(po, actor, db) {
+  if (!po || !actor || actor.role !== roles.SALES) return false;
+  if (po.quotation_id && db?.quotes) {
+    const quote = db.quotes.find((q) => q.id === po.quotation_id);
+    if (quote && isQuoteInSalesPortfolio(quote, actor, db)) return true;
+  }
+  if (po.client_id && db?.clients) {
+    const client = db.clients.find((c) => c.id === po.client_id);
+    if (client) {
+      if (client.primary_sales_owner_id === actor.id) return true;
+      if (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id)) return true;
+    }
+  }
+  return false;
+}
+
 export function scopeOperationalData(data, collectionName, actor, db) {
   if (actor?.role === roles.SALES) {
     if (collectionName === "quotes") {
@@ -234,6 +250,12 @@ export function scopeOperationalData(data, collectionName, actor, db) {
         client.primary_sales_owner_id === actor.id ||
         (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id))
       );
+    }
+    if (collectionName === "purchase_orders") {
+      return data.filter((po) => isPurchaseOrderInSalesPortfolio(po, actor, db));
+    }
+    if (collectionName === "invoices") {
+      return data.filter((invoice) => isInvoiceInSalesPortfolio(invoice, actor, db));
     }
     // Sales sees only dispatch_cards, field_worksheets, and daily_timesheets
     // that belong to quotes in their commercial portfolio (read-only browse).
@@ -314,9 +336,9 @@ export function buildScopedSummary(db, actor) {
   // dashboard aggregates derived from dispatch, worksheet, invoice, or PO data.
   if (actor?.role === roles.SALES) {
     dispatchData = [];
-    invoicesData = [];
     worksheetsData = [];
-    purchaseOrdersData = [];
+    invoicesData = invoicesData.filter((inv) => isInvoiceInSalesPortfolio(inv, actor, db));
+    purchaseOrdersData = purchaseOrdersData.filter((po) => isPurchaseOrderInSalesPortfolio(po, actor, db));
   }
 
   // Finance works with commercial, PO, and invoice evidence. It must not

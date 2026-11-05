@@ -19,18 +19,29 @@ const reportGuards = {
   "po-compliance": [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS],
   dispatch: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR],
   worksheets: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR],
-  "invoice-ready": [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE],
+  "invoice-ready": [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.SALES],
   variance: [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS]
 };
 
 export function scopeDbForReport(db, actor) {
-  if (actor?.role !== roles.SUPERVISOR) return db;
-
-  return {
-    ...db,
-    dispatch_cards: scopeOperationalData(db.dispatch_cards, "dispatch_cards", actor, db),
-    field_worksheets: scopeOperationalData(db.field_worksheets, "field_worksheets", actor, db)
-  };
+  if (actor?.role === roles.SUPERVISOR) {
+    return {
+      ...db,
+      dispatch_cards: scopeOperationalData(db.dispatch_cards, "dispatch_cards", actor, db),
+      field_worksheets: scopeOperationalData(db.field_worksheets, "field_worksheets", actor, db)
+    };
+  }
+  if (actor?.role === roles.SALES) {
+    return {
+      ...db,
+      quotes: scopeOperationalData(db.quotes, "quotes", actor, db),
+      dispatch_cards: scopeOperationalData(db.dispatch_cards, "dispatch_cards", actor, db),
+      field_worksheets: scopeOperationalData(db.field_worksheets, "field_worksheets", actor, db),
+      purchase_orders: scopeOperationalData(db.purchase_orders, "purchase_orders", actor, db),
+      invoices: scopeOperationalData(db.invoices, "invoices", actor, db)
+    };
+  }
+  return db;
 }
 
 function makeReportHandler(reportKey, computeFn) {

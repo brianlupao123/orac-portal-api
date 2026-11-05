@@ -3,7 +3,7 @@
 // Fictional data only. Dependency-free: controller handlers are called directly.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { previewWorksheetRegister, createWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
+import { previewWorksheetRegister, createWorksheetRegister, reviewWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
 import { PreviewWorksheetRegisterSchema, CreateWorksheetRegisterSchema } from "../src/worksheetRegisterSchemas.js";
 import { validate } from "../src/middleware/validate.js";
 import { makeDb, makeRes, req, addTimesheet, baseBody } from "./helpers/worksheetRegisterFixture.js";
@@ -101,16 +101,12 @@ test("schemas stay strict: hours, rates and unknown keys are rejected; preview_h
   assert.equal(run(CreateWorksheetRegisterSchema, { ...body(), preview_hash: "xyz" }), false);
 });
 
-test("Sales: blocked by default, allowed (preview + consolidate + submit) with TIMESHEET_SALES_ACCESS=enabled", () => {
-  const FLAG = "TIMESHEET_SALES_ACCESS"; const saved = process.env[FLAG];
-  try {
-    delete process.env[FLAG];
-    const db = makeDb(); tenSheets(db);
-    assert.throws(() => call(previewWorksheetRegister, db, "u_sales", body()), /cannot perform manageWorksheetRegister/);
-    process.env[FLAG] = "enabled";
-    const pv = call(previewWorksheetRegister, db, "u_sales", body());
-    assert.equal(pv.statusCode, 200);
-    const made = call(createWorksheetRegister, db, "u_sales", { ...body(), preview_hash: pv.body.data.preview_hash });
-    assert.equal(made.statusCode, 200, JSON.stringify(made.body));
-  } finally { if (saved === undefined) delete process.env[FLAG]; else process.env[FLAG] = saved; }
+test("Sales: permitted to preview and consolidate worksheet registers, but denied review/approval", () => {
+  const db = makeDb(); tenSheets(db);
+  const pv = call(previewWorksheetRegister, db, "u_sales", body());
+  assert.equal(pv.statusCode, 200);
+  const made = call(createWorksheetRegister, db, "u_sales", { ...body(), preview_hash: pv.body.data.preview_hash });
+  assert.equal(made.statusCode, 200, JSON.stringify(made.body));
+  // Maker-checker separation: Sales cannot review/approve registers
+  assert.throws(() => call(reviewWorksheetRegister, db, "u_sales", { id: "reg_1", decision: "approve" }), /cannot perform reviewWorksheetRegister/);
 });

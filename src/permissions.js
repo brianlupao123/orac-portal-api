@@ -48,8 +48,8 @@ export const permissions = {
   // Technicians and Client Viewers hold none of these: a month shows colleagues' hours.
   // Approval separation of duties (submitter / builder / roster member) is enforced in the controller.
   viewWorksheetRegister: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
-  manageWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
-  submitWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
+  manageWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
+  submitWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
   reviewWorksheetRegister: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   reconcileWorksheetRegister: [roles.ADMIN, roles.OPERATIONS],
   // Chat B — Digital Timesheets and client acknowledgement.

@@ -79,7 +79,7 @@ import { getQuoteTrail } from "./controllers/trailController.js";
 import { getQuoteDocument, getDispatchDocument, getWorksheetDocument, getInvoiceDocument, getPoDocument, getQuotePdf, getJobCardPdf, getWorksheetPdf, getInvoicePdf, getPoDocumentPdf } from "./controllers/documentController.js";
 import { getPipelineReport, getPoComplianceReport, getDispatchReport, getWorksheetReport, getInvoiceReadyReport, getVarianceReport, getTechnicianPayrollReport, exportTechnicianPayrollPastel } from "./controllers/reportsController.js";
 import { createUser, updateUser, createClient, updateClient, createMineSite, updateMineSite, createPlant, updatePlant, createPlantSection, updatePlantSection, createEquipmentTag, updateEquipmentTag, createCatalogItem, updateCatalogItem, getCompanyProfile, updateCompanyProfile, assignCommercialOwnership } from "./controllers/adminController.js";
-import { getSalesPortfolioDispatches, getSalesDispatchProgress, getSalesApprovedWorkSummary, getSalesMaterialsSummary, getSalesPortfolioInvoices } from "./controllers/salesPortfolioController.js";
+import { getSalesPortfolioDispatches, getSalesDispatchProgress, getSalesApprovedWorkSummary, getSalesMaterialsSummary, getSalesPortfolioInvoices, getSalesPortfolioPurchaseOrders } from "./controllers/salesPortfolioController.js";
 import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStockItem, updateStockItem, recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, getLowStockReport, getInventoryReconciliation } from "./controllers/inventoryController.js";
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, getRecordAnalysis, flagAiResponse } from "./controllers/aiController.js";
@@ -385,6 +385,8 @@ router.get("/sales/portfolio/dispatches/:id/materials", getSalesMaterialsSummary
 router.get("/sales-portfolio/dispatches/:id/materials", getSalesMaterialsSummary);
 router.get("/sales/portfolio/invoices", getSalesPortfolioInvoices);
 router.get("/sales-portfolio/invoices", getSalesPortfolioInvoices);
+router.get("/sales/portfolio/purchase_orders", getSalesPortfolioPurchaseOrders);
+router.get("/sales-portfolio/purchase_orders", getSalesPortfolioPurchaseOrders);
 
 // Admin / Management Commercial Ownership Assignment
 router.post("/admin/commercial-ownership/assign", assignCommercialOwnership);
