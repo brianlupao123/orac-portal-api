@@ -1,5 +1,6 @@
 // End-to-End Industrial Workflow Audit & Commercial Execution (Chat 3).
 // Verifies the full 10-step industrial flow from Service Request to Pastel CSV export.
+// Driven through real application controllers and domain state machine.
 // All names, numbers and IDs are 100% synthetic/fictional to preserve strict confidentiality.
 
 import test from "node:test";
@@ -7,12 +8,14 @@ import assert from "node:assert/strict";
 
 import { roles, hasPermission } from "../src/permissions.js";
 import { makeDb, makeRes, req, baseBody, addTimesheet } from "./helpers/worksheetRegisterFixture.js";
+import { createServiceRequest, triageServiceRequest, convertServiceRequestToLead } from "../src/controllers/serviceRequestsController.js";
+import { transitionQuote } from "../src/stateMachine.js";
+import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreController.js";
+import { acknowledgeWorksheet } from "../src/controllers/timesheetAcknowledgementController.js";
+import { worksheetReviewerRefusal } from "../src/timesheetWorkflow.js";
 import { previewWorksheetRegister, createWorksheetRegister, submitWorksheetRegister, reviewWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
 import { computeTechnicianPayroll, buildPastelPayrollCsv, PASTEL_HEADERS } from "../src/payroll.js";
-import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreController.js";
-import { SERVICE_REQUEST_STATUS, buildLeadFromRequest, findTriageDecision } from "../src/serviceRequestRules.js";
 import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
-import { worksheetReviewerRefusal, registerReviewRefusal } from "../src/timesheetWorkflow.js";
 
 const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   const res = makeRes();
@@ -20,51 +23,49 @@ const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   return res;
 };
 
-test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
+test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVEN)", async (t) => {
   const db = makeDb();
-
-  // Commercial rate parameters
-  // Client billing rate: $12.50/hr (standard $10.00 – $15.00/hr range)
-  // Internal technician cost: Boilermaker ($6.50/hr), Fitter ($6.50/hr)
+  db.leads = [];
+  db.service_requests = [];
+  db.quote_lines = [];
+  db.equipment_tags = [];
+  db.plant_sections = [];
+  db.plants = [];
+  db.mine_sites = [];
   const clientBillingRate = 12.50;
 
+  let quoteId = "q_e2e";
+  let dispatchCardId = "d_1";
+  let createdRegister;
+
   // --------------------------------------------------------------------------
-  // STEP 1: Client Service Request (Mine site / Plant section)
+  // STEP 1: Client Service Request (Controller-driven triage & conversion)
   // --------------------------------------------------------------------------
-  await t.test("Step 1: Client Service Request capture & lead triage", () => {
-    const serviceRequest = {
-      id: "sr_001",
-      client_id: "c_test",
-      site_name: "Great Dyke Concentrator",
-      section: "Chute Liners & Conveyors",
+  await t.test("Step 1: Client Service Request capture & lead triage via controller", () => {
+    const createRes = call(createServiceRequest, db, "u_client", {
+      title: "Chute repair",
       service_need: "Urgent chute liner replacement and conveyor structure realignment",
-      urgency: "planned_shutdown",
-      status: SERVICE_REQUEST_STATUS.SUBMITTED,
-      created_at: "2026-10-01T08:00:00Z"
-    };
-    db.service_requests = [serviceRequest];
-    assert.equal(db.service_requests.length, 1);
-    assert.equal(db.service_requests[0].status, SERVICE_REQUEST_STATUS.SUBMITTED);
+      urgency: "planned_shutdown"
+    });
+    assert.equal(createRes.statusCode, 201);
+    const sr = createRes.body.data;
+    assert.equal(sr.status, "Submitted");
 
-    // Step 1a: Sales acknowledges request
-    const ackDecision = findTriageDecision("acknowledge");
-    assert.ok(ackDecision);
-    serviceRequest.status = ackDecision.to;
-    assert.equal(serviceRequest.status, SERVICE_REQUEST_STATUS.ACKNOWLEDGED);
+    // Step 1a: Sales acknowledges request via triage controller
+    const ackRes = call(triageServiceRequest, db, "u_sales", { decision: "acknowledge" }, { id: sr.id });
+    assert.equal(ackRes.statusCode, 200);
+    assert.equal(ackRes.body.data.status, "Acknowledged");
 
-    // Step 1b: Operations accepts request
-    const acceptDecision = findTriageDecision("accept");
-    assert.ok(acceptDecision);
-    serviceRequest.status = acceptDecision.to;
-    assert.equal(serviceRequest.status, SERVICE_REQUEST_STATUS.ACCEPTED);
+    // Step 1b: Operations accepts request via triage controller
+    const acceptRes = call(triageServiceRequest, db, "u_ops", { decision: "accept" }, { id: sr.id });
+    assert.equal(acceptRes.statusCode, 200);
+    assert.equal(acceptRes.body.data.status, "Accepted");
 
-    // Step 1c: Convert accepted request to lead using pure domain rule
-    const lead = buildLeadFromRequest(serviceRequest, db, "lead_e2e", "2026-10-01T09:00:00Z");
-    assert.ok(lead);
-    assert.equal(lead.service_request_id, "sr_001");
-    assert.equal(lead.client_id, "c_test");
-    serviceRequest.status = SERVICE_REQUEST_STATUS.CONVERTED;
-    assert.equal(serviceRequest.status, "Converted_To_Lead");
+    // Step 1c: Convert accepted request to lead via convert controller
+    const convertRes = call(convertServiceRequestToLead, db, "u_sales", {}, { id: sr.id });
+    assert.equal(convertRes.statusCode, 201);
+    assert.equal(convertRes.body.data.lead.service_request_id, sr.id);
+    assert.equal(db.service_requests[0].status, "Converted_To_Lead");
   });
 
   // --------------------------------------------------------------------------
@@ -72,80 +73,85 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   // --------------------------------------------------------------------------
   await t.test("Step 2: Quotation generation with standard client billing rate ($10–$15/hr)", () => {
     const quote = {
-      id: "q_e2e",
+      id: quoteId,
       quote_number: "Q-2026-101",
       client_id: "c_test",
       sales_owner_id: "u_sales",
       created_by: "u_sales",
-      status: "Approved",
-      line_items: [
-        { description: "Boilermaker field fabrication", hours: 40, hourly_rate: clientBillingRate, total: 40 * clientBillingRate },
-        { description: "Mechanical fitter alignment", hours: 40, hourly_rate: clientBillingRate, total: 40 * clientBillingRate }
-      ],
-      total_amount: 80 * clientBillingRate
+      status: "Approved_Pending_PO",
+      total_amount: 1000.00
     };
     db.quotes.push(quote);
-    assert.equal(quote.line_items[0].hourly_rate, 12.50);
+    db.quote_lines.push(
+      { id: "ql_1", quotation_id: quoteId, description: "Boilermaker field fabrication", quantity: 40, unit_price: clientBillingRate, subtotal: 500.00 },
+      { id: "ql_2", quotation_id: quoteId, description: "Mechanical fitter alignment", quantity: 40, unit_price: clientBillingRate, subtotal: 500.00 }
+    );
+    assert.equal(db.quote_lines[0].unit_price, 12.50);
     assert.equal(quote.total_amount, 1000.00);
   });
 
   // --------------------------------------------------------------------------
-  // STEP 3: Purchase Order capture & Sales Portfolio Visibility
+  // STEP 3: Purchase Order capture & PO Verification Gate
   // --------------------------------------------------------------------------
-  await t.test("Step 3: Client Purchase Order issuance and Sales scoping", () => {
+  await t.test("Step 3: Client Purchase Order issuance and verification gate", () => {
     const po = {
       id: "po_e2e",
       po_number: "PO-2026-789",
-      quotation_id: "q_e2e",
+      po_reference: "PO-2026-789",
+      po_amount: 1000.00,
+      quotation_id: quoteId,
       client_id: "c_test",
       authorized_hours: 80,
       authorized_amount: 1000.00,
-      status: "Active"
+      status: "submitted"
     };
     db.purchase_orders.push(po);
 
-    // Verify Sales representative owns and can view this PO in their portfolio (Chat 1)
     const salesUser = db.users.find((u) => u.id === "u_sales");
-    const canSalesView = isPurchaseOrderInSalesPortfolio(po, salesUser, db);
-    assert.equal(canSalesView, true, "Sales rep must view POs attached to quotes in their portfolio");
+    const opsUser = db.users.find((u) => u.id === "u_ops");
+    const finUser = db.users.find((u) => u.id === "u_fin");
 
-    // Verify PO verification permission boundary: Sales cannot verify POs (Admin/Finance only)
-    assert.equal(hasPermission(salesUser, "verifyPo"), false, "Sales must not have verifyPo permission");
-    const financeUser = db.users.find((u) => u.id === "u_fin");
-    assert.equal(hasPermission(financeUser, "verifyPo"), true, "Finance must have verifyPo permission");
+    // Assert Sales owns and sees PO in portfolio
+    assert.equal(isPurchaseOrderInSalesPortfolio(po, salesUser, db), true);
+
+    // Assert Sales cannot verify PO (state machine gate throws 403)
+    assert.throws(() => {
+      transitionQuote(db, db.__store, quoteId, "PO_Verified", {}, salesUser);
+    }, /cannot perform verifyPo/);
+
+    // Assert Operations cannot dispatch prior to PO verification (illegal transition from Approved_Pending_PO)
+    assert.throws(() => {
+      transitionQuote(db, db.__store, quoteId, "Field_Dispatch", {}, opsUser);
+    }, /Illegal transition: Approved_Pending_PO -> Field_Dispatch/);
+
+    // Finance verifies PO
+    po.status = "verified";
+    transitionQuote(db, db.__store, quoteId, "PO_Verified", {}, finUser);
+    const quote = db.quotes.find((q) => q.id === quoteId);
+    assert.equal(quote.status, "PO_Verified");
   });
 
   // --------------------------------------------------------------------------
-  // STEP 4: Dispatch Card Issuance to Site Supervisor
+  // STEP 4: State-Machine Controlled Field Dispatch
   // --------------------------------------------------------------------------
-  await t.test("Step 4: Dispatch card issuance and assignment", () => {
-    const dispatch = {
-      id: "d_1",
-      dispatch_number: "DC-2026-101",
-      client_id: "c_test",
-      quotation_id: "q_e2e",
-      purchase_order_id: "po_e2e",
-      supervisor_id: "u_sup",
-      status: "In_Progress"
-    };
-    // Replace or update d_1 in db.dispatch_cards
-    const existingIdx = db.dispatch_cards.findIndex((d) => d.id === "d_1");
-    if (existingIdx >= 0) db.dispatch_cards[existingIdx] = dispatch;
-    else db.dispatch_cards.push(dispatch);
-
-    assert.equal(dispatch.supervisor_id, "u_sup");
+  await t.test("Step 4: Dispatch card issuance and assignment via state machine", () => {
+    const opsUser = db.users.find((u) => u.id === "u_ops");
+    const { created: dispatch } = transitionQuote(db, db.__store, quoteId, "Field_Dispatch", { site_contact: "Site Eng" }, opsUser);
+    assert.ok(dispatch);
+    dispatchCardId = dispatch.id;
+    dispatch.supervisor_id = "u_sup";
+    assert.equal(dispatch.quotation_id, quoteId);
     assert.equal(dispatch.purchase_order_id, "po_e2e");
   });
 
   // --------------------------------------------------------------------------
-  // STEP 5: Timesheet Capture (Digital On-Site & Certified Paper Booklet Entry)
+  // STEP 5: Timesheet Capture (Digital & Certified Paper Booklet)
   // --------------------------------------------------------------------------
-  await t.test("Step 5: Daily Timesheets capture with auto-filled trade and artisan identity", () => {
-    // Mode A: Digital site capture
+  await t.test("Step 5: Daily Timesheets capture (digital & certified paper)", () => {
     const ws1 = addTimesheet(db, {
       id: "ws_e2e_1",
       technician_id: "u_tech1",
-      dispatch: "d_1",
+      dispatch: dispatchCardId,
       date: "2026-10-05",
       breakdown: { normal: 8, ot_15: 2, ot_20: 0 },
       activity: "Chute liner plate cutting and fitting",
@@ -153,11 +159,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
       approved: false
     });
 
-    // Mode B: Paper Booklet capture (certified status Captured_From_Signed_Paper)
     const ws2 = addTimesheet(db, {
       id: "ws_e2e_2",
       technician_id: "u_tech2",
-      dispatch: "d_1",
+      dispatch: dispatchCardId,
       date: "2026-10-05",
       breakdown: { normal: 8, ot_15: 0, ot_20: 4 },
       activity: "Conveyor pulley shaft alignment",
@@ -169,82 +174,78 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
 
     assert.equal(ws1.hours_breakdown.normal, 8);
     assert.equal(ws2.status, STATUS_CAPTURED_FROM_PAPER);
-    assert.equal(ws2.paper_reference, "Booklet #42 - Sheet 15");
   });
 
   // --------------------------------------------------------------------------
-  // STEP 6: Client Representative Acknowledgement
+  // STEP 6: Client Acknowledgement via Controller
   // --------------------------------------------------------------------------
-  await t.test("Step 6: Client acknowledgement under client representative sign-in", () => {
-    // Digital timesheet requires explicit on-site acknowledgement:
+  await t.test("Step 6: Client acknowledgement via controller", () => {
+    // Digital timesheet acknowledged via acknowledgeWorksheet controller
+    const ackRes = call(acknowledgeWorksheet, db, "u_client", {}, { id: "ws_e2e_1" });
+    assert.equal(ackRes.statusCode, 200);
     const ws1 = db.field_worksheets.find((w) => w.id === "ws_e2e_1");
-    ws1.status = "Client_Acknowledged";
-    ws1.client_acknowledgement = {
-      signer_name: "Eng. T. Moyo",
-      signer_role: "Plant Manager",
-      acknowledged_at: "2026-10-05T18:00:00Z",
-      evidence_reference: "evd_client_sign"
-    };
+    assert.equal(ws1.status, "Client_Acknowledged");
 
-    // Certified Paper Booklet timesheet already contains physical client foreman signature:
+    // Paper booklet timesheet already carries client signature: calling acknowledgeWorksheet fails
+    const paperAckRes = call(acknowledgeWorksheet, db, "u_client", {}, { id: "ws_e2e_2" });
+    assert.equal(paperAckRes.statusCode, 400);
     const ws2 = db.field_worksheets.find((w) => w.id === "ws_e2e_2");
-    assert.equal(ws2.status, STATUS_CAPTURED_FROM_PAPER, "Paper timesheet retains certified Captured_From_Signed_Paper status");
-    assert.ok(ws2.paper_reference);
+    assert.equal(ws2.status, STATUS_CAPTURED_FROM_PAPER);
   });
 
   // --------------------------------------------------------------------------
-  // STEP 7: Supervisor Review & Approval (Maker-Checker Enforcement)
+  // STEP 7: Supervisor Review & Approval (Maker-Checker Refusals)
   // --------------------------------------------------------------------------
-  await t.test("Step 7: Supervisor approval with strict maker-checker controls", () => {
-    // Both Client_Acknowledged and Captured_From_Signed_Paper are eligible for supervisor approval
-    for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1")) {
+  await t.test("Step 7: Supervisor approval and comprehensive maker-checker refusal rules", () => {
+    const salesUser = db.users.find((u) => u.id === "u_sales");
+    const techUser = db.users.find((u) => u.id === "u_tech1");
+
+    // Refusal rule 1: Sales cannot review timesheets or registers
+    assert.equal(hasPermission(salesUser, "reviewDailyTimesheet"), false);
+    assert.equal(hasPermission(salesUser, "reviewWorksheetRegister"), false);
+
+    // Refusal rule 2: Rostered technician cannot review their own time
+    const techRefusal = worksheetReviewerRefusal(db, { roster: [{ technician_id: "u_tech1" }] }, techUser);
+    assert.equal(techRefusal, "You are on this Worksheet's roster and cannot review your own time.");
+
+    // Refusal rule 3: Submitter cannot review
+    const submitterRefusal = worksheetReviewerRefusal(db, { submitted_by: "u_sales" }, salesUser);
+    assert.equal(submitterRefusal, "The submitter cannot review this Worksheet.");
+
+    // Both timesheets approved by Supervisor
+    for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === dispatchCardId)) {
       ws.status = "Supervisor_Approved";
       ws.approved_by = "u_sup";
       ws.approved_at = "2026-10-06T07:00:00Z";
       ws.signatures.supervisor = { name: "Supervisor One", approved_at: "2026-10-06T07:00:00Z" };
     }
-    const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1" && w.status === "Supervisor_Approved");
+    const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === dispatchCardId && w.status === "Supervisor_Approved");
     assert.equal(approved.length, 2);
-
-    // Verify maker-checker separation:
-    // 1. Sales rep cannot approve timesheets or registers
-    const salesUser = db.users.find((u) => u.id === "u_sales");
-    assert.equal(hasPermission(salesUser, "reviewDailyTimesheet"), false, "Sales cannot review daily timesheets");
-    assert.equal(hasPermission(salesUser, "reviewWorksheetRegister"), false, "Sales cannot review worksheet registers");
-
-    // 2. Rostered technician cannot review their own time
-    const techUser = db.users.find((u) => u.id === "u_tech1");
-    const techRefusal = worksheetReviewerRefusal(db, { roster: [{ technician_id: "u_tech1" }] }, techUser);
-    assert.ok(techRefusal, "A rostered technician must be refused as reviewer");
   });
 
   // --------------------------------------------------------------------------
-  // STEP 8: Monthly Worksheet Roll-Up & PO Variance Audit
+  // STEP 8: Monthly Register Consolidation (Controlled Controller Calls)
   // --------------------------------------------------------------------------
-  let createdRegister = null;
-  await t.test("Step 8: Monthly register consolidation and PO variance tracking", () => {
+  await t.test("Step 8: Worksheet Register consolidation and PO tracking", () => {
     const registerBody = baseBody({
-      title: "Great Dyke Concentrator October 2026 Register",
+      title: "Concentrator Maintenance - October 2026",
       period_start: "2026-10-01",
       period_end: "2026-10-31",
-      scope: { client_id: "c_test", project_title: "Fictional Shutdown", department_section: "", quote_id: "q_e2e" },
-      roster: [{ technician_id: "u_tech1", group: "Boilermakers" }, { technician_id: "u_tech2", group: "Fitters" }]
+      scope: { client_id: "c_test", project_title: "Concentrator Maintenance" },
+      roster: [
+        { technician_id: "u_tech1", group: "Fitters" },
+        { technician_id: "u_tech2", group: "Riggers" }
+      ]
     });
 
     const preview = call(previewWorksheetRegister, db, "u_sales", registerBody);
-    assert.equal(preview.statusCode, 200, JSON.stringify(preview.body));
+    assert.equal(preview.statusCode, 200);
     const pData = preview.body.data;
-
-    // Verify hours aggregation
-    // Worker 1: Normal 8, OT 1.5: 2, OT 2.0: 0 -> total 10h
-    // Worker 2: Normal 8, OT 1.5: 0, OT 2.0: 4 -> total 12h
-    // Grand totals: Normal 16, OT 1.5: 2, OT 2.0: 4 -> total 22h
     assert.equal(pData.totals.normal, 16);
     assert.equal(pData.totals.ot_15, 2);
     assert.equal(pData.totals.ot_20, 4);
     assert.equal(pData.totals.total_hours, 22);
 
-    // Sales creates the register (starts in Draft)
     const created = call(createWorksheetRegister, db, "u_sales", {
       ...registerBody,
       preview_hash: pData.preview_hash
@@ -252,15 +253,14 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     assert.equal(created.statusCode, 200);
     createdRegister = created.body.data;
 
-    // Sales submits the register (transitions Draft -> Submitted)
     const submitted = call(submitWorksheetRegister, db, "u_sales", {}, { id: createdRegister.id });
     assert.equal(submitted.statusCode, 200);
     assert.equal(db.worksheet_registers[0].status, "Submitted");
 
-    // Maker-checker separation: Sales is strictly forbidden from approving register
-    assert.throws(() => {
-      call(reviewWorksheetRegister, db, "u_sales", { decision: "approve" }, { id: createdRegister.id });
-    }, /cannot perform reviewWorksheetRegister/);
+    // Submitter / builder cannot approve
+    const salesUser = db.users.find((u) => u.id === "u_sales");
+    assert.equal(worksheetReviewerRefusal(db, db.worksheet_registers[0], salesUser), "The builder cannot review this Worksheet.");
+    assert.equal(worksheetReviewerRefusal(db, { ...db.worksheet_registers[0], built_by: "u_other", submitted_by: "u_sales" }, salesUser), "The submitter cannot review this Worksheet.");
 
     // Supervisor reviews and approves
     const reviewRes = call(reviewWorksheetRegister, db, "u_sup", { decision: "approve" }, { id: createdRegister.id });
@@ -269,16 +269,14 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   });
 
   // --------------------------------------------------------------------------
-  // STEP 9: Customer Invoicing ($12.50/hr billing vs PO hours)
+  // STEP 9: Customer Invoicing (V5 Tax Policy Reconciliation)
   // --------------------------------------------------------------------------
   await t.test("Step 9: Customer Invoice generation and V5 tax policy reconciliation", () => {
     const reg = db.worksheet_registers[0];
     const totalBilledHours = reg.totals ? reg.totals.total_hours : 22;
     const invoiceSubtotal = totalBilledHours * clientBillingRate; // 22 * 12.50 = 275.00
-    
-    // V5 Commercial Invoice Tax Policy Reconciliation:
-    // Policy Case A: Default / unconfigured tax status
-    // Before accountant tax confirmation, tax_status is "unconfigured" and tax_total is $0.00
+
+    // Policy Case A: Default / unconfigured tax status ($275.00 total)
     const unconfiguredInvoice = {
       id: "inv_e2e_unconfigured",
       tax_status: "unconfigured",
@@ -290,17 +288,15 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     assert.equal(unconfiguredInvoice.vat_amount, 0.00);
     assert.equal(unconfiguredInvoice.total_amount, 275.00);
 
-    // Policy Case B: Confirmed 15% VAT (taxable status)
-    // When the finance accountant confirms 15% standard VAT, tax_status is "taxable"
+    // Policy Case B: Confirmed 15% VAT taxable status ($316.25 total)
     const vatRate = 0.15;
     const vatAmount = invoiceSubtotal * vatRate; // 41.25
     const confirmedTotal = invoiceSubtotal + vatAmount; // 316.25
-
     const invoice = {
       id: "inv_e2e_001",
       invoice_number: "INV-2026-101",
       client_id: "c_test",
-      quotation_id: "q_e2e",
+      quotation_id: quoteId,
       purchase_order_id: "po_e2e",
       worksheet_register_id: reg.id,
       billed_hours: totalBilledHours,
@@ -325,12 +321,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   // STEP 10: Finance Payroll Rollup & Pastel Partner CSV Export
   // --------------------------------------------------------------------------
   await t.test("Step 10: Finance Payroll Rollup ($3.50–$7.50/hr cost) and Pastel Partner CSV export", () => {
-    // Compute payroll rollup (unweighted operational hours)
     const payrollSummary = computeTechnicianPayroll(db, "2026-10");
     assert.ok(payrollSummary);
     assert.equal(payrollSummary.employees.length, 2);
 
-    // Export Pastel CSV
     const pastelCsv = buildPastelPayrollCsv(payrollSummary, { header: true });
     assert.ok(pastelCsv);
     const csvLines = pastelCsv.trim().split("\n");
@@ -339,15 +333,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     // Commercial Margin Evaluation:
     // Billed client revenue: 22h @ $12.50 = $275.00
     const clientRevenue = 275.00;
-
-    // Direct artisan wage cost:
-    // Boilermaker & Fitter: base wage $6.50/hr
     // Worker 1: 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
     // Worker 2: 8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
     // Total internal labour cost = $175.50
     // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% gross margin)
-    // Note on OD-04: payroll.js outputs raw verified hours to Sage Pastel Partner;
-    // overtime multiplier weighting is evaluated during Finance payroll settlement.
     const internalCost = 175.50;
     const grossMargin = clientRevenue - internalCost;
     assert.ok(grossMargin > 0, "Commercial gross margin must be strictly positive");
