@@ -9,7 +9,7 @@ They do not delete files, reset git, install packages, or rewrite the system aut
 Before each implementation phase:
 
 ```powershell
-cd "C:\Users\BRIAN LUPAO\Desktop\orac-ios"
+cd "/workspace/orac-backend"
 powershell -ExecutionPolicy Bypass -File .\scripts\00-backup-current.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\01-health-check.ps1
 ```
@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\01-health-check.ps1
 After each implementation phase:
 
 ```powershell
-cd "C:\Users\BRIAN LUPAO\Desktop\orac-ios"
+cd "/workspace/orac-backend"
 powershell -ExecutionPolicy Bypass -File .\scripts\01-health-check.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\02-smoke-test.ps1
 ```

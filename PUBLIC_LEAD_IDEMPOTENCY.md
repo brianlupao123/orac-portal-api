@@ -17,7 +17,7 @@ The implementation belongs to the backend integration checkout:
 
 | Field | Value |
 |---|---|
-| Repository root | `C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259` |
+| Repository root | `/workspace/orac-backend` |
 | Git remote | `https://github.com/brianlupao123/orac-portal-api.git` |
 | Branch | `codex/fix-fictional-pilot-json-store` |
 | Base commit | `490822b9a4b1c37751b10ddcf85feacf8e713e29` |

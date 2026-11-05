@@ -37,7 +37,7 @@ Service Request analysis follows the existing `viewOwnServiceRequests` client sc
 
 ## Verification evidence
 
-The designated backend checkout was `C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259`, branch `codex/fix-fictional-pilot-json-store`, HEAD `490822b9a4b1c37751b10ddcf85feacf8e713e29`, already dirty before this work. This change was not committed.
+The designated backend checkout was `/workspace/orac-backend`, branch `codex/fix-fictional-pilot-json-store`, HEAD `490822b9a4b1c37751b10ddcf85feacf8e713e29`, already dirty before this work. This change was not committed.
 
 On 2026-10-19, Windows `npm.cmd run maintain` passed **1,063/1,063 tests, 0 failed**, including Catalog Item analysis and nine authenticated record-trail HTTP cases. The Catalog Item adapter also passed focused unit/assistant **87/87** and authenticated HTTP **9/9**. Tests use disposable/fictitious records; no real database, live service, or customer data was accessed. Git emits line-ending notices for existing mixed-ending files.
 

@@ -20,19 +20,19 @@ Reconcile the public-web and `orac-ios` integration work described by Antigravit
 
 ## Authoritative checkout
 
-`C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259`
+`/workspace/orac-backend`
 
 This checkout contains the current evidence, permissions, PO/amendment, timesheet, audit, reporting, PostgreSQL, and V5 invoice-writer work. Existing dirty and untracked files are intentional project work and must be preserved.
 
 ## Antigravity material requiring reconciliation
 
-Antigravity documents claim that `C:\Users\BRIAN LUPAO\Desktop\orac-ios` contains a unified public-web integration and that `orac-ios-integration` is retired after a 56-test merge. Those claims are not accepted as current project state until the actual source, repository identity, branch, commit, dirty files, routes, permissions, database configuration, and test evidence are compared.
+Antigravity documents claim that `/workspace/orac-backend` contains a unified public-web integration and that `orac-ios-integration` is retired after a 56-test merge. Those claims are not accepted as current project state until the actual source, repository identity, branch, commit, dirty files, routes, permissions, database configuration, and test evidence are compared.
 
 The following files were found and read as claims/reference material:
 
-- `C:\Users\BRIAN LUPAO\Desktop\orac-ios\CODEX_MASTER_HANDOFF_AND_UNIFIED_WORKSPACE_SPEC.md`
-- `C:\Users\BRIAN LUPAO\Desktop\orac-ios\CODEX_HANDOFF_FULL_STATUS.md`
-- `C:\Users\BRIAN LUPAO\.gemini\antigravity\brain\796e2400-706b-49a0-8424-2f8af0202094\ORAC_SYSTEMS_STRATEGIC_DEPLOYMENT_ROADMAP.md` (must still be independently checked if available)
+- `/workspace/orac-backend`
+- `/workspace/orac-backend`
+- `/workspace/orac-backend` (must still be independently checked if available)
 
 ## Required Antigravity work
 
@@ -40,7 +40,7 @@ Work read-only first. Do not merge, copy, delete, commit, push, deploy, change D
 
 Compare:
 
-1. `C:\Users\BRIAN LUPAO\Desktop\orac-ios`
+1. `/workspace/orac-backend`
 2. The public website checkout identified by the handoff
 3. The `orac-ios-integration` checkout identified by the handoff
 4. This authoritative backend checkout

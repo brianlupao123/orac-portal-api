@@ -1,6 +1,6 @@
 ORAC V5 fictional API UAT
 Started: 2026-10-22T15:18:34.3258186+02:00
-Checkout: C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259
+Checkout: /workspace/orac-backend
 Flags are controlled by the test files and are not persisted.
 Exit code: 0
 Finished: 2026-10-22T15:18:42.9403353+02:00

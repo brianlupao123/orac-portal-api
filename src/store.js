@@ -343,6 +343,9 @@ export function createStore(filePath) {
 
     // Seed if file doesn't exist
     if (!existsSync(filePath)) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Production file store cannot be auto-seeded with demo records.");
+      }
       writeFileSync(filePath, JSON.stringify(seedData(), null, 2));
     }
   }

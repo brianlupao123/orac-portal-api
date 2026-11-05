@@ -1,7 +1,7 @@
 # V5 Invoice Writer Checkout Evidence
 
 - Captured: 2026-10-22T11:05:02.8564115+02:00
-- Root: `C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259`
+- Root: `/workspace/orac-backend`
 - Branch: `codex/fix-fictional-pilot-json-store`
 - HEAD: `490822b9a4b1c37751b10ddcf85feacf8e713e29`
 - V5 commercial flag: unset

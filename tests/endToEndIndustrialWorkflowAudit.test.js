@@ -12,7 +12,7 @@ import { computeTechnicianPayroll, buildPastelPayrollCsv, PASTEL_HEADERS } from 
 import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreController.js";
 import { SERVICE_REQUEST_STATUS, buildLeadFromRequest, findTriageDecision } from "../src/serviceRequestRules.js";
 import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
-import { worksheetReviewerRefusal } from "../src/timesheetWorkflow.js";
+import { worksheetReviewerRefusal, registerReviewRefusal } from "../src/timesheetWorkflow.js";
 
 const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   const res = makeRes();
@@ -176,23 +176,27 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   // STEP 6: Client Representative Acknowledgement
   // --------------------------------------------------------------------------
   await t.test("Step 6: Client acknowledgement under client representative sign-in", () => {
-    for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1")) {
-      ws.status = "Client_Acknowledged";
-      ws.client_acknowledgement = {
-        signer_name: "Eng. T. Moyo",
-        signer_role: "Plant Manager",
-        acknowledged_at: "2026-10-05T18:00:00Z",
-        evidence_reference: "evd_client_sign"
-      };
-    }
-    const unacknowledged = db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1" && w.status !== "Client_Acknowledged");
-    assert.equal(unacknowledged.length, 0);
+    // Digital timesheet requires explicit on-site acknowledgement:
+    const ws1 = db.field_worksheets.find((w) => w.id === "ws_e2e_1");
+    ws1.status = "Client_Acknowledged";
+    ws1.client_acknowledgement = {
+      signer_name: "Eng. T. Moyo",
+      signer_role: "Plant Manager",
+      acknowledged_at: "2026-10-05T18:00:00Z",
+      evidence_reference: "evd_client_sign"
+    };
+
+    // Certified Paper Booklet timesheet already contains physical client foreman signature:
+    const ws2 = db.field_worksheets.find((w) => w.id === "ws_e2e_2");
+    assert.equal(ws2.status, STATUS_CAPTURED_FROM_PAPER, "Paper timesheet retains certified Captured_From_Signed_Paper status");
+    assert.ok(ws2.paper_reference);
   });
 
   // --------------------------------------------------------------------------
   // STEP 7: Supervisor Review & Approval (Maker-Checker Enforcement)
   // --------------------------------------------------------------------------
   await t.test("Step 7: Supervisor approval with strict maker-checker controls", () => {
+    // Both Client_Acknowledged and Captured_From_Signed_Paper are eligible for supervisor approval
     for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1")) {
       ws.status = "Supervisor_Approved";
       ws.approved_by = "u_sup";
@@ -202,8 +206,13 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === "d_1" && w.status === "Supervisor_Approved");
     assert.equal(approved.length, 2);
 
-    // Verify maker-checker rules:
-    // Rostered technician cannot review their own time
+    // Verify maker-checker separation:
+    // 1. Sales rep cannot approve timesheets or registers
+    const salesUser = db.users.find((u) => u.id === "u_sales");
+    assert.equal(hasPermission(salesUser, "reviewDailyTimesheet"), false, "Sales cannot review daily timesheets");
+    assert.equal(hasPermission(salesUser, "reviewWorksheetRegister"), false, "Sales cannot review worksheet registers");
+
+    // 2. Rostered technician cannot review their own time
     const techUser = db.users.find((u) => u.id === "u_tech1");
     const techRefusal = worksheetReviewerRefusal(db, { roster: [{ technician_id: "u_tech1" }] }, techUser);
     assert.ok(techRefusal, "A rostered technician must be refused as reviewer");
@@ -262,17 +271,30 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   // --------------------------------------------------------------------------
   // STEP 9: Customer Invoicing ($12.50/hr billing vs PO hours)
   // --------------------------------------------------------------------------
-  await t.test("Step 9: Customer Invoice generation from approved hours", () => {
+  await t.test("Step 9: Customer Invoice generation and V5 tax policy reconciliation", () => {
     const reg = db.worksheet_registers[0];
     const totalBilledHours = reg.totals ? reg.totals.total_hours : 22;
     const invoiceSubtotal = totalBilledHours * clientBillingRate; // 22 * 12.50 = 275.00
     
-    // V5 Commercial Invoice Tax Policy:
-    // Tax status defaults to "unconfigured" ($275.00 total) until accountant confirmation.
-    // When 15% VAT is confirmed: 15% VAT = $41.25 -> Total = $316.25.
-    const provisionalVatRate = 0.15;
-    const vatAmount = invoiceSubtotal * provisionalVatRate;
-    const invoiceTotalWithVat = invoiceSubtotal + vatAmount;
+    // V5 Commercial Invoice Tax Policy Reconciliation:
+    // Policy Case A: Default / unconfigured tax status
+    // Before accountant tax confirmation, tax_status is "unconfigured" and tax_total is $0.00
+    const unconfiguredInvoice = {
+      id: "inv_e2e_unconfigured",
+      tax_status: "unconfigured",
+      subtotal: invoiceSubtotal,
+      vat_amount: 0.00,
+      total_amount: invoiceSubtotal
+    };
+    assert.equal(unconfiguredInvoice.subtotal, 275.00);
+    assert.equal(unconfiguredInvoice.vat_amount, 0.00);
+    assert.equal(unconfiguredInvoice.total_amount, 275.00);
+
+    // Policy Case B: Confirmed 15% VAT (taxable status)
+    // When the finance accountant confirms 15% standard VAT, tax_status is "taxable"
+    const vatRate = 0.15;
+    const vatAmount = invoiceSubtotal * vatRate; // 41.25
+    const confirmedTotal = invoiceSubtotal + vatAmount; // 316.25
 
     const invoice = {
       id: "inv_e2e_001",
@@ -284,9 +306,9 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
       billed_hours: totalBilledHours,
       billing_rate: clientBillingRate,
       subtotal: invoiceSubtotal,
-      tax_status: "provisional_confirmed",
+      tax_status: "taxable",
       vat_amount: vatAmount,
-      total_amount: invoiceTotalWithVat,
+      total_amount: confirmedTotal,
       status: "Issued",
       currency: "USD"
     };
@@ -294,6 +316,8 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
 
     assert.equal(invoice.billed_hours, 22);
     assert.equal(invoice.subtotal, 275.00);
+    assert.equal(invoice.tax_status, "taxable");
+    assert.equal(invoice.vat_amount, 41.25);
     assert.equal(invoice.total_amount, 316.25);
   });
 
@@ -301,7 +325,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
   // STEP 10: Finance Payroll Rollup & Pastel Partner CSV Export
   // --------------------------------------------------------------------------
   await t.test("Step 10: Finance Payroll Rollup ($3.50–$7.50/hr cost) and Pastel Partner CSV export", () => {
-    // Compute payroll rollup
+    // Compute payroll rollup (unweighted operational hours)
     const payrollSummary = computeTechnicianPayroll(db, "2026-10");
     assert.ok(payrollSummary);
     assert.equal(payrollSummary.employees.length, 2);
@@ -312,15 +336,18 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT", async (t) => {
     const csvLines = pastelCsv.trim().split("\n");
     assert.equal(csvLines[0].trim(), PASTEL_HEADERS.join(","));
 
-    // Verify ORAC Commercial Margin (Contract Spread)
-    // Client billed revenue for these 22 hours: $275.00
-    // Internal artisan wage cost (Finance only):
-    // Worker 1 (Boilermaker @ $6.50 base): 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
-    // Worker 2 (Fitter @ $6.50 base):      8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
-    // Total internal artisan payroll cost: $175.50
-    // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% gross margin)
-    // Note: OT weighting contract aligns with Owner Decision OD-04.
+    // Commercial Margin Evaluation:
+    // Billed client revenue: 22h @ $12.50 = $275.00
     const clientRevenue = 275.00;
+
+    // Direct artisan wage cost:
+    // Boilermaker & Fitter: base wage $6.50/hr
+    // Worker 1: 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
+    // Worker 2: 8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
+    // Total internal labour cost = $175.50
+    // Net Gross Margin = $275.00 - $175.50 = $99.50 (36.18% gross margin)
+    // Note on OD-04: payroll.js outputs raw verified hours to Sage Pastel Partner;
+    // overtime multiplier weighting is evaluated during Finance payroll settlement.
     const internalCost = 175.50;
     const grossMargin = clientRevenue - internalCost;
     assert.ok(grossMargin > 0, "Commercial gross margin must be strictly positive");

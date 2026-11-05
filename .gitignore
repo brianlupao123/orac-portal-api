@@ -2,3 +2,6 @@ node_modules/
 data/db.json
 .env
 evidence/stage-reports/
+.lead-retry-backups/
+.orac-v5-signature-phase/
+*.log

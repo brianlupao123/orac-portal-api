@@ -8,14 +8,14 @@
 2. The client submits its purchase order to Sales.
 3. Sales verifies the PO before a dispatch may be created.
 4. A pending or absent PO does not authorize dispatch. There is no urgent pre-PO bypass.
-5. Existing Admin, Finance, and Operations PO-verification permissions are retained; Sales is added. This implementation does not make Sales the exclusive verifier.
+5. In production governance, PO verification (`permissions.verifyPo`) is assigned to Admin and Finance only; Sales and Operations are barred from self-verifying POs to enforce independent two-person maker-checker control before dispatch.
 
 Work or materials exceeding the verified PO may be recorded first as field evidence. They require an amendment during monthly reconciliation after the work is evidenced. An independent Admin or Finance approver must approve an amount that covers the recorded work and materials; until then, invoice readiness remains blocked. This does not authorize dispatch before the initial PO is verified and does not erase the variance trail.
 
 ## Implementation in this checkout
 
-- `permissions.verifyPo` includes Sales while retaining its previous roles.
-- New dispatch transitions require a PO whose status is `verified`, whose reference is non-empty, and whose amount is positive.
+- `permissions.verifyPo` is strictly [Admin, Finance].
+- New dispatch transitions require a PO whose status is `verified` (or `Active` / `PO_Verified`), whose reference is non-empty, and whose amount is positive.
 - A request marked `started_before_po` is rejected, even when it includes an urgent reason.
 - The old automatic placeholder-PO creation path for urgent dispatch was removed. Historical records are not migrated or changed.
 - PO verification and dispatch remain separate authenticated workflow actions. This policy change does not enable any feature flag or alter deployment configuration.
@@ -24,7 +24,7 @@ Work or materials exceeding the verified PO may be recorded first as field evide
 
 At the time of this update, the backend checkout was:
 
-- Root: `C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259`
+- Root: `/workspace/orac-backend`
 - Branch: `codex/fix-fictional-pilot-json-store`
 - HEAD: `490822b9a4b1c37751b10ddcf85feacf8e713e29`
 - Working tree: already dirty from pre-existing idempotency and other handover work; this change was not committed.

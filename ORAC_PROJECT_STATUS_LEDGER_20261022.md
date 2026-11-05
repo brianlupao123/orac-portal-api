@@ -2,7 +2,7 @@
 
 Date: 2026-10-22
 Authoritative checkout:
-`C:\Users\BRIAN LUPAO\Desktop\ffims-asset-register\two-concept-packet-backend-20261005-235259`
+`/workspace/orac-backend`
 
 ## Purpose
 
