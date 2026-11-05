@@ -529,6 +529,20 @@ describe("ORAC Sales Portfolio Reconciliation Matrix", () => {
     disownedQuote.client_id = "cli_beta"; // cli_beta is explicitly owned by Bob (usr_sales_2)
     assert.equal(disownedQuote.created_by, "usr_sales_1");
     assert.equal(isQuoteInSalesPortfolio(disownedQuote, salesAlice, db), false, "created_by must never grant portfolio visibility");
+
+    // Also assert that a quote with ONLY created_by (no sales_owner_id and unassigned client) stays hidden
+    const orphanQuoteOnlyCreatedBy = {
+      id: "qte_orphan_created_by",
+      created_by: "usr_sales_1",
+      sales_owner_id: null,
+      client_id: null,
+      account_team_user_ids: []
+    };
+    assert.equal(
+      isQuoteInSalesPortfolio(orphanQuoteOnlyCreatedBy, salesAlice, db),
+      false,
+      "A quote with only created_by and no sales_owner_id must strictly stay hidden from Sales portfolio"
+    );
   });
 
   // GAP 5: Quote Authority Review (Operations Denied; Management Gate Enforced)

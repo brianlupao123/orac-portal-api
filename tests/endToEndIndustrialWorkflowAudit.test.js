@@ -320,7 +320,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
   // --------------------------------------------------------------------------
   // STEP 10: Finance Payroll Rollup & Pastel Partner CSV Export
   // --------------------------------------------------------------------------
-  await t.test("Step 10: Finance Payroll Rollup ($3.50–$7.50/hr cost) and Pastel Partner CSV export", () => {
+  await t.test("Step 10: Finance Payroll Rollup and Pastel Partner CSV export", () => {
     const payrollSummary = computeTechnicianPayroll(db, "2026-10");
     assert.ok(payrollSummary);
     assert.equal(payrollSummary.employees.length, 2);
@@ -330,13 +330,13 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     const csvLines = pastelCsv.trim().split("\n");
     assert.equal(csvLines[0].trim(), PASTEL_HEADERS.join(","));
 
-    // Commercial Margin Evaluation:
+    // Commercial Margin Evaluation (synthetic test rates):
     // Billed client revenue: 22h @ $12.50 = $275.00
     const clientRevenue = 275.00;
 
-    // Direct artisan wage cost computed dynamically from payroll summary:
-    // Worker 1 (Fitter, $6.50/hr): 8h Normal ($52.00) + 2h OT 1.5 ($19.50) = $71.50
-    // Worker 2 (Rigger, $6.50/hr): 8h Normal ($52.00) + 4h OT 2.0 ($52.00) = $104.00
+    // Direct labour cost computed dynamically from payroll summary using synthetic rate card:
+    // Worker 1 (Fitter): 8h Normal + 2h OT 1.5 = synthetic cost $71.50
+    // Worker 2 (Rigger): 8h Normal + 4h OT 2.0 = synthetic cost $104.00
     // Total internal labour cost = $175.50
     const labourCost = computeLabourCost(payrollSummary, { Fitter: 6.50, Rigger: 6.50 });
     assert.equal(labourCost.total_cost, 175.50);
