@@ -173,22 +173,26 @@ export function buildPastelPayrollCsv(payroll, { header = true, codes = pastelPa
 // Internal labour cost computation (for commercial margin analysis and Finance reconciliation).
 // Takes a payroll summary and a rate card (hourly base rate per trade or technician),
 // applying standard OT multipliers (1.5x for OT15, 2.0x for OT20).
-export function computeLabourCost(payroll, rateCard = {}) {
-  const defaultRate = rateCard.default ?? 6.50;
+// Fails closed: missing rates throw an Error rather than silently defaulting.
+export function computeLabourCost(payroll, rateCard = {}, { ot_15_multiplier = 1.5, ot_20_multiplier = 2.0 } = {}) {
   let totalCost = 0;
   const byEmployee = [];
 
   for (const emp of payroll.employees || []) {
-    const rate = rateCard[emp.technician_id] ?? rateCard[emp.trade] ?? defaultRate;
-    const normalCost = r2(emp.normal_hours * rate);
-    const ot15Cost = r2(emp.overtime_15_hours * (rate * 1.5));
-    const ot20Cost = r2(emp.overtime_20_hours * (rate * 2.0));
+    const rate = rateCard[emp.technician_id] ?? (emp.trade ? rateCard[emp.trade] : undefined) ?? rateCard.default;
+    if (rate === undefined || rate === null || isNaN(Number(rate))) {
+      throw new Error(`Missing wage rate for technician ${emp.full_name || emp.technician_id} (trade: ${emp.trade || "unspecified"}). A configured Finance rate is required.`);
+    }
+    const numRate = Number(rate);
+    const normalCost = r2(emp.normal_hours * numRate);
+    const ot15Cost = r2(emp.overtime_15_hours * (numRate * ot_15_multiplier));
+    const ot20Cost = r2(emp.overtime_20_hours * (numRate * ot_20_multiplier));
     const empTotal = r2(normalCost + ot15Cost + ot20Cost);
     totalCost = r2(totalCost + empTotal);
     byEmployee.push({
       technician_id: emp.technician_id,
       trade: emp.trade,
-      base_rate: rate,
+      base_rate: numRate,
       normal_cost: normalCost,
       ot_15_cost: ot15Cost,
       ot_20_cost: ot20Cost,

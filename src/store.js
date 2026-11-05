@@ -222,6 +222,25 @@ function seedData() {
   };
 }
 
+export const DEFAULT_COMPANY_PROFILE = Object.freeze({
+  company_name: "Orac Systems",
+  legal_name: "Handon Enterprises (Pvt) Ltd",
+  address: "Harare, Zimbabwe",
+  phone: "",
+  email: "info@orac.co.zw",
+  brand_primary: "#6EC1E4",
+  brand_slate: "#54595F",
+  v5_commercial_policy: Object.freeze({
+    invoice_self_approval: "allowed_if_clean",
+    client_signature_methods: [],
+    unbilled_age_days: 30,
+    variance_warning_percent: 80,
+    currency: "USD",
+    tax_rate: null,
+    tax_status: "unconfigured"
+  })
+});
+
 export const SCHEMA_COLLECTIONS = [
   "users", "clients", "mine_sites", "plants", "plant_sections", "equipment_tags",
   "catalog_items", "leads", "idempotency_keys", "quotes", "quote_lines",
@@ -250,24 +269,17 @@ export function normalizeDb(db, { seedDemoRecords = process.env.NODE_ENV !== "pr
   }
 
   if (seedDemoRecords) {
+    const seeded = seedData();
     const existingUserIds = new Set(db.users.map((user) => user.id));
     for (const user of seeded.users) {
       if (!existingUserIds.has(user.id)) db.users.push(user);
     }
-  }
-
-  if (seedDemoRecords && db.suppliers.length === 0 && seeded.suppliers) {
-    db.suppliers = [...seeded.suppliers];
-  }
-  if (seedDemoRecords && db.stock_items.length === 0 && seeded.stock_items) {
-    db.stock_items = [...seeded.stock_items];
-  }
-  if (!db.notifications) {
-    db.notifications = [];
-  }
-
-  // Backfill the demo Client Viewer scope only for local JSON/demo stores.
-  if (seedDemoRecords) {
+    if (db.suppliers.length === 0 && seeded.suppliers) {
+      db.suppliers = [...seeded.suppliers];
+    }
+    if (db.stock_items.length === 0 && seeded.stock_items) {
+      db.stock_items = [...seeded.stock_items];
+    }
     for (const seededUser of seeded.users) {
       if (seededUser.client_id) {
         const existing = db.users.find((u) => u.id === seededUser.id);
@@ -276,11 +288,18 @@ export function normalizeDb(db, { seedDemoRecords = process.env.NODE_ENV !== "pr
     }
   }
 
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+
   if (!db.company_profile || typeof db.company_profile !== "object") {
-    db.company_profile = seeded.company_profile;
+    db.company_profile = {
+      ...DEFAULT_COMPANY_PROFILE,
+      v5_commercial_policy: { ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy }
+    };
   }
   if (!db.company_profile.v5_commercial_policy || typeof db.company_profile.v5_commercial_policy !== "object") {
-    db.company_profile.v5_commercial_policy = seeded.company_profile.v5_commercial_policy;
+    db.company_profile.v5_commercial_policy = { ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy };
   }
 
   // Backfill is_active on master-data records seeded before this field

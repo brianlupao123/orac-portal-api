@@ -79,11 +79,29 @@ function refreshTaxConfigurationForIssue(req, quote, actor) {
   req.store.audit(req.db, actor, "quotation", quote.id, "QUOTE_TAX_CONFIGURATION_REFRESHED_FOR_ISSUE", before, quote);
 }
 
+function resolveSalesOwnerId(db, actor, bodySalesOwnerId) {
+  if (actor.role === roles.SALES) return actor.id;
+  if (!bodySalesOwnerId) return null;
+  const target = (db.users || []).find((u) => u.id === bodySalesOwnerId && u.role === roles.SALES && u.is_active !== false);
+  if (!target) {
+    const error = new Error("sales_owner_id must belong to an active Sales user.");
+    error.status = 400;
+    throw error;
+  }
+  return target.id;
+}
+
 export const createQuote = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "createQuote");
   
   const body = req.body;
+  let salesOwnerId = null;
+  try {
+    salesOwnerId = resolveSalesOwnerId(req.db, actor, body.sales_owner_id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
+  }
   const client = req.db.clients.find((item) => item.id === body.client_id);
   if (!client) return res.status(400).json({ success: false, message: "Client is required." });
 
@@ -147,6 +165,7 @@ export const createQuote = (req, res) => {
     work_packages: body.work_packages && body.work_packages.length > 0
       ? body.work_packages
       : [{ id: "wp_01", code: "WP-01", title: "General Scope", sequence: 1 }],
+    sales_owner_id: salesOwnerId,
     created_by: actor.id,
     created_at: new Date().toISOString()
   };
@@ -203,7 +222,7 @@ export const createQuoteRevision = (req, res) => {
     revision_reason: req.body.reason,
     client_po_reference: req.body.client_po_reference || null,
     client_po_date: req.body.client_po_date || null,
-    sales_owner_id: actor.role === roles.SALES ? actor.id : (body.sales_owner_id || null),
+    sales_owner_id: resolveSalesOwnerId(req.db, actor, req.body.sales_owner_id),
     created_by: actor.id,
     created_at: new Date().toISOString(),
     v5_commercial_workflow: true
