@@ -8,7 +8,8 @@ import { roles } from "../permissions.js";
 import {
   isQuoteInSalesPortfolio,
   isDispatchInSalesPortfolio,
-  isInvoiceInSalesPortfolio
+  isInvoiceInSalesPortfolio,
+  isPurchaseOrderInSalesPortfolio
 } from "./coreController.js";
 
 function getActor(req) {

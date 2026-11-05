@@ -1,4 +1,4 @@
-import { requirePermission } from "../permissions.js";
+import { requirePermission, roles } from "../permissions.js";
 import { transitionQuote } from "../stateMachine.js";
 import { validateEquipmentTagForClient } from "../services/entityHierarchy.js";
 import { v5Enabled, getV5Policy } from "../v5CommercialWorkflow.js";
@@ -203,6 +203,7 @@ export const createQuoteRevision = (req, res) => {
     revision_reason: req.body.reason,
     client_po_reference: req.body.client_po_reference || null,
     client_po_date: req.body.client_po_date || null,
+    sales_owner_id: actor.role === roles.SALES ? actor.id : (body.sales_owner_id || null),
     created_by: actor.id,
     created_at: new Date().toISOString(),
     v5_commercial_workflow: true
