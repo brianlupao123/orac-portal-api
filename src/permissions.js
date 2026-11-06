@@ -155,18 +155,12 @@ const OVERLAYS = [
     remove: { viewWorksheetRegister: [O, V], manageWorksheetRegister: [O, V], submitWorksheetRegister: [O, V], reviewWorksheetRegister: [O, V], reconcileWorksheetRegister: [O] } }
 ];
 export function effectivePermissionRoles(permission) {
-  if (process.env.NODE_ENV === "production" && process.env.TIMESHEET_SALES_ACCESS === "enabled") {
-    throw new Error("TIMESHEET_SALES_ACCESS flag cannot be enabled in production environments (maker-checker separation violation).");
-  }
   let list = permissions[permission] || NEW_PERMISSIONS[permission] || [];
   for (const o of OVERLAYS) {
     if (process.env[o.flag] !== "enabled") continue;
     if (o.replace?.[permission]) list = o.replace[permission];
     if (o.add?.[permission]) {
-      const addRoles = (process.env.NODE_ENV === "production" && permission === "reviewWorksheetRegister")
-        ? o.add[permission].filter((r) => r !== roles.SALES)
-        : o.add[permission];
-      list = [...new Set([...list, ...addRoles])];
+      list = [...new Set([...list, ...o.add[permission]])];
     }
     if (o.remove?.[permission]) list = list.filter((r) => !o.remove[permission].includes(r));
   }

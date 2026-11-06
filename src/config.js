@@ -56,7 +56,11 @@ export function validateRuntimeConfig() {
     }
   }
 
-  if (config.isProduction) {
+  const isProd = config.isProduction || process.env.NODE_ENV === "production";
+  if (isProd) {
+    if (process.env.TIMESHEET_SALES_ACCESS === "enabled") {
+      throw new Error("Production safety violation: TIMESHEET_SALES_ACCESS cannot be enabled in production environments (maker-checker separation violation).");
+    }
     if (config.storeDriver !== "postgres") {
       throw new Error("Production requires STORE_DRIVER=postgres.");
     }

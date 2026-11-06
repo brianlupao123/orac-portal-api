@@ -5,6 +5,7 @@ import { v5Enabled, getV5Policy } from "../v5CommercialWorkflow.js";
 import { calculateV5QuoteLines, quoteTotal } from "../v5QuoteRules.js";
 import { calculateQuoteFinancials } from "../quoteCalculation.js";
 import { validateLeadLink } from "../recordTrail.js";
+import { isQuoteInSalesPortfolio } from "./coreController.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -91,7 +92,13 @@ function resolveSalesOwnerId(db, actor, bodySalesOwnerId) {
   return target.id;
 }
 
-function resolveRevisionSalesOwnerId(db, actor, original, bodySalesOwnerId) {
+export function resolveRevisionSalesOwnerId(db, actor, original, bodySalesOwnerId) {
+  // If an unprivileged user explicitly supplies a mismatching sales_owner_id, fail closed with HTTP 403
+  if (actor.role !== roles.ADMIN && bodySalesOwnerId !== undefined && bodySalesOwnerId !== (original.sales_owner_id || null)) {
+    const error = new Error("Only an Admin can reassign sales ownership of a quotation revision.");
+    error.status = 403;
+    throw error;
+  }
   // If an Admin explicitly specifies a new sales_owner_id in revision body, validate it
   if (actor.role === roles.ADMIN && bodySalesOwnerId !== undefined) {
     if (!bodySalesOwnerId) return null;
@@ -214,6 +221,9 @@ export const createQuoteRevision = (req, res) => {
   const original = req.db.quotes.find((item) => item.id === req.params.id);
   if (!original) return res.status(404).json({ success: false, message: "Quote not found." });
   if (original.status === "Cancelled") return res.status(409).json({ success: false, message: "A cancelled quote cannot be revised." });
+  if (actor.role === roles.SALES && !isQuoteInSalesPortfolio(original, actor, req.db)) {
+    return res.status(403).json({ success: false, message: "Forbidden: You can only revise quotations within your sales portfolio." });
+  }
   const policy = getV5Policy(req.db);
   if (req.body.tax_rate !== undefined && req.body.tax_rate !== null) {
     return res.status(409).json({ success: false, code: "V5_TAX_UNCONFIGURED", message: "V5 tax calculation is not configured." });

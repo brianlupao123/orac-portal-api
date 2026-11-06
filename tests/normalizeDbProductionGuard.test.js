@@ -3,6 +3,7 @@ import test from "node:test";
 import { normalizeDb, SCHEMA_COLLECTIONS, DEFAULT_COMPANY_PROFILE } from "../src/store.js";
 import { computeLabourCost } from "../src/payroll.js";
 import { effectivePermissionRoles, roles } from "../src/permissions.js";
+import { validateRuntimeConfig } from "../src/config.js";
 
 function withEnv(envObj, fn) {
   const saved = {};
@@ -97,10 +98,10 @@ test("computeLabourCost fail-closed: rejects missing, zero, negative rates and i
   assert.equal(result.total_cost, 110.00); // 8*10 = 80, 2*15 = 30
 });
 
-test("Production guard: TIMESHEET_SALES_ACCESS cannot grant register approval in production", () => {
+test("Production guard: TIMESHEET_SALES_ACCESS cannot be enabled in production", () => {
   withEnv({ NODE_ENV: "production", TIMESHEET_SALES_ACCESS: "enabled" }, () => {
     assert.throws(
-      () => effectivePermissionRoles("reviewWorksheetRegister"),
+      () => validateRuntimeConfig(),
       /cannot be enabled in production environments/
     );
   });

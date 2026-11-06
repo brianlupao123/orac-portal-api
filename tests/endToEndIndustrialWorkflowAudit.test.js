@@ -26,6 +26,22 @@ const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   return res;
 };
 
+const approveSupervisorCustody = (ws, supervisorUser, approvedAt = "2026-10-06T07:00:00Z") => {
+  return Object.assign(ws, {
+    status: "Supervisor_Approved",
+    approved_by: supervisorUser.id,
+    approved_at: approvedAt,
+    signatures: {
+      ...(ws.signatures || {}),
+      supervisor: {
+        name: supervisorUser.name,
+        approved_at: approvedAt,
+        method: "physical_custody_verification"
+      }
+    }
+  });
+};
+
 test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVEN)", async (t) => {
   const db = makeDb();
   db.__store = { ...makeStore(), recalculateVariance(d, id) {} };
@@ -79,7 +95,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
   // --------------------------------------------------------------------------
   // STEP 2: Quotation Generation (with line items & billing rate $12.50/hr)
   // --------------------------------------------------------------------------
-  await t.test("Step 2: Quotation generation with standard client billing rate ($10–$15/hr)", () => {
+  await t.test("Step 2: Quotation generation with standard client billing rate", () => {
     const quote = {
       id: quoteId,
       quote_number: "Q-2026-101",
@@ -242,12 +258,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     const reviewResPaper = call(reviewWorksheet, db, "u_sup", { decision: "approve" }, { id: "ws_e2e_2" });
     assert.equal(reviewResPaper.statusCode, 400);
 
-    // Paper timesheet approved under supervisor paper custody verification
+    // Certified physical paper timesheet verified and approved under supervisor custody
+    const supUser = db.users.find((u) => u.id === "u_sup");
     const ws2 = db.field_worksheets.find((w) => w.id === "ws_e2e_2");
-    ws2.status = "Supervisor_Approved";
-    ws2.approved_by = "u_sup";
-    ws2.approved_at = "2026-10-06T07:00:00Z";
-    ws2.signatures.supervisor = { name: "Supervisor One", approved_at: "2026-10-06T07:00:00Z" };
+    approveSupervisorCustody(ws2, supUser);
 
     const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === dispatchCardId && w.status === "Supervisor_Approved");
     assert.equal(approved.length, 2);

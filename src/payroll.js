@@ -187,11 +187,11 @@ export function computeLabourCost(payroll, rateCard = {}, { ot_15_multiplier = 1
   for (const emp of payroll.employees || []) {
     const rawRate = rateCard[emp.technician_id] ?? (emp.trade ? rateCard[emp.trade] : undefined);
     if (rawRate === undefined || rawRate === null || rawRate === "") {
-      throw new Error(`Missing wage rate for technician ${emp.full_name || emp.technician_id} (trade: ${emp.trade || "unspecified"}). A configured Finance rate is required.`);
+      throw new Error(`Missing wage rate for technician ${emp.technician_id} (trade: ${emp.trade || "unspecified"}). A configured Finance rate is required.`);
     }
     const numRate = Number(rawRate);
     if (!Number.isFinite(numRate) || numRate <= 0) {
-      throw new Error(`Invalid wage rate (${rawRate}) for technician ${emp.full_name || emp.technician_id}: wage rates must be finite numbers greater than zero.`);
+      throw new Error(`Invalid wage rate (${rawRate}) for technician ${emp.technician_id}: wage rates must be finite numbers greater than zero.`);
     }
     const normalCost = r2(emp.normal_hours * numRate);
     const ot15Cost = r2(emp.overtime_15_hours * (numRate * m15));
@@ -211,4 +211,3 @@ export function computeLabourCost(payroll, rateCard = {}, { ot_15_multiplier = 1
 
   return { total_cost: totalCost, employees: byEmployee };
 }
-
