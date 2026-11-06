@@ -158,6 +158,9 @@ export function effectivePermissionRoles(permission) {
   let list = permissions[permission] || NEW_PERMISSIONS[permission] || [];
   for (const o of OVERLAYS) {
     if (process.env[o.flag] !== "enabled") continue;
+    if (o.flag === "TIMESHEET_SALES_ACCESS" && process.env.NODE_ENV === "production") {
+      throw new Error("Production safety violation: TIMESHEET_SALES_ACCESS cannot be enabled in production environments.");
+    }
     if (o.replace?.[permission]) list = o.replace[permission];
     if (o.add?.[permission]) {
       list = [...new Set([...list, ...o.add[permission]])];

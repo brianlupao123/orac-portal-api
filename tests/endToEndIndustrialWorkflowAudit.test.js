@@ -22,7 +22,11 @@ import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
 
 const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   const res = makeRes();
-  fn(req(db, user, body, params, undefined, query), res);
+  try {
+    fn(req(db, user, body, params, undefined, query), res);
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
   return res;
 };
 
@@ -96,6 +100,9 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
   // STEP 2: Quotation Generation (with line items & billing rate $12.50/hr)
   // --------------------------------------------------------------------------
   await t.test("Step 2: Quotation generation with standard client billing rate", () => {
+    // Commercial pricing policy guidance: The $10–$15/hr band represents commercial rate guidance
+    // for Zimbabwean mining clients ($12.50/hr standard rate applied in this audit pilot).
+    // The system schema enforces unit_price >= 0, treating rate bands as business commercial policy.
     const quote = {
       id: quoteId,
       quote_number: "Q-2026-101",
@@ -138,10 +145,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     // Assert Sales owns and sees PO in portfolio
     assert.equal(isPurchaseOrderInSalesPortfolio(po, salesUser, db), true);
 
-    // Assert Sales cannot verify PO (state machine & controller gate throws 403)
-    assert.throws(() => {
-      call(capturePo, db, "u_sales", { po_reference: "PO-2026-789", po_amount: 1000.00 }, { id: quoteId });
-    }, /cannot perform verifyPo/);
+    // Assert Sales cannot verify PO (maker-checker separation: controller returns HTTP 403)
+    const salesPoRes = call(capturePo, db, "u_sales", { po_reference: "PO-2026-789", po_amount: 1000.00 }, { id: quoteId });
+    assert.equal(salesPoRes.statusCode, 403);
+    assert.match(salesPoRes.body.message, /cannot perform verifyPo/);
 
     // Assert Operations cannot dispatch prior to PO verification (illegal transition from Approved_Pending_PO)
     assert.throws(() => {
@@ -253,12 +260,16 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     assert.equal(ws1.status, "Supervisor_Approved");
     assert.equal(ws1.approved_by, "u_sup");
 
-    // Step 7b: Paper booklet timesheet already carries client physical certification
-    // Calling reviewWorksheet on Captured_From_Signed_Paper returns 400 (requires Client_Acknowledged)
+    // Step 7b: FIXTURE SETUP: Paper booklet timesheet custody intake fixture setup.
+    // In physical operations, paper timesheets carry physical signatures from the mine supervisor
+    // and technician. Supervisor custody verification is staged here as an explicit fixture setup
+    // before monthly register consolidation in Step 8.
+    // Note: Attempting to call reviewWorksheet directly on Captured_From_Signed_Paper returns 400
+    // (enforcing that only digital sheets go through the digital client acknowledgement state machine).
     const reviewResPaper = call(reviewWorksheet, db, "u_sup", { decision: "approve" }, { id: "ws_e2e_2" });
     assert.equal(reviewResPaper.statusCode, 400);
 
-    // Certified physical paper timesheet verified and approved under supervisor custody
+    // Certified physical paper timesheet verified and approved under supervisor custody (fixture setup)
     const supUser = db.users.find((u) => u.id === "u_sup");
     const ws2 = db.field_worksheets.find((w) => w.id === "ws_e2e_2");
     approveSupervisorCustody(ws2, supUser);
@@ -328,10 +339,10 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     assert.equal(draft.status, "prepared");
     assert.equal(draft.prepared_by, "u_sales");
 
-    // Maker-checker rule: Sales cannot issue the invoice draft (fails permission check)
-    assert.throws(() => {
-      call(issueLegacyInvoiceDraft, db, "u_sales", { idempotency_key: "issue_attempt_sales" }, { id: draft.id });
-    }, /cannot perform issueLegacyInvoiceDraft/);
+    // Maker-checker rule: Sales cannot issue the invoice draft (fails permission check with HTTP 403)
+    const salesIssueRes = call(issueLegacyInvoiceDraft, db, "u_sales", { idempotency_key: "issue_attempt_sales" }, { id: draft.id });
+    assert.equal(salesIssueRes.statusCode, 403);
+    assert.match(salesIssueRes.body.message, /cannot perform issueLegacyInvoiceDraft/);
 
     // Independent Finance user issues the invoice draft via issueLegacyInvoiceDraft (Checker)
     const issueRes = call(issueLegacyInvoiceDraft, db, "u_fin2", { idempotency_key: "issue_e2e_001" }, { id: draft.id });

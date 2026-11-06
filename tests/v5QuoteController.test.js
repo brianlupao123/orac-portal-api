@@ -119,6 +119,9 @@ test("a V5 revision is immutable and gains commercial acceptance only from a ver
   updateQuote({ user: { id: "sales-1" }, db, store: transactionStore, params: { id: revision.id }, body: { description: "attempted edit" } }, editRes);
   assert.equal(editRes.statusCode, 409);
   assert.equal(editRes.body.code, "V5_QUOTE_REVISION_IMMUTABLE");
+  assert.equal(revision.description, undefined);
+  assert.equal(db.quotes.find((q) => q.id === revision.id).description, undefined);
+  assert.equal(db.quotes.length, 2);
 
   const poRes = response();
   capturePo({
@@ -126,6 +129,7 @@ test("a V5 revision is immutable and gains commercial acceptance only from a ver
     body: { po_reference: "PO-REVISED-1", po_amount: 100, date_received: "2026-10-15" }
   }, poRes);
   assert.equal(poRes.statusCode, 200);
+  assert.equal(revision.status, "Draft");
   assert.equal(revision.commercial_acceptance_status, "po_verified");
   assert.equal(revision.commercial_acceptance_po_id, poRes.body.data.id);
   assert.equal(revision.commercial_acceptance_verified_by, "admin-1");
