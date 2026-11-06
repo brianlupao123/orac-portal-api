@@ -91,6 +91,27 @@ function resolveSalesOwnerId(db, actor, bodySalesOwnerId) {
   return target.id;
 }
 
+function resolveRevisionSalesOwnerId(db, actor, original, bodySalesOwnerId) {
+  // If an Admin explicitly specifies a new sales_owner_id in revision body, validate it
+  if (actor.role === roles.ADMIN && bodySalesOwnerId !== undefined) {
+    if (!bodySalesOwnerId) return null;
+    const target = (db.users || []).find((u) => u.id === bodySalesOwnerId && u.role === roles.SALES && u.is_active !== false);
+    if (!target) {
+      const error = new Error("sales_owner_id must belong to an active Sales user.");
+      error.status = 400;
+      throw error;
+    }
+    return target.id;
+  }
+  // Otherwise, the revision MUST preserve the original quotation's sales_owner_id
+  if (original.sales_owner_id) {
+    return original.sales_owner_id;
+  }
+  // If original had no sales owner, assign to actor if actor is Sales
+  if (actor.role === roles.SALES) return actor.id;
+  return null;
+}
+
 export const createQuote = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "createQuote");
@@ -202,6 +223,13 @@ export const createQuoteRevision = (req, res) => {
   const rootId = original.root_quote_id || original.id;
   const rootQuote = req.db.quotes.find((quote) => quote.id === rootId) || original;
   const revisionNumber = req.db.quotes.filter((quote) => (quote.root_quote_id || quote.id) === rootId).length;
+  let revisionSalesOwnerId = null;
+  try {
+    revisionSalesOwnerId = resolveRevisionSalesOwnerId(req.db, actor, original, req.body.sales_owner_id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
+  }
+
   const quote = {
     id: req.store.id("quote"),
     quote_number: `${rootQuote.quote_number}-R${revisionNumber}`,
@@ -222,7 +250,8 @@ export const createQuoteRevision = (req, res) => {
     revision_reason: req.body.reason,
     client_po_reference: req.body.client_po_reference || null,
     client_po_date: req.body.client_po_date || null,
-    sales_owner_id: resolveSalesOwnerId(req.db, actor, req.body.sales_owner_id),
+    sales_owner_id: revisionSalesOwnerId,
+    account_team_user_ids: [...(original.account_team_user_ids || [])],
     created_by: actor.id,
     created_at: new Date().toISOString(),
     v5_commercial_workflow: true

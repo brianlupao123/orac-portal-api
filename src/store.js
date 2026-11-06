@@ -295,11 +295,19 @@ export function normalizeDb(db, { seedDemoRecords = process.env.NODE_ENV !== "pr
   if (!db.company_profile || typeof db.company_profile !== "object") {
     db.company_profile = {
       ...DEFAULT_COMPANY_PROFILE,
-      v5_commercial_policy: { ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy }
+      v5_commercial_policy: {
+        ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy,
+        client_signature_methods: [...(DEFAULT_COMPANY_PROFILE.v5_commercial_policy.client_signature_methods || [])]
+      }
     };
   }
   if (!db.company_profile.v5_commercial_policy || typeof db.company_profile.v5_commercial_policy !== "object") {
-    db.company_profile.v5_commercial_policy = { ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy };
+    db.company_profile.v5_commercial_policy = {
+      ...DEFAULT_COMPANY_PROFILE.v5_commercial_policy,
+      client_signature_methods: [...(DEFAULT_COMPANY_PROFILE.v5_commercial_policy.client_signature_methods || [])]
+    };
+  } else if (!Array.isArray(db.company_profile.v5_commercial_policy.client_signature_methods)) {
+    db.company_profile.v5_commercial_policy.client_signature_methods = [];
   }
 
   // Backfill is_active on master-data records seeded before this field

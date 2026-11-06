@@ -7,13 +7,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { roles, hasPermission } from "../src/permissions.js";
-import { makeDb, makeRes, req, baseBody, addTimesheet } from "./helpers/worksheetRegisterFixture.js";
+import { makeDb, makeStore, makeRes, req, baseBody, addTimesheet } from "./helpers/worksheetRegisterFixture.js";
 import { createServiceRequest, triageServiceRequest, convertServiceRequestToLead } from "../src/controllers/serviceRequestsController.js";
 import { transitionQuote } from "../src/stateMachine.js";
+import { capturePo } from "../src/controllers/quoteController.js";
 import { isPurchaseOrderInSalesPortfolio } from "../src/controllers/coreController.js";
 import { acknowledgeWorksheet } from "../src/controllers/timesheetAcknowledgementController.js";
+import { reviewWorksheet } from "../src/controllers/dispatchController.js";
 import { worksheetReviewerRefusal } from "../src/timesheetWorkflow.js";
 import { previewWorksheetRegister, createWorksheetRegister, submitWorksheetRegister, reviewWorksheetRegister } from "../src/controllers/worksheetRegisterController.js";
+import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft } from "../src/controllers/legacyInvoiceDraftController.js";
 import { computeTechnicianPayroll, buildPastelPayrollCsv, computeLabourCost, PASTEL_HEADERS } from "../src/payroll.js";
 import { STATUS_CAPTURED_FROM_PAPER } from "../src/timesheetEligibility.js";
 
@@ -25,6 +28,8 @@ const call = (fn, db, user, body = {}, params = {}, query = {}) => {
 
 test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVEN)", async (t) => {
   const db = makeDb();
+  db.__store = { ...makeStore(), recalculateVariance(d, id) {} };
+  db.users.push({ id: "u_fin2", name: "Finance Checker", role: roles.FINANCE, is_active: true });
   db.leads = [];
   db.service_requests = [];
   db.quote_lines = [];
@@ -32,6 +37,9 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
   db.plant_sections = [];
   db.plants = [];
   db.mine_sites = [];
+  db.legacy_invoice_drafts = [];
+  db.legacy_invoice_idempotency = [];
+  db.invoice_lines = [];
   const clientBillingRate = 12.50;
 
   let quoteId = "q_e2e";
@@ -114,9 +122,9 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     // Assert Sales owns and sees PO in portfolio
     assert.equal(isPurchaseOrderInSalesPortfolio(po, salesUser, db), true);
 
-    // Assert Sales cannot verify PO (state machine gate throws 403)
+    // Assert Sales cannot verify PO (state machine & controller gate throws 403)
     assert.throws(() => {
-      transitionQuote(db, db.__store, quoteId, "PO_Verified", {}, salesUser);
+      call(capturePo, db, "u_sales", { po_reference: "PO-2026-789", po_amount: 1000.00 }, { id: quoteId });
     }, /cannot perform verifyPo/);
 
     // Assert Operations cannot dispatch prior to PO verification (illegal transition from Approved_Pending_PO)
@@ -124,11 +132,19 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
       transitionQuote(db, db.__store, quoteId, "Field_Dispatch", {}, opsUser);
     }, /Illegal transition: Approved_Pending_PO -> Field_Dispatch/);
 
-    // Finance verifies PO
-    po.status = "verified";
-    transitionQuote(db, db.__store, quoteId, "PO_Verified", {}, finUser);
+    // Finance captures and verifies PO via capturePo controller
+    const capRes = call(capturePo, db, "u_fin", {
+      po_reference: "PO-2026-789",
+      po_amount: 1000.00,
+      date_received: "2026-10-02"
+    }, { id: quoteId });
+    assert.equal(capRes.statusCode, 200);
+
     const quote = db.quotes.find((q) => q.id === quoteId);
     assert.equal(quote.status, "PO_Verified");
+    const verifiedPo = db.purchase_orders.find((p) => p.quotation_id === quoteId);
+    assert.equal(verifiedPo.status, "verified");
+    assert.equal(verifiedPo.verified_by, "u_fin");
   });
 
   // --------------------------------------------------------------------------
@@ -158,6 +174,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
       status: "Submitted",
       approved: false
     });
+    ws1.submitted_by = "u_tech1";
 
     const ws2 = addTimesheet(db, {
       id: "ws_e2e_2",
@@ -169,6 +186,7 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
       status: STATUS_CAPTURED_FROM_PAPER,
       approved: false
     });
+    ws2.submitted_by = "u_tech2";
     ws2.entry_source = "paper";
     ws2.paper_reference = "Booklet #42 - Sheet 15";
 
@@ -212,13 +230,25 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     const submitterRefusal = worksheetReviewerRefusal(db, { submitted_by: "u_sales" }, salesUser);
     assert.equal(submitterRefusal, "The submitter cannot review this Worksheet.");
 
-    // Both timesheets approved by Supervisor
-    for (const ws of db.field_worksheets.filter((w) => w.dispatch_card_id === dispatchCardId)) {
-      ws.status = "Supervisor_Approved";
-      ws.approved_by = "u_sup";
-      ws.approved_at = "2026-10-06T07:00:00Z";
-      ws.signatures.supervisor = { name: "Supervisor One", approved_at: "2026-10-06T07:00:00Z" };
-    }
+    // Step 7a: Supervisor approves the digital timesheet via reviewWorksheet controller
+    const reviewRes1 = call(reviewWorksheet, db, "u_sup", { decision: "approve" }, { id: "ws_e2e_1" });
+    assert.equal(reviewRes1.statusCode, 200);
+    const ws1 = db.field_worksheets.find((w) => w.id === "ws_e2e_1");
+    assert.equal(ws1.status, "Supervisor_Approved");
+    assert.equal(ws1.approved_by, "u_sup");
+
+    // Step 7b: Paper booklet timesheet already carries client physical certification
+    // Calling reviewWorksheet on Captured_From_Signed_Paper returns 400 (requires Client_Acknowledged)
+    const reviewResPaper = call(reviewWorksheet, db, "u_sup", { decision: "approve" }, { id: "ws_e2e_2" });
+    assert.equal(reviewResPaper.statusCode, 400);
+
+    // Paper timesheet approved under supervisor paper custody verification
+    const ws2 = db.field_worksheets.find((w) => w.id === "ws_e2e_2");
+    ws2.status = "Supervisor_Approved";
+    ws2.approved_by = "u_sup";
+    ws2.approved_at = "2026-10-06T07:00:00Z";
+    ws2.signatures.supervisor = { name: "Supervisor One", approved_at: "2026-10-06T07:00:00Z" };
+
     const approved = db.field_worksheets.filter((w) => w.dispatch_card_id === dispatchCardId && w.status === "Supervisor_Approved");
     assert.equal(approved.length, 2);
   });
@@ -269,14 +299,35 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
   });
 
   // --------------------------------------------------------------------------
-  // STEP 9: Customer Invoicing (V5 Tax Policy Reconciliation)
+  // STEP 9: Customer Invoicing (Maker-Checker & V5 Tax Reconciliation)
   // --------------------------------------------------------------------------
   await t.test("Step 9: Customer Invoice generation and V5 tax policy reconciliation", () => {
     const reg = db.worksheet_registers[0];
     const totalBilledHours = reg.totals ? reg.totals.total_hours : 22;
     const invoiceSubtotal = totalBilledHours * clientBillingRate; // 22 * 12.50 = 275.00
 
-    // Policy Case A: Default / unconfigured tax status ($275.00 total)
+    // Step 9a: Controller-driven Maker-Checker Invoice Draft Lifecycle
+    // Sales prepares the draft via createLegacyInvoiceDraft (Maker)
+    const draftRes = call(createLegacyInvoiceDraft, db, "u_sales", { idempotency_key: "draft_e2e_001" }, { id: dispatchCardId });
+    assert.equal(draftRes.statusCode, 201);
+    const draft = db.legacy_invoice_drafts[0];
+    assert.equal(draft.status, "prepared");
+    assert.equal(draft.prepared_by, "u_sales");
+
+    // Maker-checker rule: Sales cannot issue the invoice draft (fails permission check)
+    assert.throws(() => {
+      call(issueLegacyInvoiceDraft, db, "u_sales", { idempotency_key: "issue_attempt_sales" }, { id: draft.id });
+    }, /cannot perform issueLegacyInvoiceDraft/);
+
+    // Independent Finance user issues the invoice draft via issueLegacyInvoiceDraft (Checker)
+    const issueRes = call(issueLegacyInvoiceDraft, db, "u_fin2", { idempotency_key: "issue_e2e_001" }, { id: draft.id });
+    assert.equal(issueRes.statusCode, 201);
+    const issuedInvoice = issueRes.body.data;
+    assert.equal(issuedInvoice.status, "sent");
+    assert.equal(issuedInvoice.issued_by, "u_fin2");
+    assert.equal(db.quotes.find((q) => q.id === quoteId).status, "Invoiced");
+
+    // Policy Case A: Default / unconfigured tax status ($275.00 total, $0 VAT)
     const unconfiguredInvoice = {
       id: "inv_e2e_unconfigured",
       tax_status: "unconfigured",
@@ -288,13 +339,13 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     assert.equal(unconfiguredInvoice.vat_amount, 0.00);
     assert.equal(unconfiguredInvoice.total_amount, 275.00);
 
-    // Policy Case B: Confirmed 15% VAT taxable status ($316.25 total)
+    // Policy Case B: Confirmed 15% VAT taxable status ($316.25 total, $41.25 VAT)
     const vatRate = 0.15;
     const vatAmount = invoiceSubtotal * vatRate; // 41.25
     const confirmedTotal = invoiceSubtotal + vatAmount; // 316.25
-    const invoice = {
-      id: "inv_e2e_001",
-      invoice_number: "INV-2026-101",
+    const taxReconciledInvoice = {
+      id: issuedInvoice.id,
+      invoice_number: issuedInvoice.invoice_number,
       client_id: "c_test",
       quotation_id: quoteId,
       purchase_order_id: "po_e2e",
@@ -308,13 +359,11 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
       status: "Issued",
       currency: "USD"
     };
-    db.invoices.push(invoice);
-
-    assert.equal(invoice.billed_hours, 22);
-    assert.equal(invoice.subtotal, 275.00);
-    assert.equal(invoice.tax_status, "taxable");
-    assert.equal(invoice.vat_amount, 41.25);
-    assert.equal(invoice.total_amount, 316.25);
+    assert.equal(taxReconciledInvoice.billed_hours, 22);
+    assert.equal(taxReconciledInvoice.subtotal, 275.00);
+    assert.equal(taxReconciledInvoice.tax_status, "taxable");
+    assert.equal(taxReconciledInvoice.vat_amount, 41.25);
+    assert.equal(taxReconciledInvoice.total_amount, 316.25);
   });
 
   // --------------------------------------------------------------------------

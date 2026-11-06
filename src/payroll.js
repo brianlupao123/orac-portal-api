@@ -175,18 +175,27 @@ export function buildPastelPayrollCsv(payroll, { header = true, codes = pastelPa
 // applying standard OT multipliers (1.5x for OT15, 2.0x for OT20).
 // Fails closed: missing rates throw an Error rather than silently defaulting.
 export function computeLabourCost(payroll, rateCard = {}, { ot_15_multiplier = 1.5, ot_20_multiplier = 2.0 } = {}) {
+  const m15 = Number(ot_15_multiplier);
+  const m20 = Number(ot_20_multiplier);
+  if (!Number.isFinite(m15) || m15 <= 0 || !Number.isFinite(m20) || m20 <= 0) {
+    throw new Error("Invalid overtime multipliers: multipliers must be finite numbers greater than zero.");
+  }
+
   let totalCost = 0;
   const byEmployee = [];
 
   for (const emp of payroll.employees || []) {
-    const rate = rateCard[emp.technician_id] ?? (emp.trade ? rateCard[emp.trade] : undefined) ?? rateCard.default;
-    if (rate === undefined || rate === null || isNaN(Number(rate))) {
+    const rawRate = rateCard[emp.technician_id] ?? (emp.trade ? rateCard[emp.trade] : undefined);
+    if (rawRate === undefined || rawRate === null || rawRate === "") {
       throw new Error(`Missing wage rate for technician ${emp.full_name || emp.technician_id} (trade: ${emp.trade || "unspecified"}). A configured Finance rate is required.`);
     }
-    const numRate = Number(rate);
+    const numRate = Number(rawRate);
+    if (!Number.isFinite(numRate) || numRate <= 0) {
+      throw new Error(`Invalid wage rate (${rawRate}) for technician ${emp.full_name || emp.technician_id}: wage rates must be finite numbers greater than zero.`);
+    }
     const normalCost = r2(emp.normal_hours * numRate);
-    const ot15Cost = r2(emp.overtime_15_hours * (numRate * ot_15_multiplier));
-    const ot20Cost = r2(emp.overtime_20_hours * (numRate * ot_20_multiplier));
+    const ot15Cost = r2(emp.overtime_15_hours * (numRate * m15));
+    const ot20Cost = r2(emp.overtime_20_hours * (numRate * m20));
     const empTotal = r2(normalCost + ot15Cost + ot20Cost);
     totalCost = r2(totalCost + empTotal);
     byEmployee.push({
