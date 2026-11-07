@@ -25,7 +25,8 @@ const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   try {
     fn(req(db, user, body, params, undefined, query), res);
   } catch (err) {
-    res.status(err.status || 500).json({ success: false, message: err.message });
+    if (!err.status) throw err;
+    res.status(err.status).json({ success: false, message: err.message });
   }
   return res;
 };
