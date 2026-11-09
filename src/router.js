@@ -14,6 +14,7 @@ import { V5ClientSupervisorContactSchema, V5PaperSignatureSchema, V5SupervisorCo
 import { authMiddleware } from "./middleware/auth.js";
 import { validate } from "./middleware/validate.js";
 import { idempotencyKeyMiddleware } from "./idempotency.js";
+import { downloadImportTemplate, previewMasterDataImport, commitMasterDataImport, listImportJobs, getImportJob } from "./controllers/importController.js";
 import {
   LoginSchema, CreateQuoteSchema, UpdateQuoteSchema, CreateQuoteRevisionSchema, RecordAmendedPoEvidenceSchema, ApproveV5AmendmentSchema, TransitionQuoteSchema, VerifyPoSchema,
   AddTimesheetSchema, KioskTimesheetBatchSchema, AddMaterialSchema, V5MaterialAllocationSchema, V5AmendmentDispatchLinkSchema, V5AmendmentEvidenceAllocationSchema, CreateV5InvoiceDraftSchema, IssueV5InvoiceDraftSchema, V5LineCompletionSchema, V5AmendmentSupersessionSchema, V5AllocationRemapSchema, CreateWorksheetSchema, AssignRosterSchema,
@@ -128,6 +129,14 @@ router.get("/exports/pastel-review/quotes.csv", getPastelReviewQuotes);
 router.get("/exports/pastel-review/invoice-ready.csv", getPastelReviewInvoiceReady);
 router.post("/imports/leads/preview", previewLeadImport);
 router.post("/imports/leads/commit", commitLeadImport);
+router.get("/imports/clients/template", downloadImportTemplate("clients"));
+router.get("/imports/catalog_items/template", downloadImportTemplate("catalog_items"));
+router.post("/imports/clients/preview", previewMasterDataImport("clients"));
+router.post("/imports/clients/commit", commitMasterDataImport("clients"));
+router.post("/imports/catalog_items/preview", previewMasterDataImport("catalog_items"));
+router.post("/imports/catalog_items/commit", commitMasterDataImport("catalog_items"));
+router.get("/imports", listImportJobs);
+router.get("/imports/:id", getImportJob);
 router.get("/analytics/operational", getOperationalAnalytics);
 
 // Phase 0.5 is deterministic and providerless. These routes have no model,

@@ -135,6 +135,8 @@ function seedData() {
     // Persistent Idempotency-Key records (see src/idempotency.js). Internal:
     // never exposed through the generic collection routes.
     idempotency_keys: [],
+    // Bulk-import job records (see src/importers/masterDataImport.js): ids and counts only.
+    import_jobs: [],
     quotes: [],
     quote_lines: [],
     purchase_orders: [],
@@ -243,7 +245,7 @@ export const DEFAULT_COMPANY_PROFILE = Object.freeze({
 
 export const SCHEMA_COLLECTIONS = [
   "users", "clients", "mine_sites", "plants", "plant_sections", "equipment_tags",
-  "catalog_items", "leads", "idempotency_keys", "quotes", "quote_lines",
+  "catalog_items", "leads", "idempotency_keys", "import_jobs", "quotes", "quote_lines",
   "purchase_orders", "po_amendments", "dispatch_cards", "field_worksheets",
   "timesheets", "daily_timesheets", "contractor_log_sheets", "worksheet_registers",
   "timesheet_authorities", "timesheet_paper_custody", "timesheet_variance_overrides",

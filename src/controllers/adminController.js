@@ -1,4 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
+import { createClientRecord, createCatalogItemRecord, MasterDataRuleError } from "../services/masterDataService.js";
 import { AssignCommercialOwnershipSchema } from "../schemas.js";
 import bcrypt from "bcrypt";
 import {
@@ -95,18 +96,7 @@ export const updateUser = (req, res) => {
 // ── Clients (top of the master-data hierarchy; no parent of their own) ──
 export const createClient = (req, res) => {
   const actor = getActor(req);
-  requirePermission(actor, "manageClients");
-  const body = req.body;
-  const client = {
-    id: req.store.id("c"),
-    name: body.name,
-    client_type: body.client_type,
-    contact_person: body.contact_person || "",
-    email: body.email || "",
-    is_active: true
-  };
-  req.db.clients.push(client);
-  req.store.audit(req.db, actor, "client", client.id, "ADMIN_CLIENT_CREATED", null, client);
+  const client = createClientRecord({ db: req.db, store: req.store, actor, input: req.body });
   res.json({ success: true, data: enrichClient(req.db, client) });
 };
 
@@ -286,24 +276,15 @@ export const updateEquipmentTag = (req, res) => {
 // ── Catalog Items (negative-price guard enforced twice: schema + here) ──
 export const createCatalogItem = (req, res) => {
   const actor = getActor(req);
-  requirePermission(actor, "manageCatalog");
-  const body = req.body;
-  if (Number(body.unit_price) < 0) {
-    return res.status(400).json({ success: false, message: "Unit price cannot be negative." });
+  try {
+    const item = createCatalogItemRecord({ db: req.db, store: req.store, actor, input: req.body });
+    res.json({ success: true, data: item });
+  } catch (error) {
+    if (error instanceof MasterDataRuleError) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    throw error;
   }
-  const item = {
-    id: req.store.id("cat"),
-    item_code: body.item_code,
-    item_name: body.item_name,
-    category: body.category || "",
-    unit_of_measure: body.unit_of_measure || "",
-    unit_price: Number(body.unit_price),
-    material_grade: body.material_grade || "",
-    dimensions: body.dimensions || ""
-  };
-  req.db.catalog_items.push(item);
-  req.store.audit(req.db, actor, "catalog_item", item.id, "ADMIN_CATALOG_ITEM_CREATED", null, item);
-  res.json({ success: true, data: item });
 };
 
 export const updateCatalogItem = (req, res) => {
