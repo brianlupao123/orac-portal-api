@@ -335,6 +335,11 @@ export function buildScopedSummary(db, actor) {
   // Sales may work with client and quote information, but must not receive
   // dashboard aggregates derived from dispatch, worksheet, invoice, or PO data.
   if (actor?.role === roles.SALES) {
+    quotesData = quotesData.filter((quote) => isQuoteInSalesPortfolio(quote, actor, db));
+    clientsCount = db.clients.filter((client) =>
+      client.primary_sales_owner_id === actor.id ||
+      (Array.isArray(client.account_team_user_ids) && client.account_team_user_ids.includes(actor.id))
+    ).length;
     dispatchData = [];
     worksheetsData = [];
     invoicesData = invoicesData.filter((inv) => isInvoiceInSalesPortfolio(inv, actor, db));

@@ -98,8 +98,8 @@ test("Sales dashboard summary excludes aggregates from denied operational and fi
 
   getSummary(req, summaryResponse);
 
-  assert.equal(summaryResponse.body.data.clients, 2);
-  assert.equal(summaryResponse.body.data.quotes, 2);
+  assert.equal(summaryResponse.body.data.clients, 0);
+  assert.equal(summaryResponse.body.data.quotes, 0);
   assert.equal(summaryResponse.body.data.pending_po, 0);
   assert.equal(summaryResponse.body.data.dispatches, 0);
   assert.equal(summaryResponse.body.data.worksheets, 0);

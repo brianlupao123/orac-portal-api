@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { requirePermission } from "../permissions.js";
 import { calculateLegacyInvoiceAmounts, invoiceReadinessBlock } from "../invoiceReadiness.js";
 import { issueLegacyInvoice } from "../stateMachine.js";
+import { isDispatchInSalesPortfolio } from "./coreController.js";
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
 
@@ -53,11 +54,20 @@ function refuse(res, status, code, message) {
   return res.status(status).json({ success: false, code, message });
 }
 
+function refuseSalesOutsidePortfolio(actor, dispatch, db, res) {
+  if (actor.role === "Sales" && !isDispatchInSalesPortfolio(dispatch, actor, db)) {
+    return refuse(res, 403, "SALES_PORTFOLIO_FORBIDDEN", "This dispatch is outside your Sales portfolio.");
+  }
+  return null;
+}
+
 export function listLegacyInvoiceDrafts(req, res) {
   const actor = actorFor(req);
   requirePermission(actor, "manageLegacyInvoiceDraft");
   const { dispatch } = dispatchAndQuote(req.db, req.params.id);
   if (!dispatch) return refuse(res, 404, "DISPATCH_NOT_FOUND", "Dispatch card not found.");
+  const denied = refuseSalesOutsidePortfolio(actor, dispatch, req.db, res);
+  if (denied) return denied;
   return res.json({ success: true, data: (req.db.legacy_invoice_drafts || []).filter((item) => item.dispatch_card_id === dispatch.id).map((item) => publicDraft(item, req.db)) });
 }
 
@@ -66,6 +76,8 @@ export function createLegacyInvoiceDraft(req, res) {
   requirePermission(actor, "manageLegacyInvoiceDraft");
   const { dispatch, quote } = dispatchAndQuote(req.db, req.params.id);
   if (!dispatch || !quote) return refuse(res, 404, "DISPATCH_NOT_FOUND", "Dispatch card not found.");
+  const denied = refuseSalesOutsidePortfolio(actor, dispatch, req.db, res);
+  if (denied) return denied;
   if (quote.v5_commercial_workflow) return refuse(res, 409, "V5_INVOICE_PATH_REQUIRED", "This quotation uses the separate V5 invoice workflow.");
   const key = req.body.idempotency_key;
   const hash = fingerprint("draft", dispatch.id, key);

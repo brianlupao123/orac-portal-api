@@ -14,9 +14,9 @@ import { createHash } from "node:crypto";
 // Verified Production Module Imports
 import { roles, permissions, hasPermission, requirePermission } from "../src/permissions.js";
 import { transitionQuote, allowedTransitions } from "../src/stateMachine.js";
-import { isQuoteInSalesPortfolio, isDispatchInSalesPortfolio, isInvoiceInSalesPortfolio } from "../src/controllers/coreController.js";
+import { buildScopedSummary, isQuoteInSalesPortfolio, isDispatchInSalesPortfolio, isInvoiceInSalesPortfolio } from "../src/controllers/coreController.js";
 import { getInvoiceSettlement } from "../src/controllers/invoiceSettlementController.js";
-import { issueLegacyInvoiceDraft } from "../src/controllers/legacyInvoiceDraftController.js";
+import { createLegacyInvoiceDraft, issueLegacyInvoiceDraft, listLegacyInvoiceDrafts } from "../src/controllers/legacyInvoiceDraftController.js";
 import { assignCommercialOwnership } from "../src/controllers/adminController.js";
 import { calculateLegacyInvoiceAmounts } from "../src/invoiceReadiness.js";
 
@@ -238,6 +238,34 @@ describe("ORAC Sales Portfolio Reconciliation Matrix", () => {
   });
 
   // GAP 1: Executable Child-Process Proof (Zero HTTP Listeners)
+  test("Sales cannot list or prepare invoice drafts outside their portfolio", () => {
+    const foreignDispatchId = "dsp_beta_1";
+    const request = {
+      db, store: mockStore, user: { id: salesAlice.id },
+      params: { id: foreignDispatchId },
+      body: { idempotency_key: "foreign-sales-draft" }
+    };
+    const listResponse = createMockRes();
+    listLegacyInvoiceDrafts(request, listResponse);
+    assert.equal(listResponse.statusCode, 403);
+    assert.equal(listResponse.body.code, "SALES_PORTFOLIO_FORBIDDEN");
+
+    const createResponse = createMockRes();
+    createLegacyInvoiceDraft(request, createResponse);
+    assert.equal(createResponse.statusCode, 403);
+    assert.equal(createResponse.body.code, "SALES_PORTFOLIO_FORBIDDEN");
+    assert.equal(db.legacy_invoice_drafts.length, 0);
+    assert.equal(db.audit_logs.length, 0);
+  });
+
+  test("Sales dashboard totals include only assigned clients and quotations", () => {
+    const summary = buildScopedSummary(db, salesAlice);
+    assert.equal(summary.clients, 1);
+    assert.equal(summary.quotes, 1);
+    assert.equal(summary.status_counts.Field_Dispatch, 1);
+    assert.equal(summary.status_counts.Sent, undefined);
+  });
+
   test("SEC-CLI-01: Importing reconcileCommercialOwnership does not start an HTTP listener or invoke server.js", async () => {
     const child = spawn(process.execPath, [
       "--input-type=module",
