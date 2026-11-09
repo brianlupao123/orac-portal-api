@@ -63,25 +63,25 @@ function seedData() {
     { id: "u_ops", name: "Operations User", email: "ops@orac.co.zw", role: "Operations", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
     { id: "u_tech", name: "Technician User", email: "tech@orac.co.zw", role: "Technician", trade: "Fitter", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
     { id: "u_supervisor", name: "Supervisor User", email: "supervisor@orac.co.zw", role: "Supervisor", is_active: true, password_hash: DEFAULT_DEMO_PASSWORD_HASH },
-    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_zimplats", password_hash: DEFAULT_DEMO_PASSWORD_HASH }
+    { id: "u_client", name: "Client Viewer", email: "client@orac.co.zw", role: "Client Viewer", is_active: true, client_id: "c_example_north", password_hash: DEFAULT_DEMO_PASSWORD_HASH }
   ];
 
   const clients = [
-    { id: "c_zimplats", name: "Zimplats", client_type: "permanent", contact_person: "Procurement Office", email: "procurement@zimplats.example" },
-    { id: "c_mimosa", name: "Mimosa Mining Company", client_type: "permanent", contact_person: "Maintenance Office", email: "maintenance@mimosa.example" },
+    { id: "c_example_north", name: "Example North Mining", client_type: "permanent", contact_person: "Procurement Office", email: "procurement@example-north.invalid" },
+    { id: "c_example_south", name: "Example South Minerals", client_type: "permanent", contact_person: "Maintenance Office", email: "maintenance@example-south.invalid" },
     { id: "c_walkin", name: "Walk-in Client", client_type: "walk_in", contact_person: "Front Desk", email: "" }
   ];
 
   const mine_sites = [
-    { id: "ms_ngezi", client_id: "c_zimplats", name: "Ngezi", location: "Zimbabwe" },
-    { id: "ms_selous", client_id: "c_zimplats", name: "Selous", location: "Zimbabwe" },
-    { id: "ms_zvishavane", client_id: "c_mimosa", name: "Zvishavane", location: "Zimbabwe" }
+    { id: "ms_north_site", client_id: "c_example_north", name: "North Site", location: "Zimbabwe" },
+    { id: "ms_west_site", client_id: "c_example_north", name: "West Site", location: "Zimbabwe" },
+    { id: "ms_zvishavane", client_id: "c_example_south", name: "Zvishavane", location: "Zimbabwe" }
   ];
 
   const plants = [
-    { id: "pl_smc", mine_site_id: "ms_ngezi", name: "SMC Concentrator", plant_code: "SMC-CON" },
-    { id: "pl_smelter", mine_site_id: "ms_selous", name: "Smelter", plant_code: "SMELTER" },
-    { id: "pl_mimosa_conc", mine_site_id: "ms_zvishavane", name: "Concentrator", plant_code: "MIM-CON" }
+    { id: "pl_smc", mine_site_id: "ms_north_site", name: "SMC Concentrator", plant_code: "SMC-CON" },
+    { id: "pl_smelter", mine_site_id: "ms_west_site", name: "Smelter", plant_code: "SMELTER" },
+    { id: "pl_example_south_conc", mine_site_id: "ms_zvishavane", name: "Concentrator", plant_code: "EXS-CON" }
   ];
 
   const plant_sections = [

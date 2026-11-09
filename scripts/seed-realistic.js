@@ -30,7 +30,7 @@ const users = [
   { id: "u_ops",        name: "Operations User",  email: "ops@orac.co.zw",         role: "Operations",    is_active: true, password_hash: hash },
   { id: "u_tech",       name: "Technician User",  email: "tech@orac.co.zw",        role: "Technician",    is_active: true, password_hash: hash },
   { id: "u_supervisor", name: "Supervisor User",  email: "supervisor@orac.co.zw",  role: "Supervisor",    is_active: true, password_hash: hash },
-  { id: "u_client",     name: "Client Viewer",    email: "client@orac.co.zw",      role: "Client Viewer", is_active: true, password_hash: clientHash, client_id: "c_zimplats" },
+  { id: "u_client",     name: "Client Viewer",    email: "client@orac.co.zw",      role: "Client Viewer", is_active: true, password_hash: clientHash, client_id: "c_example_north" },
 ];
 
 export const generatedPasswords = { admin: adminPassword, client: clientPassword };
@@ -39,10 +39,10 @@ export const generatedPasswords = { admin: adminPassword, client: clientPassword
 // 2. CLIENTS
 // ──────────────────────────────────────────────────────────────
 const clients = [
-  { id: "c_zimplats", name: "Zimplats",               client_type: "permanent", contact_person: "Procurement Office",  email: "procurement@zimplats.example" },
-  { id: "c_mimosa",   name: "Mimosa Mining Company",  client_type: "permanent", contact_person: "Maintenance Office",  email: "maintenance@mimosa.example" },
+  { id: "c_example_north", name: "Example North Mining",               client_type: "permanent", contact_person: "Procurement Office",  email: "procurement@example-north.invalid" },
+  { id: "c_example_south",   name: "Example South Minerals",  client_type: "permanent", contact_person: "Maintenance Office",  email: "maintenance@example-south.invalid" },
   { id: "c_walkin",   name: "Walk-in Client",         client_type: "walk_in",   contact_person: "Front Desk",          email: "" },
-  { id: "c_unki",     name: "Unki Platinum Mine",     client_type: "permanent", contact_person: "Plant Manager",       email: "plant@unki.example" },
+  { id: "c_example_east",     name: "Example East Mine",     client_type: "permanent", contact_person: "Plant Manager",       email: "plant@example-east.invalid" },
   { id: "c_trojan",   name: "Trojan Nickel Mine",     client_type: "permanent", contact_person: "Procurement Dept",    email: "procurement@trojan.example" },
 ];
 
@@ -50,18 +50,18 @@ const clients = [
 // 3. MINE SITES / PLANTS / SECTIONS / EQUIPMENT
 // ──────────────────────────────────────────────────────────────
 const mine_sites = [
-  { id: "ms_ngezi",      client_id: "c_zimplats", name: "Ngezi",       location: "Zimbabwe" },
-  { id: "ms_selous",     client_id: "c_zimplats", name: "Selous",      location: "Zimbabwe" },
-  { id: "ms_zvishavane", client_id: "c_mimosa",   name: "Zvishavane",  location: "Zimbabwe" },
-  { id: "ms_unki",       client_id: "c_unki",     name: "Unki Mine",   location: "Shurugwi" },
+  { id: "ms_north_site",      client_id: "c_example_north", name: "North Site",       location: "Zimbabwe" },
+  { id: "ms_west_site",     client_id: "c_example_north", name: "West Site",      location: "Zimbabwe" },
+  { id: "ms_zvishavane", client_id: "c_example_south",   name: "Zvishavane",  location: "Zimbabwe" },
+  { id: "ms_example_east",       client_id: "c_example_east",     name: "Example East Mine",   location: "Shurugwi" },
   { id: "ms_trojan",     client_id: "c_trojan",   name: "Trojan Mine", location: "Bindura" },
 ];
 
 const plants = [
-  { id: "pl_smc",         mine_site_id: "ms_ngezi",      name: "SMC Concentrator",     plant_code: "SMC-CON" },
-  { id: "pl_smelter",     mine_site_id: "ms_selous",     name: "Smelter",              plant_code: "SMELTER" },
-  { id: "pl_mimosa_conc", mine_site_id: "ms_zvishavane", name: "Concentrator",         plant_code: "MIM-CON" },
-  { id: "pl_unki_conc",   mine_site_id: "ms_unki",       name: "Unki Concentrator",    plant_code: "UNKI-CON" },
+  { id: "pl_smc",         mine_site_id: "ms_north_site",      name: "SMC Concentrator",     plant_code: "SMC-CON" },
+  { id: "pl_smelter",     mine_site_id: "ms_west_site",     name: "Smelter",              plant_code: "SMELTER" },
+  { id: "pl_example_south_conc", mine_site_id: "ms_zvishavane", name: "Concentrator",         plant_code: "EXS-CON" },
+  { id: "pl_example_east_conc",   mine_site_id: "ms_example_east",       name: "Example East Concentrator",    plant_code: "EXE-CON" },
   { id: "pl_trojan_mill", mine_site_id: "ms_trojan",     name: "Trojan Milling Plant", plant_code: "TRJ-MILL" },
 ];
 
@@ -69,7 +69,7 @@ const plant_sections = [
   { id: "ps_cyclone",    plant_id: "pl_smc",         name: "Cyclone Cluster",             section_code: "CYCLONE" },
   { id: "ps_conveyor",   plant_id: "pl_smc",         name: "Discharge Conveyor Line",     section_code: "CONV-DIS" },
   { id: "ps_furnace",    plant_id: "pl_smelter",     name: "Furnace Refractory Section",  section_code: "FURN-REF" },
-  { id: "ps_ball_mill",  plant_id: "pl_unki_conc",   name: "Ball Mill Section",           section_code: "BALL-ML" },
+  { id: "ps_ball_mill",  plant_id: "pl_example_east_conc",   name: "Ball Mill Section",           section_code: "BALL-ML" },
   { id: "ps_flotation",  plant_id: "pl_trojan_mill", name: "Flotation Circuit",           section_code: "FLOT" },
 ];
 
@@ -77,7 +77,7 @@ const equipment_tags = [
   { id: "eq_smc_0102",   plant_section_id: "ps_cyclone",   tag_code: "EQ-TAG-SMC-0102",   equipment_name: "Cyclone Wear Liner Assembly",      criticality: "high",     status: "active" },
   { id: "eq_smc_0207",   plant_section_id: "ps_conveyor",  tag_code: "EQ-TAG-SMC-0207",   equipment_name: "Discharge Conveyor Idler Bank",    criticality: "medium",   status: "active" },
   { id: "eq_smelt_0041", plant_section_id: "ps_furnace",   tag_code: "EQ-TAG-SMELT-0041", equipment_name: "Furnace Lining Zone",              criticality: "critical", status: "active" },
-  { id: "eq_unki_0301",  plant_section_id: "ps_ball_mill", tag_code: "EQ-TAG-UNKI-0301",  equipment_name: "Ball Mill Liner Set",              criticality: "high",     status: "active" },
+  { id: "eq_example_east_0301",  plant_section_id: "ps_ball_mill", tag_code: "EQ-TAG-UNKI-0301",  equipment_name: "Ball Mill Liner Set",              criticality: "high",     status: "active" },
   { id: "eq_trj_0401",   plant_section_id: "ps_flotation", tag_code: "EQ-TAG-TRJ-0401",   equipment_name: "Flotation Cell Impeller Assembly", criticality: "medium",   status: "active" },
 ];
 
@@ -96,18 +96,18 @@ const catalog_items = [
 // 5. QUOTES  (covering the full pipeline)
 // ──────────────────────────────────────────────────────────────
 const quotes = [
-  { id: "q_001", quote_number: "Q-2025-001", client_id: "c_zimplats", status: "Draft",               total_amount: 12500, created_at: daysAgo(30), updated_at: daysAgo(28), created_by: "u_sales" },
+  { id: "q_001", quote_number: "Q-2025-001", client_id: "c_example_north", status: "Draft",               total_amount: 12500, created_at: daysAgo(30), updated_at: daysAgo(28), created_by: "u_sales" },
   { id: "q_002", quote_number: "Q-2025-002", client_id: "c_trojan",   status: "Draft",               total_amount: 8700,  created_at: daysAgo(25), updated_at: daysAgo(25), created_by: "u_sales" },
-  { id: "q_003", quote_number: "Q-2025-003", client_id: "c_mimosa",   status: "Submitted",           total_amount: 34200, created_at: daysAgo(22), updated_at: daysAgo(20), created_by: "u_sales" },
-  { id: "q_004", quote_number: "Q-2025-004", client_id: "c_unki",     status: "Submitted",           total_amount: 18500, created_at: daysAgo(18), updated_at: daysAgo(17), created_by: "u_sales" },
-  { id: "q_005", quote_number: "Q-2025-005", client_id: "c_zimplats", status: "Approved_Pending_PO", total_amount: 45000, created_at: daysAgo(40), updated_at: daysAgo(15), created_by: "u_sales" },
-  { id: "q_006", quote_number: "Q-2025-006", client_id: "c_mimosa",   status: "Approved_Pending_PO", total_amount: 22000, created_at: daysAgo(35), updated_at: daysAgo(12), created_by: "u_sales" },
-  { id: "q_007", quote_number: "Q-2025-007", client_id: "c_zimplats", status: "Issued",              total_amount: 67500, created_at: daysAgo(60), updated_at: daysAgo(10), created_by: "u_sales" },
-  { id: "q_008", quote_number: "Q-2025-008", client_id: "c_unki",     status: "Issued",              total_amount: 29800, created_at: daysAgo(50), updated_at: daysAgo(8),  created_by: "u_sales" },
+  { id: "q_003", quote_number: "Q-2025-003", client_id: "c_example_south",   status: "Submitted",           total_amount: 34200, created_at: daysAgo(22), updated_at: daysAgo(20), created_by: "u_sales" },
+  { id: "q_004", quote_number: "Q-2025-004", client_id: "c_example_east",     status: "Submitted",           total_amount: 18500, created_at: daysAgo(18), updated_at: daysAgo(17), created_by: "u_sales" },
+  { id: "q_005", quote_number: "Q-2025-005", client_id: "c_example_north", status: "Approved_Pending_PO", total_amount: 45000, created_at: daysAgo(40), updated_at: daysAgo(15), created_by: "u_sales" },
+  { id: "q_006", quote_number: "Q-2025-006", client_id: "c_example_south",   status: "Approved_Pending_PO", total_amount: 22000, created_at: daysAgo(35), updated_at: daysAgo(12), created_by: "u_sales" },
+  { id: "q_007", quote_number: "Q-2025-007", client_id: "c_example_north", status: "Issued",              total_amount: 67500, created_at: daysAgo(60), updated_at: daysAgo(10), created_by: "u_sales" },
+  { id: "q_008", quote_number: "Q-2025-008", client_id: "c_example_east",     status: "Issued",              total_amount: 29800, created_at: daysAgo(50), updated_at: daysAgo(8),  created_by: "u_sales" },
   { id: "q_009", quote_number: "Q-2025-009", client_id: "c_trojan",   status: "Issued",              total_amount: 15400, created_at: daysAgo(45), updated_at: daysAgo(5),  created_by: "u_sales" },
-  { id: "q_010", quote_number: "Q-2025-010", client_id: "c_zimplats", status: "Accepted",            total_amount: 52000, created_at: daysAgo(90), updated_at: daysAgo(3),  created_by: "u_sales" },
-  { id: "q_011", quote_number: "Q-2025-011", client_id: "c_mimosa",   status: "Closed",              total_amount: 38000, created_at: daysAgo(120), updated_at: daysAgo(1), created_by: "u_sales" },
-  { id: "q_012", quote_number: "Q-2025-012", client_id: "c_unki",     status: "Closed",              total_amount: 19500, created_at: daysAgo(100), updated_at: daysAgo(2), created_by: "u_sales" },
+  { id: "q_010", quote_number: "Q-2025-010", client_id: "c_example_north", status: "Accepted",            total_amount: 52000, created_at: daysAgo(90), updated_at: daysAgo(3),  created_by: "u_sales" },
+  { id: "q_011", quote_number: "Q-2025-011", client_id: "c_example_south",   status: "Closed",              total_amount: 38000, created_at: daysAgo(120), updated_at: daysAgo(1), created_by: "u_sales" },
+  { id: "q_012", quote_number: "Q-2025-012", client_id: "c_example_east",     status: "Closed",              total_amount: 19500, created_at: daysAgo(100), updated_at: daysAgo(2), created_by: "u_sales" },
 ];
 
 const quote_lines = [
@@ -124,11 +124,11 @@ const quote_lines = [
 // 6. PURCHASE ORDERS
 // ──────────────────────────────────────────────────────────────
 const purchase_orders = [
-  { id: "po_001", quotation_id: "q_007", po_reference: "ZIM-PO-2025-4401", po_amount: 67500, status: "verified",  logged_value: 61200, requires_amendment: false, started_before_po: false, created_at: daysAgo(55) },
+  { id: "po_001", quotation_id: "q_007", po_reference: "EXN-PO-2025-4401", po_amount: 67500, status: "verified",  logged_value: 61200, requires_amendment: false, started_before_po: false, created_at: daysAgo(55) },
   { id: "po_002", quotation_id: "q_008", po_reference: "UNK-PO-2025-0088", po_amount: 29800, status: "verified",  logged_value: 32500, requires_amendment: true,  started_before_po: false, created_at: daysAgo(45) },
   { id: "po_003", quotation_id: "q_009", po_reference: "TRJ-PO-2025-0199", po_amount: 15400, status: "pending",   logged_value: 0,     requires_amendment: false, started_before_po: true,  created_at: daysAgo(40) },
-  { id: "po_004", quotation_id: "q_010", po_reference: "ZIM-PO-2025-4502", po_amount: 52000, status: "verified",  logged_value: 49800, requires_amendment: false, started_before_po: false, created_at: daysAgo(85) },
-  { id: "po_005", quotation_id: "q_011", po_reference: "MIM-PO-2025-0312", po_amount: 38000, status: "verified",  logged_value: 37200, requires_amendment: false, started_before_po: false, created_at: daysAgo(110) },
+  { id: "po_004", quotation_id: "q_010", po_reference: "EXN-PO-2025-4502", po_amount: 52000, status: "verified",  logged_value: 49800, requires_amendment: false, started_before_po: false, created_at: daysAgo(85) },
+  { id: "po_005", quotation_id: "q_011", po_reference: "EXS-PO-2025-0312", po_amount: 38000, status: "verified",  logged_value: 37200, requires_amendment: false, started_before_po: false, created_at: daysAgo(110) },
 ];
 
 // ──────────────────────────────────────────────────────────────
@@ -215,10 +215,10 @@ const stock_movements = [
 // 12. ACCESS REQUESTS
 // ──────────────────────────────────────────────────────────────
 const access_requests = [
-  { id: "ar_001", name: "Tatenda Moyo",    email: "tatenda.moyo@example.com",    requested_role: "Technician",    reason: "Joining field service team at Ngezi site",           status: "Pending",  created_at: daysAgo(3) },
+  { id: "ar_001", name: "Tatenda Moyo",    email: "tatenda.moyo@example.com",    requested_role: "Technician",    reason: "Joining field service team at North Site site",           status: "Pending",  created_at: daysAgo(3) },
   { id: "ar_002", name: "Rumbidzai Choto", email: "rumbi.choto@example.com",     requested_role: "Sales",         reason: "New sales representative for Southern region",       status: "Pending",  created_at: daysAgo(5) },
   { id: "ar_003", name: "Blessing Mapfumo",   email: "blessing.mapfumo@example.com",   requested_role: "Operations",    reason: "Promoted to operations coordinator",                 status: "Approved", created_at: daysAgo(15) },
-  { id: "ar_004", name: "Grace Mutasa",    email: "grace.mutasa@zimplats.co.zw", requested_role: "Client Viewer", reason: "Need access to view Zimplats quotes and invoices",   status: "Approved", created_at: daysAgo(20) },
+  { id: "ar_004", name: "Grace Mutasa",    email: "grace.mutasa@example-north.invalid", requested_role: "Client Viewer", reason: "Need access to view Example North Mining quotes and invoices",   status: "Approved", created_at: daysAgo(20) },
   { id: "ar_005", name: "Tinashe Dube",    email: "tinashe.dube@example.com",    requested_role: "Finance",       reason: "New finance clerk",                                  status: "Rejected", created_at: daysAgo(30) },
 ];
 
@@ -226,10 +226,10 @@ const access_requests = [
 // 13. LEADS
 // ──────────────────────────────────────────────────────────────
 const leads = [
-  { id: "lead_001", company_name: "Hwange Colliery",       contact_name: "Peter Nyathi",   email: "peter@hwange.example",     phone: "+263 77 444 0001", mine_site: "Hwange",     service_need: "Conveyor belt relining",        urgency: "urgent",   status: "New",       created_at: daysAgo(2) },
+  { id: "lead_001", company_name: "Example West Coalworks",       contact_name: "Peter Nyathi",   email: "peter@hwange.example",     phone: "+263 77 444 0001", mine_site: "Hwange",     service_need: "Conveyor belt relining",        urgency: "urgent",   status: "New",       created_at: daysAgo(2) },
   { id: "lead_002", company_name: "Mhangura Copper Mines", contact_name: "Chiedza Rwizi",  email: "chiedza@mhangura.example", phone: "+263 77 555 0002", mine_site: "Mhangura",   service_need: "Crusher liner replacement",     urgency: "standard", status: "Contacted", created_at: daysAgo(7) },
   { id: "lead_003", company_name: "Bikita Minerals",       contact_name: "Leonard Shumba", email: "leonard@bikita.example",   phone: "+263 77 666 0003", mine_site: "Bikita",     service_need: "Flotation cell ceramic lining", urgency: "standard", status: "Qualified", created_at: daysAgo(14) },
-  { id: "lead_004", company_name: "RioZim Limited",        contact_name: "Nyasha Gumbo",   email: "nyasha@riozim.example",    phone: "+263 77 777 0004", mine_site: "Renco Mine",  service_need: "General wear protection survey", urgency: "low",     status: "New",       created_at: daysAgo(1) },
+  { id: "lead_004", company_name: "Example Central Minerals",        contact_name: "Nyasha Gumbo",   email: "nyasha@riozim.example",    phone: "+263 77 777 0004", mine_site: "Renco Mine",  service_need: "General wear protection survey", urgency: "low",     status: "New",       created_at: daysAgo(1) },
 ];
 
 // ──────────────────────────────────────────────────────────────

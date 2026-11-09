@@ -45,7 +45,7 @@ const json = async (r) => ({ status: r.status, body: await r.json() });
 
 const periodBody = (over = {}) => ({
   title: "Fictional Shutdown", period_start: "2026-08-31", period_end: "2026-09-30",
-  scope: { client_id: "c_zimplats", project_title: "Fictional Shutdown" },
+  scope: { client_id: "c_example_north", project_title: "Fictional Shutdown" },
   roster: [{ technician_id: "u_tech", group: "Fitters" }], ...over
 });
 
@@ -73,7 +73,7 @@ test("HTTP[real router]: 8-role matrix on list: Admin/Management/Operations/Supe
 
 async function seedDispatch(w) {
   const { db, release } = await w.store.read();
-  db.quotes.push({ id: "q_h", quote_number: "Q-H", client_id: "c_zimplats", status: "Approved" });
+  db.quotes.push({ id: "q_h", quote_number: "Q-H", client_id: "c_example_north", status: "Approved" });
   db.dispatch_cards.push({ id: "dc_h", quotation_id: "q_h", assigned_supervisor_id: "u_supervisor", assigned_technician_ids: ["u_tech"], status: "In_Progress" });
   w.store.write(db, release);
 }

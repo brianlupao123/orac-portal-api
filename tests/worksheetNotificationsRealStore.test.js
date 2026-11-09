@@ -23,9 +23,9 @@ async function fixture() {
   const hash = db.users[0].password_hash;
   db.users.push(
     { id: "u_sup_other", name: "Other Supervisor", email: "sup2@orac.test", role: "Supervisor", is_active: true, password_hash: hash },
-    { id: "u_client_mim", name: "Mimosa Viewer", email: "mim@orac.test", role: "Client Viewer", client_id: "c_mimosa", is_active: true, password_hash: hash }
+    { id: "u_client_mim", name: "Example South Viewer", email: "mim@orac.test", role: "Client Viewer", client_id: "c_example_south", is_active: true, password_hash: hash }
   );
-  db.quotes.push({ id: "q_w", quote_number: "Q-W", client_id: "c_zimplats", status: "Approved" });
+  db.quotes.push({ id: "q_w", quote_number: "Q-W", client_id: "c_example_north", status: "Approved" });
   db.dispatch_cards.push({ id: "dc_w", quotation_id: "q_w", assigned_supervisor_id: "u_supervisor", assigned_technician_ids: ["u_tech"], status: "In_Progress" });
   db.field_worksheets.push({ id: "fw_w", dispatch_card_id: "dc_w", technician_id: "u_tech", submitted_by: "u_tech", supervisor_id: "u_supervisor", status: "Draft", created_at: new Date().toISOString() });
   return { store, db, release };

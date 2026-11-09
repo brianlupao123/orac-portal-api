@@ -30,7 +30,7 @@ function Test-Endpoint {
 
 Test-Endpoint "/" "Orac-IOS"
 Test-Endpoint "/api/summary" "clients"
-Test-Endpoint "/api/clients" "Zimplats"
+Test-Endpoint "/api/clients" "Example North Mining"
 Test-Endpoint "/api/assets/equipment-tags" "EQ-TAG"
 Test-Endpoint "/api/exports/pastel.csv" "invoice_number"
 

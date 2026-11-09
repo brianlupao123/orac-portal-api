@@ -7,7 +7,7 @@
 //   1. Every list/detail response returned only raw foreign-key ids
 //      (client_id, mine_site_id, plant_id, plant_section_id) with no
 //      readable name or parent context, so the Admin UI rendered ids like
-//      "c_zimplats" instead of "Zimplats".
+//      "c_example_north" instead of "Example North Mining".
 //   2. Create/update endpoints accepted any string as a parent id with no
 //      existence or active-status check, so an orphan or inactive parent
 //      link was trivially possible and silently accepted.

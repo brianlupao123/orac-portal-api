@@ -62,7 +62,7 @@ function makeStore() {
   const store = createStore(file);
   const db = JSON.parse(readFileSync(file, "utf8"));
   const hash = db.users[0].password_hash;
-  db.users.push({ id: "u_client_mim", name: "Mimosa Viewer", email: "mim@orac.test", role: "Client Viewer", client_id: "c_mimosa", is_active: true, password_hash: hash });
+  db.users.push({ id: "u_client_mim", name: "Example South Viewer", email: "mim@orac.test", role: "Client Viewer", client_id: "c_example_south", is_active: true, password_hash: hash });
   writeFileSync(file, JSON.stringify(db, null, 2));
   return { store, file };
 }
@@ -178,7 +178,7 @@ test("approve then one-time setup link over HTTP: no token at approval, hash onl
 test("service request over HTTP: Sales and Operations are told, the requesting client user hears the decision, other client sees nothing", async () => {
   const { store, file } = makeStore();
   const db = disk(file);
-  const site = db.mine_sites.find((item) => item.client_id === "c_zimplats");
+  const site = db.mine_sites.find((item) => item.client_id === "c_example_north");
   await withServer(buildApp(store), async (base) => {
     const created = await post(base, db, "u_client", "/service-requests", { title: "Pump inspection", service_need: "Secret detail about pump 7.", mine_site_id: site.id });
     assert.equal(created.status, 201);

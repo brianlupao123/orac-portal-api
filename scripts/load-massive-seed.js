@@ -18,7 +18,7 @@ function generateSecurePassword(length = 16) {
 // ---------------------------------------------------------------------------
 // 1. CLIENTS (50) — 4 established real Orac clients + 46 generated
 // ---------------------------------------------------------------------------
-const FLAGSHIP_CLIENTS = ["Zimplats", "Mimosa Mining Company", "Unki Mine", "Freda Rebecca"];
+const FLAGSHIP_CLIENTS = ["Example North Mining", "Example South Minerals", "Example East Mine", "Example Ridge Gold"];
 const TOWNS = ["Kadoma", "Kwekwe", "Gweru", "Bulawayo", "Mutare", "Masvingo", "Chinhoyi", "Karoi",
   "Zvishavane", "Shurugwi", "Bindura", "Chegutu", "Beitbridge", "Hwange", "Marondera", "Norton",
   "Redcliff", "Rusape", "Chiredzi", "Gokwe"];
