@@ -1,9 +1,11 @@
-import { generateToken } from "../middleware/auth.js";
+import { generateToken, revokeSessions } from "../middleware/auth.js";
 import { config } from "../config.js";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { verifyResetToken, clearResetToken, toPublicUser } from "../accountTokens.js";
 import { verifySetupToken, clearSetupToken } from "../setupTokens.js";
+import { totpRequiredFor } from "../totpPolicy.js";
+import { beginTotpChallenge } from "./totpController.js";
 
 // Compared against when the account does not exist or is inactive, so the work
 // done (and the response time) does not reveal whether an email has an account.
@@ -34,6 +36,19 @@ export const loginDemoUser = async (req, res) => {
   } else if (!user) {
     // Local development only: no password supplied and none required.
     return res.status(401).json(INVALID_LOGIN);
+  }
+
+  if (totpRequiredFor(user)) {
+    res.setHeader("Cache-Control", "no-store");
+    if (!user.totp?.secret) {
+      return res.status(403).json({ success: false, message: "Authenticator enrollment required. Contact an administrator." });
+    }
+    if (user.totp.locked_until && Date.now() < user.totp.locked_until) {
+      return res.status(429).json({ success: false, message: "Too many verification attempts. Please try again later." });
+    }
+    const challenge = beginTotpChallenge(user);
+    req.store.audit(req.db, user, "user", user.id, "TOTP_CHALLENGE_ISSUED", null, { id: user.id });
+    return res.json({ success: true, data: challenge });
   }
 
   const token = generateToken(user);
@@ -114,6 +129,9 @@ export const resetPassword = (req, res) => {
   user.password_hash = bcrypt.hashSync(password, 10);
   // Ends every session issued before this moment (checked in middleware/auth.js).
   user.password_changed_at = new Date().toISOString();
+  user.password_changed_by = user.id;
+  revokeSessions(user);
+  if (user.totp?.challenge) user.totp.challenge = null;
   clearResetToken(user);
   clearSetupToken(user);
 

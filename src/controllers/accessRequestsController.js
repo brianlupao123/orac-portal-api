@@ -1,5 +1,6 @@
 import { requirePermission, roles } from "../permissions.js";
 import { issueSetupToken } from "../setupTokens.js";
+import { toPublicUser } from "../accountTokens.js";
 
 // ── Why this exists instead of open self-signup ──────────────────────────
 // This system's entire permission model assumes roles are assigned by an
@@ -155,8 +156,7 @@ export const approveAccessRequest = (req, res) => {
   req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_APPROVED", before, request);
   req.store.audit(req.db, actor, "user", user.id, "ACCESS_REQUEST_USER_CREATED", null, { id: user.id, email: user.email, role: user.role });
 
-  const { password_hash, reset_token, reset_token_hash, reset_token_expires_at, ...safeUser } = user;
-  res.json({ success: true, data: { user: safeUser, setup_link_required: true } });
+  res.json({ success: true, data: { user: toPublicUser(user), setup_link_required: true } });
 };
 
 export const rejectAccessRequest = (req, res) => {
@@ -199,6 +199,9 @@ export const issueAccessRequestSetupLink = (req, res) => {
   }
 
   const { token, expiresAt } = issueSetupToken(user);
+  // The link is visible to this Admin once. Retain that provenance after the
+  // password is set so the same Admin cannot also authorize TOTP enrollment.
+  user.setup_link_issued_by = actor.id;
   request.setup_link_issue_count = (request.setup_link_issue_count || 0) + 1;
   request.setup_link_last_issued_at = new Date().toISOString();
   req.store.audit(req.db, actor, "access_request", request.id, "ACCESS_REQUEST_SETUP_LINK_ISSUED", null, {

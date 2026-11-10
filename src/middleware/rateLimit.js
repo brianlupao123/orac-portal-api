@@ -84,7 +84,9 @@ export class WindowCounter {
   }
 
   peek(key) {
-    const entry = this.entries.get(key);
+    // Once saturated, unseen keys are charged to the shared overflow bucket.
+    // Looking up only their original key would make per-email limits fail open.
+    const entry = this.entries.get(key) || (this.entries.size >= MAX_KEYS ? this.entries.get("__overflow__") : undefined);
     if (!entry || entry.resetAt <= this.now()) return { count: 0, resetAt: 0 };
     return entry;
   }
@@ -111,11 +113,16 @@ export const PUBLIC_WRITE_ROUTES = [
   "POST /leads",
   "POST /auth/request-password-reset",
   "POST /auth/reset-password",
+  "POST /auth/totp/verify",
+  "POST /auth/totp/enrollment/start",
+  "POST /auth/totp/enrollment/confirm",
   "POST /access-requests"
 ];
 const PER_EMAIL_ROUTES = new Set([
   "POST /auth/request-password-reset",
   "POST /auth/reset-password",
+  "POST /auth/totp/enrollment/start",
+  "POST /auth/totp/enrollment/confirm",
   "POST /access-requests"
 ]);
 

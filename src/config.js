@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateTotpRuntime } from "./totpPolicy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..");
@@ -45,6 +46,7 @@ export const config = {
 };
 
 export function validateRuntimeConfig() {
+  validateTotpRuntime();
   if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
     throw new Error("Invalid PORT. Expected a number between 1 and 65535.");
   }

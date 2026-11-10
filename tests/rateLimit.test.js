@@ -128,6 +128,7 @@ test("WindowCounter stays bounded and fails closed when full", () => {
   for (let i = 0; i < 10050; i++) c.hit(`k${i}`);
   assert.ok(c.entries.size <= 10001, `entries ${c.entries.size}`);
   assert.ok(c.entries.get("__overflow__").count >= 50);
+  assert.ok(c.peek("victim-not-in-map").count >= 50, "an unseen email must see the saturated overflow budget");
   t = 2000; c.hit("fresh");
   assert.equal(c.peek("k1").count, 0, "expired entries read as zero");
 });

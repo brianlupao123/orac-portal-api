@@ -39,7 +39,14 @@ export function clearResetToken(user) {
 }
 
 // The only shape of a user record that may leave the API to a browser.
+// Add a newly approved public field here explicitly; auth material stays
+// private even if a new field is added to the stored user record later.
+const PUBLIC_USER_FIELDS = [
+  "id", "name", "email", "role", "is_active", "client_id", "trade",
+  "national_id", "employee_code", "worker_type", "phone_number",
+  "registered_via_request_id", "created_at", "password_changed_at",
+  "can_confirm_timesheets"
+];
 export function toPublicUser(user) {
-  const { password_hash, password, reset_token, reset_token_hash, reset_token_expires_at, ...publicUser } = user;
-  return publicUser;
+  return Object.fromEntries(PUBLIC_USER_FIELDS.filter((key) => Object.hasOwn(user, key)).map((key) => [key, user[key]]));
 }

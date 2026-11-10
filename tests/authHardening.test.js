@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "../src/controllers/authController.js";
 import { authMiddleware, generateToken } from "../src/middleware/auth.js";
 import { updateUser } from "../src/controllers/adminController.js";
+import { deactivateEntity, reactivateEntity } from "../src/controllers/coreController.js";
 import { config } from "../src/config.js";
 import { issueResetToken } from "../src/accountTokens.js";
 import { makeReq, makeRes } from "./_http.js";
@@ -190,6 +191,13 @@ test("missing, malformed and wrongly-signed bearer tokens are 401", () => {
   }
 });
 
+test("auth middleware rejects a differently signed JWT algorithm", () => {
+  const w = world();
+  const user = w.db.users[0];
+  const token = jwt.sign({ id: user.id }, config.jwtSecret, { algorithm: "HS384", expiresIn: "1h" });
+  assert.equal(authed(user, token, w.db).res.statusCode, 401);
+});
+
 test("admin password change stamps password_changed_at (ends the user's existing sessions); other edits do not", () => {
   const w = world();
   w.db.users[0].role = "Admin";
@@ -203,4 +211,42 @@ test("admin password change stamps password_changed_at (ends the user's existing
   const r2 = call({ password: "a-new-long-password" });
   assert.equal(r2.statusCode, 200);
   assert.ok(target.password_changed_at);
+});
+
+test("same-second password and role changes revoke earlier sessions", () => {
+  const w = world();
+  const admin = { id: "admin-x", email: "a@a.co", role: "Admin", is_active: true };
+  w.db.users.push(admin);
+  const target = w.db.users[2];
+  const call = (body) => {
+    const res = makeRes();
+    updateUser(makeReq({ params: { id: target.id }, body, db: w.db, store: w.store, user: { id: admin.id } }), res);
+    assert.equal(res.statusCode, 200);
+  };
+  const old = generateToken(target);
+  call({ password: "a-new-long-password" });
+  assert.equal(authed(target, old, w.db).res.statusCode, 401);
+  const afterPassword = generateToken(target);
+  assert.equal(authed(target, afterPassword, w.db).passed, true);
+  call({ role: "Finance" });
+  assert.equal(authed(target, afterPassword, w.db).res.statusCode, 401);
+  assert.equal(authed(target, generateToken(target), w.db).passed, true);
+});
+
+test("deactivation and reactivation cannot revive a token or disclose user secrets", () => {
+  const w = world();
+  const admin = { id: "admin-x", email: "a@a.co", role: "Admin", is_active: true };
+  w.db.users.push(admin);
+  const target = w.db.users[2];
+  target.password_hash = "private-hash-marker";
+  const old = generateToken(target);
+  for (const action of [deactivateEntity("users"), reactivateEntity("users")]) {
+    const res = makeRes();
+    action(makeReq({ params: { id: target.id }, db: w.db, store: w.store, user: { id: admin.id } }), res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(JSON.stringify(res.body).includes("private-hash-marker"), false);
+  }
+  assert.equal(authed(target, old, w.db).res.statusCode, 401);
+  assert.equal(authed(target, generateToken(target), w.db).passed, true);
+  assert.equal(JSON.stringify(audits).includes("private-hash-marker"), false);
 });

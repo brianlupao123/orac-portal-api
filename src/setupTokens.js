@@ -40,7 +40,9 @@ export function verifySetupToken(user, provided, now = Date.now()) {
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
   }
 
-  if (typeof user.reset_token === "string" && user.reset_token) {
+  // Legacy plaintext setup tokens only. A modern password-reset digest in this
+  // shared field is never a bearer credential, even if copied from storage.
+  if (typeof user.reset_token === "string" && user.reset_token && !user.reset_token.startsWith("sha256:")) {
     const expected = Buffer.from(user.reset_token, "utf8");
     const actual = Buffer.from(provided, "utf8");
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);

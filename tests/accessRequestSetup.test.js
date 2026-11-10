@@ -4,6 +4,7 @@ import { approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink,
 import { resetPassword } from "../src/controllers/authController.js";
 import { handleAuditForNotifications } from "../src/notifications.js";
 import { issueSetupToken, verifySetupToken } from "../src/setupTokens.js";
+import { issueTotpEnrollmentTicket } from "../src/controllers/totpController.js";
 
 function fixture() {
   const audits = [];
@@ -27,7 +28,7 @@ function fixture() {
   };
   return { db, store, audits };
 }
-const res = () => ({ statusCode: 200, headers: {}, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, set(k, v) { this.headers[k] = v; return this; } });
+const res = () => ({ statusCode: 200, headers: {}, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, set(k, v) { this.headers[k] = v; return this; }, setHeader(k, v) { this.headers[k] = v; return this; } });
 const call = (fn, f, userId, params, body) => { const r = res(); let thrown = null; try { fn({ db: f.db, store: f.store, user: { id: userId }, params, body }, r); } catch (e) { thrown = e; } return { r, thrown }; };
 
 test("only an Admin can approve, reject or issue a setup link; everyone else gets 403 and nothing changes", () => {
@@ -155,6 +156,33 @@ test("the setup link works once, then never again; a new link retires the old on
   assert.equal(f.db.access_requests[0].setup_link_issue_count, 2);
   // Once a password exists, this flow refuses to mint another link.
   assert.equal(call(issueAccessRequestSetupLink, f, "u_admin", { id: "areq1" }).r.statusCode, 409);
+});
+
+test("a setup-link issuer cannot use that link to become the account's TOTP ticket issuer", () => {
+  const previous = process.env.ORAC_TOTP_ENROLLMENT_ENABLED;
+  process.env.ORAC_TOTP_ENROLLMENT_ENABLED = "true";
+  try {
+    const f = fixture();
+    f.db.users.push({ id: "u_admin_other", email: "other-admin@x.test", role: "Admin", is_active: true });
+    assert.equal(call(approveAccessRequest, f, "u_admin", { id: "areq1" }, { role: "Finance" }).r.statusCode, 200);
+    const target = f.db.users.at(-1);
+    const link = call(issueAccessRequestSetupLink, f, "u_admin", { id: "areq1" }).r;
+    assert.equal(link.statusCode, 200);
+    assert.equal(target.setup_link_issued_by, "u_admin");
+    const token = link.body.data.setup_path.split("token=")[1];
+    const reset = res();
+    resetPassword({ db: f.db, store: f.store, body: {
+      email: target.email, token, new_password: "a-new-long-password"
+    } }, reset);
+    assert.equal(reset.statusCode, 200);
+    assert.equal(target.password_changed_by, target.id);
+    const attempt = (issuerId) => call(issueTotpEnrollmentTicket, f, issuerId, {}, { user_id: target.id }).r;
+    assert.equal(attempt("u_admin").statusCode, 409);
+    assert.equal(attempt("u_admin_other").statusCode, 200);
+  } finally {
+    if (previous === undefined) delete process.env.ORAC_TOTP_ENROLLMENT_ENABLED;
+    else process.env.ORAC_TOTP_ENROLLMENT_ENABLED = previous;
+  }
 });
 
 test("setup link is refused for pending or rejected requests, unknown ids and inactive accounts", () => {

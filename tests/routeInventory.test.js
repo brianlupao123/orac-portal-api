@@ -12,11 +12,12 @@ test("router.use(authMiddleware) exists exactly once and is the first router.use
   assert.equal(uses[0].i, authAt);
 });
 
-test("the unauthenticated route allowlist is exactly the five reviewed routes", () => {
+test("the unauthenticated route allowlist includes only the reviewed routes and TOTP verification", () => {
   const before = lines.slice(0, authAt).join("\n");
   const found = [...before.matchAll(/^router\.(get|post|put|patch|delete)\(\s*"([^"]+)"/gm)].map((m) => `${m[1].toUpperCase()} ${m[2]}`).sort();
   assert.deepEqual(found, [
-    "POST /access-requests", "POST /auth/login", "POST /auth/request-password-reset", "POST /auth/reset-password", "POST /leads"
+    "POST /access-requests", "POST /auth/login", "POST /auth/request-password-reset", "POST /auth/reset-password",
+    "POST /auth/totp/enrollment/start", "POST /auth/totp/enrollment/confirm", "POST /auth/totp/verify", "POST /leads"
   ].sort());
 });
 
@@ -32,7 +33,7 @@ test("no route file other than router.js mounts handlers on the app", () => {
 });
 
 test("server.js never logs tokens, passwords or connection strings", () => {
-  for (const f of ["../server.js", "../src/controllers/authController.js", "../src/controllers/accessRequestsController.js", "../src/accountTokens.js"]) {
+  for (const f of ["../server.js", "../src/controllers/authController.js", "../src/controllers/totpController.js", "../src/controllers/accessRequestsController.js", "../src/accountTokens.js"]) {
     const s = readFileSync(new URL(f, import.meta.url), "utf8");
     for (const m of s.matchAll(/console\.(log|info|warn|error)\(([^;]*)\)/g)) {
       assert.equal(/token|password|DATABASE_URL|secret|link/i.test(m[2]), false, `${f}: ${m[0]}`);

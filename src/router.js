@@ -36,6 +36,7 @@ import {
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
+import { verifyTotpLogin, beginTotpEnrollment, confirmTotpEnrollment, issueTotpEnrollmentTicket } from "./controllers/totpController.js";
 import { createAccessRequest, approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink } from "./controllers/accessRequestsController.js";
 import { createQuote, createQuoteRevision, recordAmendedPoEvidence, approveV5Amendment, transition, capturePo, submitClientPo, rejectPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
@@ -105,6 +106,9 @@ const router = express.Router();
 
 // Public routes
 router.post("/auth/login", validate(LoginSchema), loginDemoUser);
+router.post("/auth/totp/verify", verifyTotpLogin);
+router.post("/auth/totp/enrollment/start", beginTotpEnrollment);
+router.post("/auth/totp/enrollment/confirm", confirmTotpEnrollment);
 router.post("/leads", idempotencyKeyMiddleware, validate(CreateLeadSchema), createLead);
 
 // NEW — Phase 6: forgot/reset password (public; token proves identity).
@@ -123,6 +127,7 @@ router.post("/access-requests", createAccessRequest);
 router.use(authMiddleware);
 
 router.get("/auth/me", getMe);
+router.post("/auth/totp/enrollment/tickets", issueTotpEnrollmentTicket);
 router.get("/summary", getSummary);
 router.get("/exports/pastel.csv", exportPastel);
 router.get("/exports/pastel-review/quotes.csv", getPastelReviewQuotes);

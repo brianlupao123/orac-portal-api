@@ -2,6 +2,8 @@ import { requirePermission, roles } from "../permissions.js";
 import { createClientRecord, createCatalogItemRecord, MasterDataRuleError } from "../services/masterDataService.js";
 import { AssignCommercialOwnershipSchema } from "../schemas.js";
 import bcrypt from "bcrypt";
+import { toPublicUser } from "../accountTokens.js";
+import { revokeSessions } from "../middleware/auth.js";
 import {
   validateParentAssignment,
   enrichClient,
@@ -15,17 +17,7 @@ function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
 }
 
-function safeUser(user) {
-  const {
-    password_hash,
-    password,
-    reset_token,
-    reset_token_hash,
-    reset_token_expires_at,
-    ...publicUser
-  } = user;
-  return publicUser;
-}
+const safeUser = toPublicUser;
 
 // GAP FIX (Chat E): a Client Viewer with no client_id, or a client_id that
 // does not match any real client, is not a security problem (clientScope.js
@@ -60,6 +52,7 @@ export const createUser = (req, res) => {
     national_id: body.role === "Technician" ? (body.national_id || null) : null,
     employee_code: body.role === "Technician" ? (body.employee_code || null) : null,
     password_hash: bcrypt.hashSync(body.password, 10),
+    password_changed_by: actor.id,
     created_at: new Date().toISOString()
   };
   req.db.users.push(user);
@@ -80,6 +73,7 @@ export const updateUser = (req, res) => {
   const linkProblem = clientLinkProblem(req.db, finalRole, finalClientId || null);
   if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
   const before = safeUser(target);
+  const priorSecurityState = [target.email, target.role, target.is_active, target.client_id];
   ["name", "email", "role", "is_active", "client_id", "trade", "national_id", "employee_code"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
@@ -88,6 +82,12 @@ export const updateUser = (req, res) => {
     target.password_hash = bcrypt.hashSync(req.body.password, 10);
     // Ends every session issued before this moment (checked in middleware/auth.js).
     target.password_changed_at = new Date().toISOString();
+    target.password_changed_by = actor.id;
+  }
+  if (req.body.password !== undefined ||
+      priorSecurityState.some((value, index) => value !== [target.email, target.role, target.is_active, target.client_id][index])) {
+    revokeSessions(target);
+    if (target.totp?.challenge) target.totp.challenge = null;
   }
   req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, safeUser(target));
   res.json({ success: true, data: safeUser(target) });

@@ -1,4 +1,6 @@
 import { exportInvoicesCsv } from "../exporter.js";
+import { toPublicUser } from "../accountTokens.js";
+import { revokeSessions } from "../middleware/auth.js";
 import { hasPermission, requirePermission, permissions } from "../permissions.js";
 import { roles } from "../permissions.js";
 import { isClientViewer, scopeByClient } from "../middleware/clientScope.js";
@@ -107,7 +109,8 @@ const sensitiveAuditKeys = new Set([
   "password_hash",
   "reset_token",
   "reset_token_hash",
-  "reset_token_expires_at"
+  "reset_token_expires_at",
+  "totp"
 ]);
 
 function redactSensitiveFields(value, extraKeys = new Set()) {
@@ -139,7 +142,7 @@ const hierarchyEnrichers = {
 
 function collectionResponseData(collectionName, data, db) {
   if (collectionName === "audit_logs") return redactSensitiveFields(data, auditOnlyRedactedKeys);
-  if (collectionName === "users") return redactSensitiveFields(data);
+  if (collectionName === "users") return data.map(toPublicUser);
   if (collectionName === "stock_movements") {
     return data.map((movement) => decorateMovementForDisplay(db, movement));
   }
@@ -509,13 +512,18 @@ export const deactivateEntity = (collectionName) => {
     const item = collection.find((i) => i.id === req.params.id);
     if (!item) return res.status(404).json({ success: false, message: `${collectionName} record not found.` });
 
-    const before = { ...item };
+    const before = collectionName === "users" ? toPublicUser(item) : { ...item };
     item.is_active = false;
     item.deactivated_by = actor.id;
     item.deactivated_at = new Date().toISOString();
+    if (collectionName === "users") {
+      revokeSessions(item);
+      if (item.totp?.challenge) item.totp.challenge = null;
+    }
 
-    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_DEACTIVATED`, before, item);
-    res.json({ success: true, data: item });
+    const after = collectionName === "users" ? toPublicUser(item) : item;
+    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_DEACTIVATED`, before, after);
+    res.json({ success: true, data: after });
   };
 };
 
@@ -540,13 +548,18 @@ export const reactivateEntity = (collectionName) => {
     const item = collection.find((i) => i.id === req.params.id);
     if (!item) return res.status(404).json({ success: false, message: `${collectionName} record not found.` });
 
-    const before = { ...item };
+    const before = collectionName === "users" ? toPublicUser(item) : { ...item };
     item.is_active = true;
     delete item.deactivated_by;
     delete item.deactivated_at;
+    if (collectionName === "users") {
+      revokeSessions(item);
+      if (item.totp?.challenge) item.totp.challenge = null;
+    }
 
-    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_REACTIVATED`, before, item);
-    res.json({ success: true, data: item });
+    const after = collectionName === "users" ? toPublicUser(item) : item;
+    req.store.audit(req.db, actor, collectionName, item.id, `${collectionName.toUpperCase()}_REACTIVATED`, before, after);
+    res.json({ success: true, data: after });
   };
 };
 
