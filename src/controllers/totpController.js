@@ -254,3 +254,52 @@ export const confirmTotpEnrollment = (req, res) => {
   req.store.audit(req.db, user, "user", user.id, "TOTP_ENROLLED", null, { id: user.id });
   return res.json({ success: true, data: { recovery_codes: recoveryCodes } });
 };
+
+// D2: Admin-initiated TOTP factor reset.
+// - Any Admin can reset a non-Admin's TOTP.
+// - Resetting an Admin's TOTP requires a second independent Admin approval
+//   (the approver_id in the request body, who must differ from both the actor
+//   and the target). The approver must be active and have manageUsers permission.
+// After reset the user must re-enroll through the normal ticket flow.
+export const resetTotpFactor = (req, res) => {
+  if (!totpEnrollmentEnabled()) return res.status(404).json({ success: false, message: "Route not available." });
+  const actor = account(req.db, req.user?.id);
+  try {
+    requirePermission(actor, "manageUsers");
+  } catch (error) {
+    if (actor) auditDenied(req, actor, actor.id, "TOTP_FACTOR_RESET_DENIED", "permission");
+    throw error;
+  }
+  const targetId = req.body?.user_id;
+  const target = typeof targetId === "string" ? account(req.db, targetId) : null;
+  const deny = (status, message, reason) => {
+    auditDenied(req, actor, target?.id ?? "unknown", "TOTP_FACTOR_RESET_DENIED", reason);
+    return res.status(status).json({ success: false, message });
+  };
+  if (!target) return deny(404, "Active account not found.", "target_not_found");
+  if (actor.id === target.id) return deny(403, "An Admin cannot reset their own factor.", "self_reset");
+  if (!target.totp?.secret) return deny(409, "The account has no enrolled authenticator.", "not_enrolled");
+
+  // For Admin targets, require a second independent Admin (dual-authorization).
+  if (target.role === "Admin") {
+    const approverId = req.body?.approver_id;
+    const approver = typeof approverId === "string" ? account(req.db, approverId) : null;
+    if (!approver || approver.id === actor.id || approver.id === target.id) {
+      return deny(403, "Resetting an Admin factor requires approval from a second independent Admin.", "dual_admin_required");
+    }
+    try {
+      requirePermission(approver, "manageUsers");
+    } catch {
+      return deny(403, "The approving Admin does not have sufficient permissions.", "approver_permission");
+    }
+    // Record the approver in the audit trail.
+    req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET_APPROVED", null, { id: target.id, approved_by: approver.id });
+  }
+
+  // Clear the enrolled factor, ticket, and any pending enrollment.
+  target.totp = null;
+  target.totp_enrollment_ticket = null;
+  revokeSessions(target);
+  req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET", null, { id: target.id, reset_by: actor.id });
+  return res.json({ success: true, message: "Authenticator factor has been reset. The user must re-enroll." });
+};

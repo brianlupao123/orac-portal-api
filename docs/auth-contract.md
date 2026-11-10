@@ -14,6 +14,7 @@ This describes the **as-built backend candidate** on `codex/auth-totp`. It is no
 | Route | Authentication | Request | Success |
 | --- | --- | --- | --- |
 | `POST /api/auth/totp/enrollment/tickets` | Active Admin bearer JWT | `{user_id}` | `{success:true,data:{ticket,expires_in_seconds:1800}}` (shown once to issuer) |
+| `POST /api/auth/totp/factor/reset` | Active Admin bearer JWT | `{user_id, approver_id?}` | `{success:true,message:"Authenticator factor has been reset. The user must re-enroll."}` (dual Admin required if target is Admin) |
 | `POST /api/auth/totp/enrollment/start` | Public; ticket plus account password | `{email,password,ticket}` | `{success:true,data:{enrollment_id,otpauth_uri,expires_in_seconds:600}}` |
 | `POST /api/auth/totp/enrollment/confirm` | Public; limited pending enrollment | `{email,enrollment_id,code}` | `{success:true,data:{recovery_codes:[...]}}` (shown once) |
 | `POST /api/auth/login` | Public | `{email,password}` | Protected, enrolled role: `{success:true,data:{status:"verification_required",challenge_id,expires_in_seconds:300}}`; no JWT or user. Other roles/flag off retain the existing response. |
@@ -29,7 +30,9 @@ Tokens now carry an integer `session_epoch` claim. Any password change or reset,
 
 ## Scope limits and rollout gates
 
-- The owner chose **independent Admin review** for a user who loses both the device and recovery codes, with a documented break-glass path if no independent Admin is available. That reset path is **not implemented** in this candidate. There is no email-only or self-service factor reset. Record the identity-check SOP, break-glass custodian, notification channel and later independent review before implementing or activating that path.
+- **Lost-factor recovery and break-glass (D2)**: Implemented via `POST /api/auth/totp/factor/reset`. A single Admin can reset a non-Admin user (clears factor & ticket, bumps epoch, revokes sessions). Resetting an Admin requires dual-authorization (second independent active Admin `approver_id`). No self-service or email-only reset exists.
+- **First-Admin bootstrap (D1)**: Implemented via `scripts/bootstrap-totp-ticket.js`. Runs with trusted console access, verifies the encryption key, and writes a single-use ticket with `issued_by: "operator:cli"`, avoiding the chicken-and-egg same-issuer lock.
+- **CLI password reset provenance (D3)**: `scripts/reset-admin-password.js` records `password_changed_by: "operator:cli"`, increments `session_epoch`, and clears stale TOTP state so tickets can subsequently be issued.
 - Password-reset email delivery remains unconfigured. Existing `/api/auth/request-password-reset` still acknowledges requests without sending a link; do not describe it as functional recovery.
 - The current rate limiter is per process. The account-wide factor failure budget is persisted in the existing JSON/PostgreSQL user record, but distributed deployment, recovery and lockout operations still need an independent security review and browser UAT.
 - The frontend must handle `verification_required` without storing a token or user. It should offer authenticator code and recovery-code entry, with no resend timer or emailed login code. Do not wire to a guessed contract; use this as-built route list after review.

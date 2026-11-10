@@ -60,9 +60,10 @@ test("every script that overwrites the store row is wired to the guard and does 
   assert.ok(risky.length >= 3, `expected the legacy seed/restore scripts, found ${risky.join(", ")}`);
   for (const f of risky) {
     const s = readFileSync(new URL(f, dir), "utf8").replace(/\r/g, "");
-    // seed-neon.js has its own guard (reviewed separately). reset-admin-password.js is a
-    // scoped, transactional, audited recovery tool (Admin account only), not a whole-row overwrite.
-    if (f === "seed-neon.js" || f === "reset-admin-password.js") continue;
+    // seed-neon.js has its own guard (reviewed separately). reset-admin-password.js and
+    // bootstrap-totp-ticket.js are scoped, transactional, audited recovery/bootstrap tools
+    // (Admin account only), not whole-row overwrites.
+    if (f === "seed-neon.js" || f === "reset-admin-password.js" || f === "bootstrap-totp-ticket.js") continue;
     if (f === "seed-curated-demo.js") {
       // Own, weaker guard: dry-run default, explicit confirmation, snapshot first. It has NO target-host or
       // production check (residual risk recorded in the findings report; owner decision).

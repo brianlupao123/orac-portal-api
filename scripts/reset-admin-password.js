@@ -38,11 +38,18 @@ try {
     user.password_hash = await bcrypt.hash(password, 12);
     // Ends every session issued before this moment (checked in src/middleware/auth.js).
     user.password_changed_at = new Date().toISOString();
+    // Track provenance so TOTP enrollment tickets can be issued after a CLI reset.
+    user.password_changed_by = "operator:cli";
+    // Invalidate all existing sessions by bumping the epoch.
+    user.session_epoch = (user.session_epoch || 0) + 1;
+    // Clear any pending TOTP enrollment or ticket — they were bound to the old password.
+    user.totp_enrollment_ticket = null;
+    if (user.totp?.pending) user.totp.pending = null;
     delete user.password;
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];
     data.audit_logs.push({
       id: `audit_password_reset_${Date.now()}`,
-      actor_id: user.id,
+      actor_id: "operator:cli",
       entity_type: "user",
       entity_id: user.id,
       action: "ADMIN_PASSWORD_RESET",

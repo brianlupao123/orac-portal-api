@@ -36,7 +36,7 @@ import {
 } from "./schemas.js";
 
 import { loginDemoUser, getMe, requestPasswordReset, resetPassword } from "./controllers/authController.js";
-import { verifyTotpLogin, beginTotpEnrollment, confirmTotpEnrollment, issueTotpEnrollmentTicket } from "./controllers/totpController.js";
+import { verifyTotpLogin, beginTotpEnrollment, confirmTotpEnrollment, issueTotpEnrollmentTicket, resetTotpFactor } from "./controllers/totpController.js";
 import { createAccessRequest, approveAccessRequest, rejectAccessRequest, issueAccessRequestSetupLink } from "./controllers/accessRequestsController.js";
 import { createQuote, createQuoteRevision, recordAmendedPoEvidence, approveV5Amendment, transition, capturePo, submitClientPo, rejectPo, updateQuote, cancelQuote } from "./controllers/quoteController.js";
 import {
@@ -128,6 +128,7 @@ router.use(authMiddleware);
 
 router.get("/auth/me", getMe);
 router.post("/auth/totp/enrollment/tickets", issueTotpEnrollmentTicket);
+router.post("/auth/totp/factor/reset", resetTotpFactor);
 router.get("/summary", getSummary);
 router.get("/exports/pastel.csv", exportPastel);
 router.get("/exports/pastel-review/quotes.csv", getPastelReviewQuotes);
