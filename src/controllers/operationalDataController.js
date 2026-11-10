@@ -2,6 +2,7 @@ import { roles, requirePermission } from "../permissions.js";
 import { getActor, scopeOperationalData } from "./coreController.js";
 import { computeInvoiceReadyReport } from "../reports.js";
 import { isEligibleForDb, awaitsSupervisorReview } from "../timesheetEligibility.js";
+import { formatBusinessDate, hashCsv } from "../businessTimezone.js";
 
 const analyticsRoles = [roles.ADMIN, roles.MANAGEMENT, roles.FINANCE, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN];
 const leadPreviewRoles = [roles.ADMIN, roles.MANAGEMENT, roles.SALES];
@@ -22,19 +23,25 @@ function sendCsv(res, filename, headers, rows) {
   res.header("Content-Type", "text/csv; charset=utf-8");
   res.header("Content-Disposition", `attachment; filename=${filename}`);
   res.send(csv);
+  return csv;
 }
 
-function auditPastelReviewExport(req, actor, exportType, rowCount) {
+function auditPastelReviewExport(req, actor, exportType, rowCount, csv) {
+  const sha256 = hashCsv(csv);
   req.store.audit(req.db, actor, "pastel_export", exportType, "PASTEL_REVIEW_EXPORT_GENERATED", null, {
     export_type: exportType,
     accounting_posted: false,
-    row_count: rowCount
+    designation: "REVIEW_NON_POSTING",
+    sha256,
+    row_count: rowCount,
+    generated_at: new Date().toISOString()
   });
 }
 
 export function getPastelReviewQuotes(req, res) {
   const actor = getActor(req);
   requirePermission(actor, "exportPastel");
+  const bizDate = formatBusinessDate(new Date());
   const rows = [...req.db.quotes]
     .sort((a, b) => String(a.quote_number || a.id).localeCompare(String(b.quote_number || b.id)))
     .map((quote) => ({
@@ -43,18 +50,25 @@ export function getPastelReviewQuotes(req, res) {
       status: quote.status,
       total_amount: Number(quote.total_amount || 0).toFixed(2)
     }));
-  auditPastelReviewExport(req, actor, "quotes", rows.length);
-  return sendCsv(res, "orac-pastel-review-quotes.csv", ["quote_number", "client_id", "status", "total_amount"], rows);
+  const csv = [["quote_number", "client_id", "status", "total_amount"].join(","), ...rows.map((row) => ["quote_number", "client_id", "status", "total_amount"].map((key) => csvCell(row[key])).join(","))].join("\n");
+  auditPastelReviewExport(req, actor, "quotes", rows.length, csv);
+  res.header("Content-Type", "text/csv; charset=utf-8");
+  res.header("Content-Disposition", `attachment; filename=orac-review-quotes-${bizDate}.csv`);
+  return res.send(csv);
 }
 
 export function getPastelReviewInvoiceReady(req, res) {
   const actor = getActor(req);
   requirePermission(actor, "exportPastel");
+  const bizDate = formatBusinessDate(new Date());
   const rows = computeInvoiceReadyReport(req.db)
     .sort((a, b) => String(a.dispatch_number || a.id).localeCompare(String(b.dispatch_number || b.id)))
     .map((item) => ({ dispatch_number: item.dispatch_number || item.id, quotation_id: item.quotation_id }));
-  auditPastelReviewExport(req, actor, "invoice_ready", rows.length);
-  return sendCsv(res, "orac-pastel-review-invoice-ready.csv", ["dispatch_number", "quotation_id"], rows);
+  const csv = [["dispatch_number", "quotation_id"].join(","), ...rows.map((row) => ["dispatch_number", "quotation_id"].map((key) => csvCell(row[key])).join(","))].join("\n");
+  auditPastelReviewExport(req, actor, "invoice_ready", rows.length, csv);
+  res.header("Content-Type", "text/csv; charset=utf-8");
+  res.header("Content-Disposition", `attachment; filename=orac-review-invoice-ready-${bizDate}.csv`);
+  return res.send(csv);
 }
 
 function parseCsvRow(line) {

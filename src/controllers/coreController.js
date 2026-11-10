@@ -1,4 +1,5 @@
 import { exportInvoicesCsv } from "../exporter.js";
+import { formatBusinessDate, hashCsv } from "../businessTimezone.js";
 import { toPublicUser } from "../accountTokens.js";
 import { revokeSessions } from "../middleware/auth.js";
 import { hasPermission, requirePermission, permissions } from "../permissions.js";
@@ -392,13 +393,19 @@ export const exportPastel = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "exportPastel");
   const csv = exportInvoicesCsv(req.db);
+  const sha256 = hashCsv(csv);
+  const rowCount = Math.max(0, csv.split("\n").filter(Boolean).length - 1);
   req.store.audit(req.db, actor, "pastel_export", "invoices", "PASTEL_EXPORT_GENERATED", null, {
     export_type: "invoices",
     accounting_posted: false,
-    row_count: Math.max(0, csv.split("\n").length - 1)
+    designation: "REVIEW_NON_POSTING",
+    sha256,
+    row_count: rowCount,
+    generated_at: new Date().toISOString()
   });
+  const bizDate = formatBusinessDate(new Date());
   res.header("Content-Type", "text/csv; charset=utf-8");
-  res.header("Content-Disposition", "attachment; filename=orac-pastel-export.csv");
+  res.header("Content-Disposition", `attachment; filename=orac-review-invoices-${bizDate}.csv`);
   res.send(csv);
 };
 

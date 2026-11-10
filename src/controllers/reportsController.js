@@ -1,3 +1,4 @@
+import { hashCsv } from "../businessTimezone.js";
 import { roles, requirePermission } from "../permissions.js";
 import { computeTechnicianPayroll, buildPastelPayrollCsv, isPayrollMonth } from "../payroll.js";
 import { scopeOperationalData } from "./coreController.js";
@@ -98,16 +99,20 @@ export function exportTechnicianPayrollPastel(req, res) {
     });
   }
   const csv = buildPastelPayrollCsv(payroll, { header: req.query.header !== "0" });
+  const sha256 = hashCsv(csv);
   req.store.audit(req.db, actor, "pastel_export", "technician_payroll", "PASTEL_PAYROLL_EXPORT_GENERATED", null, {
     export_type: "technician_payroll",
     month,
     accounting_posted: false,
+    designation: "REVIEW_NON_POSTING",
+    sha256,
     employee_count: payroll.employees.length,
     row_count: Math.max(0, csv.split("\r\n").filter(Boolean).length - (req.query.header === "0" ? 0 : 1)),
     totals: payroll.totals,
-    source_registers: payroll.source_registers
+    source_registers: payroll.source_registers,
+    generated_at: new Date().toISOString()
   });
   res.header("Content-Type", "text/csv; charset=utf-8");
-  res.header("Content-Disposition", `attachment; filename=orac-pastel-payroll-${month}.csv`);
+  res.header("Content-Disposition", `attachment; filename=orac-review-payroll-${month}.csv`);
   res.send(csv);
 }

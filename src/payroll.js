@@ -114,10 +114,10 @@ export function computeTechnicianPayroll(db, month) {
 
   const employees = [...byEmployee.values()]
     .map((e) => {
-      const payrollCode = e.employee_code || e.national_id || null;
+      const payrollCode = e.employee_code || null;
       const missing = [];
       if (!e.technician_id) missing.push("Not linked to a Technician account");
-      if (!payrollCode) missing.push("No employee code or national ID on file");
+      if (!payrollCode) missing.push("No employee code on file (national ID fallback is disabled)");
       return {
         technician_id: e.technician_id,
         full_name: e.full_name,

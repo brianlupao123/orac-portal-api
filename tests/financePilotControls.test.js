@@ -125,7 +125,11 @@ test("Pastel export records an audit event but never claims accounting posting",
   const audit = ctx.db.audit_logs.at(-1);
   assert.match(response.body, /transaction_id/);
   assert.equal(audit.action, "PASTEL_EXPORT_GENERATED");
-  assert.deepEqual(audit.new_values, { export_type: "invoices", accounting_posted: false, row_count: 1 });
+  assert.equal(audit.new_values.export_type, "invoices");
+  assert.equal(audit.new_values.accounting_posted, false);
+  assert.equal(audit.new_values.row_count, 1);
+  assert.equal(audit.new_values.designation, "REVIEW_NON_POSTING");
+  assert.ok(audit.new_values.sha256);
 });
 
 test("Pastel review export includes issued credit notes as negative, non-posting correction rows", () => {
@@ -144,7 +148,11 @@ test("Pastel review export includes issued credit notes as negative, non-posting
   assert.match(response.body, /transaction_type/);
   assert.match(response.body, /credit_note,credit-1/);
   assert.match(response.body, /-25/);
-  assert.deepEqual(ctx.db.audit_logs.at(-1).new_values, { export_type: "invoices", accounting_posted: false, row_count: 2 });
+  assert.equal(ctx.db.audit_logs.at(-1).new_values.export_type, "invoices");
+  assert.equal(ctx.db.audit_logs.at(-1).new_values.accounting_posted, false);
+  assert.equal(ctx.db.audit_logs.at(-1).new_values.row_count, 2);
+  assert.equal(ctx.db.audit_logs.at(-1).new_values.designation, "REVIEW_NON_POSTING");
+  assert.ok(ctx.db.audit_logs.at(-1).new_values.sha256);
 });
 
 test("Sales cannot verify a client-submitted PO before dispatch; Finance can verify", () => {

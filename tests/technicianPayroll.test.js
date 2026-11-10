@@ -167,7 +167,9 @@ test("Pastel CSV rows add back up to the payroll totals, one row per day and pay
 
   // Employee code wins over national ID; falls back to national ID when there is no code.
   assert.ok(data.some((r) => r[0] === "E001" && r[1] === "2026-10-05" && r[2] === "NORMAL" && r[3] === "8.00" && r[4] === "DSP-001"));
-  assert.ok(data.some((r) => r[0] === "08-765432 Z 19" && r[1] === "2026-10-12" && r[3] === "7.25"));
+  // Worker without employee_code has empty code in CSV (national ID is disabled as fallback)
+  assert.ok(data.some((r) => r[0] === "" && r[1] === "2026-10-12" && r[3] === "7.25"));
+  assert.ok(!data.some((r) => r[0] === "08-765432 Z 19"), "National ID must not be used as employee code");
   // No zero-hour rows.
   assert.ok(data.every((r) => Number(r[3]) > 0));
 });
@@ -223,7 +225,7 @@ test("export: Finance downloads an audited, non-posting CSV; Management cannot e
   const { res, audits } = call(exportTechnicianPayrollPastel, { userId: "u_fin", query: { month: "2026-10" }, db });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["content-type"], "text/csv; charset=utf-8");
-  assert.match(res.headers["content-disposition"], /orac-pastel-payroll-2026-10\.csv/);
+  assert.match(res.headers["content-disposition"], /orac-review-payroll-2026-10\.csv/);
   assert.ok(res.body.startsWith("EmployeeCode/ID,Date,PayCode,Hours,ProjectCode"));
   assert.equal(audits.length, 1);
   assert.equal(audits[0][4], "PASTEL_PAYROLL_EXPORT_GENERATED");

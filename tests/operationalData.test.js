@@ -14,7 +14,11 @@ test("Pastel review export is Finance-only, deterministic, and formula-safe", ()
   assert.match(response.body, /'=client/);
   assert.equal(audits.length, 1);
   assert.equal(audits[0][4], "PASTEL_REVIEW_EXPORT_GENERATED");
-  assert.deepEqual(audits[0][6], { export_type: "quotes", accounting_posted: false, row_count: 2 });
+  assert.equal(audits[0][6].export_type, "quotes");
+  assert.equal(audits[0][6].accounting_posted, false);
+  assert.equal(audits[0][6].row_count, 2);
+  assert.equal(audits[0][6].designation, "REVIEW_NON_POSTING");
+  assert.ok(audits[0][6].sha256);
 });
 
 test("lead import preview validates without mutating leads", () => {
