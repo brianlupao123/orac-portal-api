@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$ArchivePath
+  [string]$ArchivePath,
+  [string]$OwnerName = $env:ORAC_OWNER_DISPLAY_NAME
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,7 +12,7 @@ if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $rules = [ordered]@{
   known_client_name = '(?i)(?:Zimplats|Mimosa)'
-  personal_name = '(?i)\bBrian\s+Lupao\b'
+  personal_name = if ($OwnerName) { "(?i)\b$([regex]::Escape($OwnerName))\b" } else { $null }
   workstation_path = '(?i)[A-Z]:\\(?:Users|Projects)\\'
   private_key = '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
   credential_url = '(?i)postgres(?:ql)?://[^:\s/@]+:[^@\s/]+@'

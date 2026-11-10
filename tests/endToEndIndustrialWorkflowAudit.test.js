@@ -31,6 +31,12 @@ const call = (fn, db, user, body = {}, params = {}, query = {}) => {
   return res;
 };
 
+// FIXTURE: Supervisor paper custody verification.
+// Paper booklet timesheets carry physical mine-site signatures and cannot transition
+// through the digital reviewWorksheet controller (returns 400 — verified at line ~270).
+// This fixture models the physical-world custody intake that has no API endpoint.
+// The test verifies: (a) the controller rejects the transition, and
+// (b) downstream worksheet register creation still works when status is set by fixture.
 const approveSupervisorCustody = (ws, supervisorUser, approvedAt = "2026-10-06T07:00:00Z") => {
   return Object.assign(ws, {
     status: "Supervisor_Approved",
@@ -352,6 +358,12 @@ test("10-STEP END-TO-END INDUSTRIAL WORKFLOW AUDIT (HANDLER & STATEMACHINE DRIVE
     assert.equal(issuedInvoice.status, "sent");
     assert.equal(issuedInvoice.issued_by, "u_fin2");
     assert.equal(db.quotes.find((q) => q.id === quoteId).status, "Invoiced");
+
+    // TAX POLICY ASSERTIONS (E2E-04): These verify the expected arithmetic for
+    // two tax-status scenarios against the known subtotal. The real V5 invoice
+    // writer handles tax computation via v5CommercialWorkflow; these are policy
+    // spec assertions, not controller-output tests.
+    // Accountant-confirmed VAT rate and tax_status values are owner-deferred.
 
     // Policy Case A: Default / unconfigured tax status ($275.00 total, $0 VAT)
     const unconfiguredInvoice = {

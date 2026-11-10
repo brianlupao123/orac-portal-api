@@ -1,7 +1,10 @@
 node_modules/
-data/db.json
+data/
 .env
 .env.*
 !.env.example
 .git/
 *.log
+release-evidence/
+evidence/
+docs/

@@ -11,21 +11,21 @@ When TOTP protection is first activated for the `Admin` role, or when bootstrapp
 ### 1.1 Prerequisites & Requirements
 - Direct console / shell access to the production or staging application host.
 - Access to production secrets manager to retrieve `DATABASE_URL` and `ORAC_TOTP_ENCRYPTION_KEY`.
-- Mandatory Named Operator identity: The operator executing the script must identify themselves via `ORAC_OPERATOR_NAME` (e.g., `brian.lupao`). The system records attribution as `operator:<name>`.
+- Mandatory Named Operator identity: The operator executing the script must identify themselves via `ORAC_OPERATOR_NAME` (e.g., `first.last`). The system records attribution as `operator:<name>`.
 
 ### 1.2 Execution Procedure
 ```bash
 ORAC_TOTP_ENCRYPTION_KEY="<base64-32byte-key>" \
 DATABASE_URL="<secure-database-url>" \
 BOOTSTRAP_ADMIN_EMAIL="admin@oracsystems.com" \
-ORAC_OPERATOR_NAME="brian.lupao" \
+ORAC_OPERATOR_NAME="first.last" \
 node scripts/bootstrap-totp-ticket.js
 ```
 
 ### 1.3 Audit & Verification
-- The script acquires a PostgreSQL row lock (`SELECT ... FOR UPDATE`), generates a cryptographically random 256-bit ticket, stores its SHA-256 digest in `user.totp_enrollment_ticket`, records `issued_by: "operator:brian.lupao"`, and writes an immutable audit record:
+- The script acquires a PostgreSQL row lock (`SELECT ... FOR UPDATE`), generates a cryptographically random 256-bit ticket, stores its SHA-256 digest in `user.totp_enrollment_ticket`, records `issued_by: "operator:<name>"`, and writes an immutable audit record:
   - `action`: `TOTP_ENROLLMENT_TICKET_ISSUED`
-  - `actor_id`: `operator:brian.lupao`
+  - `actor_id`: `operator:<name>`
   - `entity_id`: `<admin_user_id>`
 - The ticket is printed to the console standard output **exactly once**. It is never written to disk, application logs, or external stores.
 
@@ -83,7 +83,7 @@ Total administrative lockout occurs only if:
 
 ### 4.2 Break-Glass Custodians
 - Designated Custodian A: Engineering Lead / Systems Architect
-- Designated Custodian B: System Owner / Director (Brian Lupao)
+- Designated Custodian B: System Owner / Director
 
 ### 4.3 Execution Steps
 1. **Access Authorization**: Both Custodians must jointly authorize emergency access in writing.
@@ -93,7 +93,7 @@ Total administrative lockout occurs only if:
    DATABASE_URL="<secure-database-url>" \
    RESET_ADMIN_EMAIL="owner@oracsystems.com" \
    RESET_ADMIN_PASSWORD="<temporary-random-32char-pass>" \
-   ORAC_OPERATOR_NAME="custodian:brian.lupao" \
+   ORAC_OPERATOR_NAME="custodian:first.last" \
    node scripts/reset-admin-password.js
    ```
 4. **Bootstrap Single-Use Ticket**:
@@ -101,7 +101,7 @@ Total administrative lockout occurs only if:
    ORAC_TOTP_ENCRYPTION_KEY="<base64-32byte-key>" \
    DATABASE_URL="<secure-database-url>" \
    BOOTSTRAP_ADMIN_EMAIL="owner@oracsystems.com" \
-   ORAC_OPERATOR_NAME="custodian:brian.lupao" \
+   ORAC_OPERATOR_NAME="custodian:first.last" \
    node scripts/bootstrap-totp-ticket.js
    ```
 5. **Immediate Re-enrollment & Post-Mortem**:
