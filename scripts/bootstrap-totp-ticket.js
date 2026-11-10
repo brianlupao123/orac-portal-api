@@ -22,6 +22,8 @@ const TICKET_TTL_MS = 30 * 60_000; // 30 minutes, matches totpController.js
 
 const databaseUrl = process.env.DATABASE_URL;
 const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
+const operatorName = String(process.env.ORAC_OPERATOR_NAME || process.env.OPERATOR_NAME || "").trim();
+const operatorId = operatorName ? `operator:${operatorName.toLowerCase()}` : "operator:cli";
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 if (!email) throw new Error("BOOTSTRAP_ADMIN_EMAIL is required.");
@@ -57,7 +59,7 @@ try {
     user.totp_enrollment_ticket = {
       digest: digestOpaque(ticket),
       expires_at: Date.now() + TICKET_TTL_MS,
-      issued_by: "operator:cli",
+      issued_by: operatorId,
       password_digest: digestOpaque(user.password_hash),
       session_epoch: user.session_epoch || 0,
       role: user.role,
@@ -70,7 +72,7 @@ try {
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];
     data.audit_logs.push({
       id: `audit_totp_bootstrap_${Date.now()}`,
-      actor_id: "operator:cli",
+      actor_id: operatorId,
       entity_type: "user",
       entity_id: user.id,
       action: "TOTP_ENROLLMENT_TICKET_ISSUED",

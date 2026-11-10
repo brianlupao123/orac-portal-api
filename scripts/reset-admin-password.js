@@ -7,6 +7,8 @@ const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
 const email = String(process.env.RESET_ADMIN_EMAIL || "").trim().toLowerCase();
 const password = process.env.RESET_ADMIN_PASSWORD || "";
+const operatorName = String(process.env.ORAC_OPERATOR_NAME || process.env.OPERATOR_NAME || "").trim();
+const operatorId = operatorName ? `operator:${operatorName.toLowerCase()}` : "operator:cli";
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required.");
 if (!email) throw new Error("RESET_ADMIN_EMAIL is required.");
@@ -39,7 +41,7 @@ try {
     // Ends every session issued before this moment (checked in src/middleware/auth.js).
     user.password_changed_at = new Date().toISOString();
     // Track provenance so TOTP enrollment tickets can be issued after a CLI reset.
-    user.password_changed_by = "operator:cli";
+    user.password_changed_by = operatorId;
     // Invalidate all existing sessions by bumping the epoch.
     user.session_epoch = (user.session_epoch || 0) + 1;
     // Clear any pending TOTP enrollment or ticket — they were bound to the old password.
@@ -50,7 +52,7 @@ try {
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];
     data.audit_logs.push({
       id: `audit_password_reset_${Date.now()}`,
-      actor_id: "operator:cli",
+      actor_id: operatorId,
       entity_type: "user",
       entity_id: user.id,
       action: "ADMIN_PASSWORD_RESET",
