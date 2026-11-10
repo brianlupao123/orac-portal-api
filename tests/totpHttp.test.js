@@ -146,3 +146,132 @@ test("a protected, unenrolled Finance user completes ticket enrollment over real
     }
   }
 });
+
+test("two distinct Admin sessions execute factor reset request and approval over real HTTP routes", async () => {
+  const previous = {
+    roles: process.env.ORAC_TOTP_PROTECTED_ROLES,
+    enrollment: process.env.ORAC_TOTP_ENROLLMENT_ENABLED,
+    key: process.env.ORAC_TOTP_ENCRYPTION_KEY
+  };
+  process.env.ORAC_TOTP_PROTECTED_ROLES = "Admin";
+  process.env.ORAC_TOTP_ENROLLMENT_ENABLED = "true";
+  process.env.ORAC_TOTP_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64");
+  let server;
+  try {
+    const secretA = generateTotpSecret();
+    const secretB = generateTotpSecret();
+    const secretTarget = generateTotpSecret();
+    const adminA = { id: "admin-a", email: "adminA@fixture.invalid", role: "Admin", is_active: true,
+      password_hash: bcrypt.hashSync("admin-a-pass", 4),
+      totp: { secret: encryptTotpSecret(secretA), version: "vA", last_counter: 1 } };
+    const adminB = { id: "admin-b", email: "adminB@fixture.invalid", role: "Admin", is_active: true,
+      password_hash: bcrypt.hashSync("admin-b-pass", 4),
+      totp: { secret: encryptTotpSecret(secretB), version: "vB", last_counter: 1 } };
+    const adminTarget = {
+      id: "admin-target", email: "adminTarget@fixture.invalid", role: "Admin", is_active: true,
+      password_hash: bcrypt.hashSync("admin-target-pass", 4),
+      totp: { secret: encryptTotpSecret(secretTarget), last_counter: 1, recovery_hashes: [], version: "vT" },
+      session_epoch: 1
+    };
+    let state = { users: [adminA, adminB, adminTarget], audit_logs: [] };
+    const store = {
+      read: async () => ({ db: structuredClone(state), release: {} }),
+      write: async (db) => { state = structuredClone(db); },
+      release: async () => {},
+      audit: (db, actor, type, id, action, before, after) => db.audit_logs.push({ actor_id: actor?.id, type, id, action, before, after })
+    };
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createPublicEndpointLimits({ env: { RATE_LIMIT_PUBLIC_WRITE_MAX: "20" } }));
+    app.use("/api", persistenceMiddleware(store));
+    app.use("/api", router);
+    server = await new Promise((resolve) => {
+      const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
+    });
+    const base = `http://127.0.0.1:${server.address().port}/api`;
+    const post = async (path, body, bearer) => {
+      const response = await fetch(base + path, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(bearer ? { authorization: `Bearer ${bearer}` } : {})
+        },
+        body: JSON.stringify(body)
+      });
+      return { status: response.status, headers: response.headers, body: await response.json() };
+    };
+
+    const tokenA = generateToken(adminA, { factorVerified: true });
+    const tokenB = generateToken(adminB, { factorVerified: true });
+    const tokenTarget = generateToken(adminTarget, { factorVerified: true });
+
+    // 1. Unauthenticated reset request is rejected
+    const unauth = await post("/auth/totp/factor/reset/request", { user_id: adminTarget.id });
+    assert.equal(unauth.status, 401);
+
+    // 2. Direct reset route rejects Admin target even with bearer token
+    const directAdmin = await post("/auth/totp/factor/reset", { user_id: adminTarget.id, approver_id: adminB.id }, tokenA);
+    assert.equal(directAdmin.status, 403);
+    assert.equal(directAdmin.body.message.includes("dual-authorization"), true);
+
+    // 3. Admin A requests factor reset over HTTP
+    const reqRes = await post("/auth/totp/factor/reset/request", { user_id: adminTarget.id }, tokenA);
+    assert.equal(reqRes.status, 200);
+    assert.equal(reqRes.headers.get("cache-control"), "no-store");
+    assert.ok(reqRes.body.data.request_id);
+    const requestId = reqRes.body.data.request_id;
+
+    // Verify raw request_id is not stored in plain text
+    const persistedTarget = state.users.find((u) => u.id === adminTarget.id);
+    assert.ok(persistedTarget.totp_factor_reset_request);
+    assert.equal(JSON.stringify(persistedTarget.totp_factor_reset_request).includes(requestId), false);
+
+    // 4. Admin A attempts self-approval over HTTP (must be rejected)
+    const selfApprove = await post("/auth/totp/factor/reset/approve", { user_id: adminTarget.id, request_id: requestId }, tokenA);
+    assert.equal(selfApprove.status, 403);
+
+    // 5. Target Admin attempts to approve their own factor reset (must be rejected)
+    const targetApprove = await post("/auth/totp/factor/reset/approve", { user_id: adminTarget.id, request_id: requestId }, tokenTarget);
+    assert.equal(targetApprove.status, 403);
+
+    // 6. Wrong request_id is rejected over HTTP
+    const wrongId = crypto.randomBytes(32).toString("base64url");
+    const badId = await post("/auth/totp/factor/reset/approve", { user_id: adminTarget.id, request_id: wrongId }, tokenB);
+    assert.equal(badId.status, 400);
+
+    // 7. Distinct Admin B approves the factor reset over HTTP
+    const approved = await post("/auth/totp/factor/reset/approve", { user_id: adminTarget.id, request_id: requestId }, tokenB);
+    assert.equal(approved.status, 200);
+    assert.equal(approved.headers.get("cache-control"), "no-store");
+    assert.equal(approved.body.success, true);
+
+    // Verify factor and pending request are cleared, session epoch incremented
+    const finalTarget = state.users.find((u) => u.id === adminTarget.id);
+    assert.equal(finalTarget.totp, null);
+    assert.equal(finalTarget.totp_factor_reset_request, null);
+    assert.equal(finalTarget.session_epoch, 2);
+
+    // Verify audit rows in state
+    const requestedAudit = state.audit_logs.find((log) => log.action === "TOTP_FACTOR_RESET_REQUESTED");
+    assert.ok(requestedAudit);
+    assert.equal(requestedAudit.actor_id, adminA.id);
+
+    const approvedAudit = state.audit_logs.find((log) => log.action === "TOTP_FACTOR_RESET_APPROVED");
+    assert.ok(approvedAudit);
+    assert.equal(approvedAudit.actor_id, adminB.id);
+
+    // 8. Replay resistance over HTTP: second approval attempt fails
+    const replayed = await post("/auth/totp/factor/reset/approve", { user_id: adminTarget.id, request_id: requestId }, tokenB);
+    assert.equal(replayed.status, 404);
+  } finally {
+    if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    for (const [key, value] of Object.entries({
+      ORAC_TOTP_PROTECTED_ROLES: previous.roles,
+      ORAC_TOTP_ENROLLMENT_ENABLED: previous.enrollment,
+      ORAC_TOTP_ENCRYPTION_KEY: previous.key
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
