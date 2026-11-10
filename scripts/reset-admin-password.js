@@ -44,6 +44,7 @@ try {
     user.session_epoch = (user.session_epoch || 0) + 1;
     // Clear any pending TOTP enrollment or ticket — they were bound to the old password.
     user.totp_enrollment_ticket = null;
+    user.totp_factor_reset_request = null;
     if (user.totp?.pending) user.totp.pending = null;
     delete user.password;
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];

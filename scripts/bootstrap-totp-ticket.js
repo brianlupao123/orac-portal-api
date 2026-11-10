@@ -65,6 +65,7 @@ try {
     };
     // Revoke any unfinished enrollment — same as totpController.
     if (user.totp?.pending) user.totp.pending = null;
+    if (user.totp_factor_reset_request) user.totp_factor_reset_request = null;
 
     data.audit_logs = Array.isArray(data.audit_logs) ? data.audit_logs : [];
     data.audit_logs.push({

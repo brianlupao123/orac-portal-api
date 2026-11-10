@@ -12,6 +12,7 @@ import {
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const ENROLLMENT_TTL_MS = 10 * 60_000;
 const TICKET_TTL_MS = 30 * 60_000;
+const RESET_REQUEST_TTL_MS = 30 * 60_000;
 const MAX_ATTEMPTS = 5;
 const MAX_ACCOUNT_FAILURES = 10;
 const ACCOUNT_LOCK_MS = 15 * 60_000;
@@ -255,12 +256,18 @@ export const confirmTotpEnrollment = (req, res) => {
   return res.json({ success: true, data: { recovery_codes: recoveryCodes } });
 };
 
-// D2: Admin-initiated TOTP factor reset.
-// - Any Admin can reset a non-Admin's TOTP.
-// - Resetting an Admin's TOTP requires a second independent Admin approval
-//   (the approver_id in the request body, who must differ from both the actor
-//   and the target). The approver must be active and have manageUsers permission.
-// After reset the user must re-enroll through the normal ticket flow.
+// D2 Corrected: Admin-initiated TOTP factor reset.
+// - Any Admin can directly reset a non-Admin user's TOTP factor after verifying their identity.
+// - An Admin's factor CANNOT be reset directly: resetTotpFactor refuses Admin targets with 403
+//   (reason: "admin_requires_approval_workflow").
+// - Admin targets require a two-step dual-authorization workflow with TWO distinct authenticated Admins:
+//   1. requestTotpFactorReset: Admin A (requester) initiates a reset request. A cryptographic
+//      request_id is generated, bound to target state, and stored with a 30-minute TTL.
+//   2. approveTotpFactorReset: Admin B (approver) authenticates with their own bearer credentials,
+//      presents the request_id, and approves the reset. The approver cannot be Admin A (no self-approval)
+//      and cannot be the target Admin (no target self-reset).
+//   On approval, the factor is wiped, active sessions revoked, and distinct audit rows are written.
+
 export const resetTotpFactor = (req, res) => {
   if (!totpEnrollmentEnabled()) return res.status(404).json({ success: false, message: "Route not available." });
   const actor = account(req.db, req.user?.id);
@@ -280,26 +287,107 @@ export const resetTotpFactor = (req, res) => {
   if (actor.id === target.id) return deny(403, "An Admin cannot reset their own factor.", "self_reset");
   if (!target.totp?.secret) return deny(409, "The account has no enrolled authenticator.", "not_enrolled");
 
-  // For Admin targets, require a second independent Admin (dual-authorization).
+  // Admin targets cannot be reset directly by a single request, even if approver_id is provided.
   if (target.role === "Admin") {
-    const approverId = req.body?.approver_id;
-    const approver = typeof approverId === "string" ? account(req.db, approverId) : null;
-    if (!approver || approver.id === actor.id || approver.id === target.id) {
-      return deny(403, "Resetting an Admin factor requires approval from a second independent Admin.", "dual_admin_required");
-    }
-    try {
-      requirePermission(approver, "manageUsers");
-    } catch {
-      return deny(403, "The approving Admin does not have sufficient permissions.", "approver_permission");
-    }
-    // Record the approver in the audit trail.
-    req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET_APPROVED", null, { id: target.id, approved_by: approver.id });
+    return deny(403, "Admin factor reset requires independent dual-authorization request and approval.", "admin_requires_approval_workflow");
   }
 
-  // Clear the enrolled factor, ticket, and any pending enrollment.
+  // Clear non-Admin factor and stale tickets.
   target.totp = null;
   target.totp_enrollment_ticket = null;
+  if (target.totp_factor_reset_request) target.totp_factor_reset_request = null;
   revokeSessions(target);
   req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET", null, { id: target.id, reset_by: actor.id });
+  return res.json({ success: true, message: "Authenticator factor has been reset. The user must re-enroll." });
+};
+
+export const requestTotpFactorReset = (req, res) => {
+  if (!totpEnrollmentEnabled()) return res.status(404).json({ success: false, message: "Route not available." });
+  const actor = account(req.db, req.user?.id);
+  try {
+    requirePermission(actor, "manageUsers");
+  } catch (error) {
+    if (actor) auditDenied(req, actor, actor.id, "TOTP_FACTOR_RESET_REQUEST_DENIED", "permission");
+    throw error;
+  }
+  const targetId = req.body?.user_id;
+  const target = typeof targetId === "string" ? account(req.db, targetId) : null;
+  const deny = (status, message, reason) => {
+    auditDenied(req, actor, target?.id ?? "unknown", "TOTP_FACTOR_RESET_REQUEST_DENIED", reason);
+    return res.status(status).json({ success: false, message });
+  };
+  if (!target || !target.password_hash) return deny(404, "Active account not found.", "target_not_found");
+  if (target.role !== "Admin") return deny(400, "Reset request workflow is only for Admin accounts. Non-Admin factors can be reset directly.", "target_not_admin");
+  if (actor.id === target.id) return deny(403, "An Admin cannot request their own factor reset.", "self_request");
+  if (!target.totp?.secret) return deny(409, "The account has no enrolled authenticator.", "not_enrolled");
+
+  const requestId = crypto.randomBytes(32).toString("base64url");
+  target.totp_factor_reset_request = {
+    digest: digestOpaque(requestId),
+    requested_by: actor.id,
+    expires_at: Date.now() + RESET_REQUEST_TTL_MS,
+    session_epoch: target.session_epoch || 0,
+    password_digest: digestOpaque(target.password_hash),
+    email: String(target.email || "").trim().toLowerCase(),
+    target_id: target.id
+  };
+
+  req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET_REQUESTED", null, { id: target.id, requested_by: actor.id });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ success: true, data: { request_id: requestId, expires_in_seconds: RESET_REQUEST_TTL_MS / 1000 } });
+};
+
+export const approveTotpFactorReset = (req, res) => {
+  if (!totpEnrollmentEnabled()) return res.status(404).json({ success: false, message: "Route not available." });
+  const actor = account(req.db, req.user?.id);
+  try {
+    requirePermission(actor, "manageUsers");
+  } catch (error) {
+    if (actor) auditDenied(req, actor, actor.id, "TOTP_FACTOR_RESET_APPROVAL_DENIED", "permission");
+    throw error;
+  }
+  const targetId = req.body?.user_id;
+  const requestId = req.body?.request_id;
+  const target = typeof targetId === "string" ? account(req.db, targetId) : null;
+  const deny = (status, message, reason) => {
+    auditDenied(req, actor, target?.id ?? "unknown", "TOTP_FACTOR_RESET_APPROVAL_DENIED", reason);
+    return res.status(status).json({ success: false, message });
+  };
+  if (!target) return deny(404, "Active account not found.", "target_not_found");
+  if (actor.id === target.id) return deny(403, "An Admin cannot approve their own factor reset.", "target_approval");
+  if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(requestId)) {
+    return deny(400, "Invalid reset request identifier.", "malformed_request_id");
+  }
+  const pending = target.totp_factor_reset_request;
+  if (!pending) return deny(404, "No pending factor reset request found for this account.", "no_pending_request");
+  if (actor.id === pending.requested_by) {
+    return deny(403, "An independent Admin must approve the factor reset. The requesting Admin cannot approve.", "self_approval");
+  }
+  if (Date.now() > pending.expires_at) {
+    target.totp_factor_reset_request = null;
+    return deny(400, "Factor reset request has expired.", "request_expired");
+  }
+  if (!equalDigest(pending.digest, digestOpaque(requestId))) {
+    return deny(400, "Factor reset request identifier does not match.", "bad_request_id");
+  }
+  if (pending.session_epoch !== (target.session_epoch || 0) ||
+      pending.password_digest !== digestOpaque(target.password_hash || "") ||
+      pending.email !== String(target.email || "").trim().toLowerCase() ||
+      pending.target_id !== target.id) {
+    target.totp_factor_reset_request = null;
+    return deny(409, "Account state changed since reset request was created.", "request_stale");
+  }
+
+  // Single-use: consume the pending request immediately.
+  const requestedBy = pending.requested_by;
+  target.totp_factor_reset_request = null;
+  target.totp = null;
+  target.totp_enrollment_ticket = null;
+  if (target.totp?.pending) target.totp.pending = null;
+  revokeSessions(target);
+
+  req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET_APPROVED", null, { id: target.id, requested_by: requestedBy, approved_by: actor.id });
+  req.store.audit(req.db, actor, "user", target.id, "TOTP_FACTOR_RESET", null, { id: target.id, reset_by: actor.id, requested_by: requestedBy });
+  res.setHeader("Cache-Control", "no-store");
   return res.json({ success: true, message: "Authenticator factor has been reset. The user must re-enroll." });
 };
