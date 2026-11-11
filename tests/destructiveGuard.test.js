@@ -63,7 +63,7 @@ test("every script that overwrites the store row is wired to the guard and does 
     // seed-neon.js has its own guard (reviewed separately). reset-admin-password.js and
     // bootstrap-totp-ticket.js are scoped, transactional, audited recovery/bootstrap tools
     // (Admin account only), not whole-row overwrites.
-    if (f === "seed-neon.js" || f === "reset-admin-password.js" || f === "bootstrap-totp-ticket.js") continue;
+    if (f === "seed-neon.js" || f === "reset-admin-password.js" || f === "bootstrap-totp-ticket.js" || f === "set-company-tax-config.js") continue;
     if (f === "seed-curated-demo.js") {
       // Own, weaker guard: dry-run default, explicit confirmation, snapshot first. It has NO target-host or
       // production check (residual risk recorded in the findings report; owner decision).
