@@ -176,12 +176,12 @@ export const reviewDailyTimesheet = (req, res) => {
 // the frontend re-implement that logic a third time.
 export const getDailyTimesheetDocument = (req, res) => {
   const actor = getActor(req);
-  const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN];
+  const allowed = [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES];
   if (!actor?.is_active || !allowed.includes(actor.role)) return deny(res, "Role cannot view daily time sheet documents.");
 
   const record = req.db.daily_timesheets.find((item) => item.id === req.params.id);
   if (!record) return res.status(404).json({ success: false, message: "Daily time sheet not found." });
-  if (!canActOnOwnerRecord(actor, record)) return deny(res, "A Technician may view only their own daily time sheet.");
+  if (!canActOnOwnerRecord(actor, record)) return deny(res, "You may view only an authorised daily time sheet.");
 
   const technician = record.technician_id ? req.db.users.find((user) => user.id === record.technician_id) : null;
   const approvedByUser = record.approved_by ? req.db.users.find((user) => user.id === record.approved_by) : null;
@@ -190,10 +190,12 @@ export const getDailyTimesheetDocument = (req, res) => {
     success: true,
     data: {
       record,
-      technician,
-      approved_by_user: approvedByUser,
+      technician: technician ? { id: technician.id, name: technician.name, trade: technician.trade } : null,
+      approved_by_user: approvedByUser ? { id: approvedByUser.id, name: approvedByUser.name, role: approvedByUser.role } : null,
       void_start_index: voidStartIndex(record.entries),
-      company_profile: req.db.company_profile
+      company_profile: actor.role === roles.SALES
+        ? { company_name: req.db.company_profile?.company_name, address: req.db.company_profile?.address }
+        : req.db.company_profile
     }
   });
 };

@@ -29,7 +29,7 @@ export function technicianDisplayName(user) {
   return full || String(user?.name || "").trim();
 }
 
-/** Shape returned for dropdown auto-fill. Never includes credentials or contact secrets. */
+/** Shape returned for dropdown auto-fill. Never includes credentials, contact or payment data. */
 export function toTechnicianProfile(user) {
   return {
     id: user.id,
@@ -37,7 +37,6 @@ export function toTechnicianProfile(user) {
     last_name: user.last_name ?? null,
     name: technicianDisplayName(user),
     trade: user.trade ?? null,
-    national_id: user.national_id ?? null,
     worker_type: user.worker_type ?? null,
     has_login: Boolean(user.password_hash)
   };

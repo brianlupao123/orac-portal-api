@@ -43,7 +43,7 @@ const ackAll = (db, id, user = "u_ops") => {
   if (keys.length) assert.equal(call(acknowledgeRegisterExceptions, db, user, { keys, note: "Checked against paper" }, { id }).statusCode, 200);
 };
 
-test("permissions: only Admin/Management/Operations/Supervisor view; only Admin/Operations/Supervisor manage; only Admin/Operations reconcile", () => {
+test("permissions: Admin/Management/Operations/Supervisor/Sales view; Admin/Operations/Supervisor/Sales manage; only Admin/Operations reconcile", () => {
   const db = makeDb();
   const can = (role, perm) => hasPermission(db.users.find((u) => u.role === role), perm);
   for (const role of ["Technician", "Finance", "Client Viewer"]) {

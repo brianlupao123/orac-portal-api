@@ -59,7 +59,7 @@ test("HTTP[real router]: unauthenticated requests are refused on every Worksheet
   });
 });
 
-test("HTTP[real router]: 8-role matrix on list: Admin/Management/Operations/Supervisor 200, everyone else 403", async () => {
+test("HTTP[real router]: 8-role matrix on list includes Sales with portfolio filtering", async () => {
   const w = world();
   await withServer(buildApp(w.store), async (base) => {
     for (const role of Object.keys(ROLE_USERS)) {
@@ -68,6 +68,31 @@ test("HTTP[real router]: 8-role matrix on list: Admin/Management/Operations/Supe
     }
     // The generic collection route must not expose it either.
     assert.equal((await call(base, "Admin", "/worksheet_registers_raw")).status === 200, false);
+  });
+});
+
+test("HTTP[real router]: Sales sees only assigned-client Worksheets and cannot edit another client's register", async () => {
+  const w = world();
+  const { db, release } = await w.store.read();
+  db.clients.find((client) => client.id === "c_example_north").primary_sales_owner_id = "u_sales";
+  db.clients.push({ id: "c_other", name: "Fictional Other Client" });
+  w.store.write(db, release);
+
+  await withServer(buildApp(w.store), async (base) => {
+    const own = await json(await call(base, "Operations", "/worksheet_registers", { method: "POST", body: periodBody() }));
+    assert.equal(own.status, 200, JSON.stringify(own.body));
+    const otherBody = periodBody({ title: "Other portfolio", scope: { client_id: "c_other", project_title: "Other portfolio" } });
+    const other = await json(await call(base, "Operations", "/worksheet_registers", { method: "POST", body: otherBody }));
+    assert.equal(other.status, 200, JSON.stringify(other.body));
+
+    const listed = await json(await call(base, "Sales", "/worksheet_registers"));
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body.data.map((item) => item.id), [own.body.data.id]);
+    assert.equal((await call(base, "Sales", `/worksheet_registers/${own.body.data.id}`)).status, 200);
+    assert.equal((await call(base, "Sales", `/worksheet_registers/${other.body.data.id}`)).status, 403);
+    assert.equal((await call(base, "Sales", `/document-data/worksheet_registers/${other.body.data.id}`)).status, 403);
+    assert.equal((await call(base, "Sales", `/worksheet_registers/${other.body.data.id}`, { method: "PATCH", body: { title: "Cross-client edit" } })).status, 403);
+    assert.equal((await call(base, "Sales", "/worksheet_registers/preview", { method: "POST", body: otherBody })).status, 403);
   });
 });
 

@@ -55,6 +55,7 @@ import {
   reviewDailyTimesheet, getDailyTimesheetDocument
 } from "./controllers/dailyTimesheetController.js";
 import { listTechnicianProfiles } from "./controllers/technicianProfilesController.js";
+import { getTechnicianSettlementDetails } from "./controllers/technicianSettlementController.js";
 import {
   createContractorLog, updateContractorLog, submitContractorLog,
   reviewContractorLog, getContractorLogDocument
@@ -263,6 +264,9 @@ const legacyFormCreationGate = (req, res, next) => {
   return res.status(409).json({ success: false, code: "LEGACY_FORM_READ_ONLY", message: "Daily Time Sheets and Contractor Logs are now read-only history. Record the work on a Timesheet." });
 };
 router.get("/technician-profiles", listTechnicianProfiles);
+// An access to payment instructions is recorded. POST intentionally keeps this
+// security-sensitive read on the persistence path rather than the read-only GET path.
+router.post("/technicians/:id/settlement-details/access", getTechnicianSettlementDetails);
 router.post("/daily_timesheets", legacyFormCreationGate, validate(CreateDailyTimesheetSchema), createDailyTimesheet);
 router.patch("/daily_timesheets/:id", validate(UpdateDailyTimesheetSchema), updateDailyTimesheet);
 router.post("/daily_timesheets/:id/submit", submitDailyTimesheet);
