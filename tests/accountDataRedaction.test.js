@@ -36,6 +36,7 @@ test("Admin create and update responses and audit payloads omit credential field
   createUser(createRequest, createResponse);
   assert.equal(createResponse.body.data.password_hash, undefined);
   assert.equal(backingStore.after.password_hash, undefined);
+  assert.equal(backingStore.after.bank_account, undefined);
 
   const updateRequest = { user: { id: "admin-1" }, db, store: backingStore, params: { id: "user-2" }, body: { password: "another-long-password" } };
   const updateResponse = response();
@@ -43,6 +44,7 @@ test("Admin create and update responses and audit payloads omit credential field
   assert.equal(updateResponse.body.data.password_hash, undefined);
   assert.equal(backingStore.before.password_hash, undefined);
   assert.equal(backingStore.after.password_hash, undefined);
+  assert.equal(backingStore.after.bank_account, undefined);
 });
 
 test("users and audit-log collection responses redact nested credential fields", () => {

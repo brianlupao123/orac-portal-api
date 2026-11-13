@@ -43,7 +43,7 @@ export function clearResetToken(user) {
 // private even if a new field is added to the stored user record later.
 const PUBLIC_USER_FIELDS = [
   "id", "name", "email", "role", "is_active", "client_id", "trade",
-  "national_id", "employee_code", "worker_type", "phone_number",
+  "worker_type",
   "registered_via_request_id", "created_at", "password_changed_at",
   "can_confirm_timesheets"
 ];

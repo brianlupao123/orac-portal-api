@@ -341,7 +341,12 @@ export const AdminCreateUserSchema = z.object({
   client_id: z.string().optional(),
   trade: z.enum(TECHNICIAN_TRADES).nullable().optional(),
   national_id: z.string().trim().max(32).nullable().optional(),
-  employee_code: z.string().trim().max(32).nullable().optional()
+  employee_code: z.string().trim().max(32).nullable().optional(),
+  payment_method: z.enum(["ecocash", "bank"]).nullable().optional(),
+  ecocash_number: z.string().trim().max(32).nullable().optional(),
+  bank_name: z.string().trim().max(64).nullable().optional(),
+  bank_account: z.string().trim().max(64).nullable().optional(),
+  bank_branch: z.string().trim().max(64).nullable().optional()
 }).refine(
   (data) => data.role !== roles.CLIENT_VIEWER || Boolean(data.client_id),
   { message: "client_id is required when role is Client Viewer.", path: ["client_id"] }
@@ -356,7 +361,12 @@ export const AdminUpdateUserSchema = z.object({
   client_id: z.string().optional(),
   trade: z.enum(TECHNICIAN_TRADES).nullable().optional(),
   national_id: z.string().trim().max(32).nullable().optional(),
-  employee_code: z.string().trim().max(32).nullable().optional()
+  employee_code: z.string().trim().max(32).nullable().optional(),
+  payment_method: z.enum(["ecocash", "bank"]).nullable().optional(),
+  ecocash_number: z.string().trim().max(32).nullable().optional(),
+  bank_name: z.string().trim().max(64).nullable().optional(),
+  bank_account: z.string().trim().max(64).nullable().optional(),
+  bank_branch: z.string().trim().max(64).nullable().optional()
 });
 // NOTE (Chat E gap fix): the equivalent "Client Viewer requires client_id"
 // rule for updates is enforced in adminController.updateUser instead of
