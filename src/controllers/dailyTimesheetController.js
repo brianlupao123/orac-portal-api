@@ -1,4 +1,5 @@
 import { requirePermission, roles } from "../permissions.js";
+import { toPublicUser } from "../accountTokens.js";
 import { validateDailyTimesheetEntries, voidStartIndex } from "../dailyTimesheetValidation.js";
 import {
   PAPER_SOURCE, isPaperEntry, paperEntryCreateRefusal, stampPaperEntry, paperEntryUpdateRefusal, applyPaperEntryUpdate
@@ -155,6 +156,9 @@ export const reviewDailyTimesheet = (req, res) => {
   if (decision === "return" && !String(comment || "").trim()) {
     return res.status(400).json({ success: false, message: "Returning a daily time sheet requires a supervisor comment." });
   }
+  if (decision === "approve" && record.created_by === actor.id) {
+    return res.status(403).json({ success: false, message: "The user who created this daily time sheet cannot approve it. Assign an independent reviewer." });
+  }
   if (decision === "approve" && record.submitted_by === actor.id) {
     return res.status(403).json({ success: false, message: "The user who submitted this daily time sheet cannot approve it. Assign an independent reviewer." });
   }
@@ -183,8 +187,16 @@ export const getDailyTimesheetDocument = (req, res) => {
   if (!record) return res.status(404).json({ success: false, message: "Daily time sheet not found." });
   if (!canActOnOwnerRecord(actor, record)) return deny(res, "You may view only an authorised daily time sheet.");
 
-  const technician = record.technician_id ? req.db.users.find((user) => user.id === record.technician_id) : null;
-  const approvedByUser = record.approved_by ? req.db.users.find((user) => user.id === record.approved_by) : null;
+  // Print-safe projections. The raw user record carries a password hash and (for contractors) the
+  // encrypted payment-details envelope, neither of which belongs in a printable document.
+  const printable = (user) => (user ? (({ id, name, trade, national_id, employee_code }) => ({ id, name, trade, national_id, employee_code }))(toPublicUser(user)) : null);
+  const technician = printable(record.technician_id ? req.db.users.find((user) => user.id === record.technician_id) : null);
+  const approvedByUser = printable(record.approved_by ? req.db.users.find((user) => user.id === record.approved_by) : null);
+
+  // Anyone other than the worker opening a sheet is recorded (names and ids only, never content).
+  if (record.technician_id !== actor.id) {
+    req.store.audit(req.db, actor, "daily_timesheet", record.id, "DAILY_TIMESHEET_DOCUMENT_VIEWED", null, { sheet_id: record.id, status: record.status });
+  }
 
   res.json({
     success: true,
@@ -198,4 +210,46 @@ export const getDailyTimesheetDocument = (req, res) => {
         : req.db.company_profile
     }
   });
+};
+
+// GET /api/daily-timesheet-review-queue
+// One controlled queue for the legacy paper Daily Time Sheets: every reviewer sees the same list of
+// sheets that actually await a decision (Submitted, Returned_For_Correction), never drafts. Each
+// listing is recorded. The path is on the audited-read list in persistenceMiddleware.js.
+export const listDailyTimesheetReviewQueue = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "reviewDailyTimesheet");
+  const data = (req.db.daily_timesheets || [])
+    .filter((item) => ["Submitted", "Returned_For_Correction"].includes(item.status))
+    .map((item) => ({
+      id: item.id, status: item.status, date: item.date ?? item.entries?.[0]?.date ?? null,
+      name_on_form: item.name_on_form ?? null, technician_id: item.technician_id ?? null,
+      submitted_by: item.submitted_by ?? null, submitted_at: item.submitted_at ?? null,
+      own_record: item.created_by === actor.id || item.submitted_by === actor.id
+    }));
+  req.store.audit(req.db, actor, "daily_timesheet_queue", "queue", "DAILY_TIMESHEET_QUEUE_VIEWED", null, { result_count: data.length });
+  res.json({ success: true, data });
+};
+
+// POST /api/daily_timesheets/:id/reopen  (Admin only, reason required)
+// Sends a reviewed sheet back to Submitted so it can be decided again. The prior decision stays in
+// the audit trail and is referenced by the reopen record.
+export const reopenDailyTimesheet = (req, res) => {
+  const actor = getActor(req);
+  requirePermission(actor, "reopenDailyTimesheet");
+  const record = req.db.daily_timesheets.find((item) => item.id === req.params.id);
+  if (!record) return res.status(404).json({ success: false, message: "Daily time sheet not found." });
+  if (!["Supervisor_Approved", "Returned_For_Correction"].includes(record.status)) {
+    return res.status(409).json({ success: false, message: `A daily time sheet in ${record.status} status cannot be reopened.` });
+  }
+  const reason = String(req.body?.reason || "").trim();
+  if (reason.length < 5) return res.status(400).json({ success: false, message: "Reopening a daily time sheet requires a reason of at least 5 characters." });
+  const before = { ...record };
+  record.reopened_from = { status: record.status, approved_by: record.approved_by ?? null, approved_at: record.approved_at ?? null, supervisor_comment: record.supervisor_comment ?? "", reopened_by: actor.id, reason, at: new Date().toISOString() };
+  record.status = "Submitted";
+  record.approved_by = null;
+  record.approved_at = null;
+  record.updated_at = new Date().toISOString();
+  req.store.audit(req.db, actor, "daily_timesheet", record.id, "DAILY_TIMESHEET_REOPENED", before, { ...record, reopen_reason: reason });
+  res.json({ success: true, data: record });
 };

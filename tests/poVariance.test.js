@@ -25,7 +25,7 @@ const hourLine = (qty, extra = {}) => ({ id: `ql_${qty}_${Math.random()}`, quota
 function makeDb({ sheets = [], lines = [hourLine(100)], po = {}, extra = {} } = {}) {
   return {
     users: [u("sales1", "Sales"), u("sales2", "Sales"), u("fin1", "Finance"), u("fin2", "Finance"), u("admin", "Admin"), u("mgmt", "Management"), u("tech", "Technician"), u("ops", "Operations")],
-    clients: [{ id: "c1", name: "C1" }],
+    clients: [{ id: "c1", name: "C1", primary_sales_owner_id: "sales1" }],
     quotes: [{ id: "q1", quote_number: "Q-0001", client_id: "c1", total_amount: 100, status: "Field_Dispatch" }],
     quote_lines: lines,
     dispatch_cards: [{ id: "d1", quotation_id: "q1", purchase_order_id: "po1" }],

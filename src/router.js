@@ -50,7 +50,7 @@ import { allocateV5AmendmentEvidence } from "./controllers/v5AmendmentEvidenceAl
 import { getV5InvoicePreview } from "./controllers/v5InvoicePreviewController.js";
 import { createV5InvoiceDraft, getV5InvoiceDraft, getV5InvoiceDraftWorkspace, issueV5InvoiceDraft, listDispatchV5InvoiceDrafts, recordV5LineCompletion, supersedeV5Amendment, remapV5Allocation, getV5Invoice, listDispatchV5Invoices, getV5InvoiceBillingState } from "./controllers/v5InvoiceWriterController.js";
 import { getKioskRoster, submitKioskTimesheets } from "./controllers/kioskController.js";
-import {
+import { listDailyTimesheetReviewQueue, reopenDailyTimesheet,
   createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet,
   reviewDailyTimesheet, getDailyTimesheetDocument
 } from "./controllers/dailyTimesheetController.js";
@@ -268,6 +268,8 @@ router.post("/technicians/:id/settlement-details/access", accessTechnicianSettle
 router.post("/daily_timesheets", legacyFormCreationGate, validate(CreateDailyTimesheetSchema), createDailyTimesheet);
 router.patch("/daily_timesheets/:id", validate(UpdateDailyTimesheetSchema), updateDailyTimesheet);
 router.post("/daily_timesheets/:id/submit", submitDailyTimesheet);
+router.get("/daily-timesheet-review-queue", listDailyTimesheetReviewQueue);
+router.post("/daily_timesheets/:id/reopen", reopenDailyTimesheet);
 router.post("/daily_timesheets/:id/review", validate(ReviewDailyTimesheetSchema), reviewDailyTimesheet);
 router.post("/contractor_log_sheets", legacyFormCreationGate, validate(CreateContractorLogSchema), createContractorLog);
 router.patch("/contractor_log_sheets/:id", validate(UpdateContractorLogSchema), updateContractorLog);

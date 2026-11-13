@@ -1,4 +1,5 @@
 import { roles } from "../permissions.js";
+import { toPublicUser } from "../accountTokens.js";
 import { CLIENT_VISIBLE_QUOTE_STATUSES } from "./coreController.js";
 import { fromCents, PROVISIONAL_VAT_NOTICE, TAX_STATUSES } from "../quoteCalculation.js";
 import { isEligibleForDb } from "../timesheetEligibility.js";
@@ -135,8 +136,11 @@ function hierarchyForEquipment(db, equipment) {
   return { mine_site, plant, section };
 }
 
+// Document payloads carry the public user shape only: the raw record holds a password hash and, for
+// contractors, the encrypted payment-details envelope.
 function findUser(db, id) {
-  return id ? db.users.find((user) => user.id === id) || null : null;
+  const user = id ? db.users.find((u) => u.id === id) || null : null;
+  return user ? toPublicUser(user) : null;
 }
 
 function findQuoteDoc(db, id) {

@@ -1,3 +1,8 @@
+// A few GET requests must leave a persisted audit row (who opened a Daily Time Sheet or the review
+// queue). Ordinary GETs never write, so these exact paths opt in to the write path.
+const AUDITED_READS = [/^\/document-data\/daily_timesheets\/[^/]+$/, /^\/daily-timesheet-review-queue$/];
+const isAuditedRead = (req) => req.method === "GET" && AUDITED_READS.some((re) => re.test(req.path));
+
 export function persistenceMiddleware(store) {
   return async (req, res, next) => {
     let context;
@@ -7,7 +12,7 @@ export function persistenceMiddleware(store) {
 
     // Read-only by exact match: login, and the Worksheet roll-up preview (it computes and returns,
     // so it must never take the write lock or rewrite the store). Look-alike paths still persist.
-    const isReadOnly = ["GET", "HEAD", "OPTIONS"].includes(req.method)
+    const isReadOnly = (["GET", "HEAD", "OPTIONS"].includes(req.method) && !isAuditedRead(req))
       || (req.method === "POST" && ((req.path === "/auth/login" && !process.env.ORAC_TOTP_PROTECTED_ROLES)
         || req.path === "/worksheet_registers/preview"));
 

@@ -38,6 +38,8 @@ export const permissions = {
   reviewWorksheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   createDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
+  // Admin-only, reason required: reopen a reviewed Daily Time Sheet that was handled by mistake.
+  reopenDailyTimesheet: [roles.ADMIN],
   reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
   // Contractor payment details (EcoCash / bank). Reads are audited and never include other roles.
