@@ -1,3 +1,4 @@
+import { encryptPaymentDetails, decryptPaymentDetails, paymentFieldsIn, paymentEncryptionConfigured } from "../paymentDetails.js";
 import { requirePermission, roles } from "../permissions.js";
 import { createClientRecord, createCatalogItemRecord, MasterDataRuleError } from "../services/masterDataService.js";
 import { AssignCommercialOwnershipSchema } from "../schemas.js";
@@ -18,25 +19,6 @@ function getActor(req) {
 }
 
 const safeUser = toPublicUser;
-const paymentFields = ["payment_method", "ecocash_number", "bank_name", "bank_account", "bank_branch"];
-function paymentFieldProblem(body, role) {
-  const provided = paymentFields.some((key) => body[key] !== undefined) || body.employee_code !== undefined;
-  if (provided && role !== roles.TECHNICIAN) return "Payment and Pastel fields are limited to Technician records.";
-  if (body.payment_method === "ecocash" && !body.ecocash_number) return "EcoCash number is required for EcoCash payment method.";
-  if (body.payment_method === "bank" && (!body.bank_name || !body.bank_account)) return "Bank name and account are required for bank payment method.";
-  return null;
-}
-function paymentAuditShape(user) {
-  return {
-    payment_details_changed: true,
-    payment_method: user.payment_method || null,
-    has_ecocash_number: Boolean(user.ecocash_number),
-    has_bank_name: Boolean(user.bank_name),
-    has_bank_account: Boolean(user.bank_account),
-    has_bank_branch: Boolean(user.bank_branch),
-    has_employee_code: Boolean(user.employee_code)
-  };
-}
 
 // GAP FIX (Chat E): a Client Viewer with no client_id, or a client_id that
 // does not match any real client, is not a security problem (clientScope.js
@@ -53,6 +35,20 @@ function clientLinkProblem(db, role, clientId) {
   return null;
 }
 
+
+// Contractor payment details: written only by Admin (manageUsers), encrypted at rest, never echoed back.
+// Returns { error } or { envelope, fields } so a rejected request leaves nothing half-saved.
+function preparePaymentDetails(target, body, finalRole) {
+  const fields = paymentFieldsIn(body);
+  if (!fields.length) return { envelope: undefined, fields };
+  if (finalRole !== "Technician") return { error: "Payment details can only be saved for Technician records." };
+  if (!paymentEncryptionConfigured()) return { error: "Payment details cannot be saved yet: ORAC_PAYMENT_ENCRYPTION_KEY is not configured on the server.", status: 503 };
+  const current = target?.payment_details ? decryptPaymentDetails(target.payment_details) : {};
+  const merged = { ...current };
+  for (const f of fields) merged[f] = body[f];
+  return { envelope: encryptPaymentDetails(merged), fields };
+}
+
 // ── Users (Admin-only: role changes are gated entirely by manageUsers) ──
 export const createUser = (req, res) => {
   const actor = getActor(req);
@@ -60,8 +56,8 @@ export const createUser = (req, res) => {
   const body = req.body;
   const linkProblem = clientLinkProblem(req.db, body.role, body.client_id || null);
   if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
-  const paymentProblem = paymentFieldProblem(body, body.role);
-  if (paymentProblem) return res.status(400).json({ success: false, message: paymentProblem });
+  const pay = preparePaymentDetails(null, body, body.role);
+  if (pay.error) return res.status(pay.status || 400).json({ success: false, message: pay.error });
   const user = {
     id: req.store.id("u"),
     name: body.name,
@@ -72,20 +68,14 @@ export const createUser = (req, res) => {
     trade: body.role === "Technician" ? (body.trade || null) : null,
     national_id: body.role === "Technician" ? (body.national_id || null) : null,
     employee_code: body.role === "Technician" ? (body.employee_code || null) : null,
-    payment_method: body.role === "Technician" ? (body.payment_method || null) : null,
-    ecocash_number: body.role === "Technician" ? (body.ecocash_number || null) : null,
-    bank_name: body.role === "Technician" ? (body.bank_name || null) : null,
-    bank_account: body.role === "Technician" ? (body.bank_account || null) : null,
-    bank_branch: body.role === "Technician" ? (body.bank_branch || null) : null,
     password_hash: bcrypt.hashSync(body.password, 10),
     password_changed_by: actor.id,
     created_at: new Date().toISOString()
   };
+  if (pay.envelope) user.payment_details = { ...pay.envelope, updated_by: actor.id, updated_at: new Date().toISOString() };
   req.db.users.push(user);
-  req.store.audit(req.db, actor, "user", user.id, "ADMIN_USER_CREATED", null, {
-    ...safeUser(user),
-    ...(paymentFields.some((key) => user[key]) || user.employee_code ? paymentAuditShape(user) : {})
-  });
+  req.store.audit(req.db, actor, "user", user.id, "ADMIN_USER_CREATED", null, safeUser(user));
+  if (pay.fields.length) req.store.audit(req.db, actor, "user", user.id, "ADMIN_USER_PAYMENT_DETAILS_CHANGED", null, { fields_changed: pay.fields });
   res.json({ success: true, data: safeUser(user) });
 };
 
@@ -101,18 +91,15 @@ export const updateUser = (req, res) => {
   const finalClientId = req.body.client_id !== undefined ? req.body.client_id : target.client_id;
   const linkProblem = clientLinkProblem(req.db, finalRole, finalClientId || null);
   if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
-  const paymentProblem = paymentFieldProblem(req.body, finalRole);
-  if (paymentProblem) return res.status(400).json({ success: false, message: paymentProblem });
+  const pay = preparePaymentDetails(target, req.body, finalRole);
+  if (pay.error) return res.status(pay.status || 400).json({ success: false, message: pay.error });
   const before = safeUser(target);
-  const paymentChanged = paymentFields.some((key) => req.body[key] !== undefined) || req.body.employee_code !== undefined;
   const priorSecurityState = [target.email, target.role, target.is_active, target.client_id];
-  ["name", "email", "role", "is_active", "client_id", "trade", "national_id", "employee_code", ...paymentFields].forEach((k) => {
+  ["name", "email", "role", "is_active", "client_id", "trade", "national_id", "employee_code"].forEach((k) => {
     if (req.body[k] !== undefined) target[k] = req.body[k];
   });
-  if (target.role !== "Technician") {
-    target.trade = null; target.national_id = null; target.employee_code = null;
-    paymentFields.forEach((key) => { target[key] = null; });
-  }
+  if (target.role !== "Technician") { target.trade = null; target.national_id = null; target.employee_code = null; delete target.payment_details; }
+  if (pay.envelope) target.payment_details = { ...pay.envelope, updated_by: actor.id, updated_at: new Date().toISOString() };
   if (req.body.password !== undefined) {
     target.password_hash = bcrypt.hashSync(req.body.password, 10);
     // Ends every session issued before this moment (checked in middleware/auth.js).
@@ -124,9 +111,8 @@ export const updateUser = (req, res) => {
     revokeSessions(target);
     if (target.totp?.challenge) target.totp.challenge = null;
   }
-  req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, paymentChanged ? {
-    ...safeUser(target), ...paymentAuditShape(target)
-  } : safeUser(target));
+  req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_UPDATED", before, safeUser(target));
+  if (pay.fields.length) req.store.audit(req.db, actor, "user", target.id, "ADMIN_USER_PAYMENT_DETAILS_CHANGED", null, { fields_changed: pay.fields });
   res.json({ success: true, data: safeUser(target) });
 };
 

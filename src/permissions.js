@@ -40,6 +40,8 @@ export const permissions = {
   submitDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR, roles.TECHNICIAN, roles.SALES],
   reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
+  // Contractor payment details (EcoCash / bank). Reads are audited and never include other roles.
+  viewTechnicianSettlementDetails: [roles.ADMIN, roles.FINANCE],
   viewTechnicianProfiles: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
   viewTechnicianSettlementDetails: [roles.ADMIN, roles.FINANCE],
   createContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],

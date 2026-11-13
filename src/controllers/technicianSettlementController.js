@@ -1,22 +1,32 @@
 import { requirePermission } from "../permissions.js";
 import { isTechnicianRecord } from "../technicianProfiles.js";
+import { decryptPaymentDetails, PAYMENT_FIELDS } from "../paymentDetails.js";
 
-export function getTechnicianSettlementDetails(req, res) {
-  const actor = (req.db.users || []).find((user) => user.id === req.user?.id);
+// POST /api/technicians/:id/settlement-details/access
+// Finance and Admin only. Returns a contractor's decrypted payment details and records who opened
+// them. POST (not GET) so the access event goes through the persisting write path; GET requests
+// never persist. The audit record names the fields, never the values.
+export const accessTechnicianSettlementDetails = (req, res) => {
+  const actor = req.db.users.find((u) => u.id === req.user.id);
   requirePermission(actor, "viewTechnicianSettlementDetails");
-  const technician = (req.db.users || []).find((user) => user.id === req.params.id && user.is_active && isTechnicianRecord(user));
-  if (!technician) return res.status(404).json({ success: false, message: "Technician not found." });
-  const data = {
-    technician_id: technician.id,
-    payment_method: technician.payment_method || null,
-    ecocash_number: technician.ecocash_number || technician.phone_number || null,
-    bank_name: technician.bank_name || null,
-    bank_account: technician.bank_account || null,
-    bank_branch: technician.bank_branch || null,
-    employee_code: technician.employee_code || null
-  };
-  req.store.audit(req.db, actor, "technician_settlement_details", technician.id, "TECHNICIAN_SETTLEMENT_DETAILS_VIEWED", null, {
-    fields: Object.keys(data).filter((key) => key !== "technician_id" && data[key] !== null)
+  const target = req.db.users.find((u) => u.id === req.params.id);
+  if (!target || !isTechnicianRecord(target)) return res.status(404).json({ success: false, message: "Technician not found." });
+
+  const details = decryptPaymentDetails(target.payment_details);
+  req.store.audit(req.db, actor, "user", target.id, "TECHNICIAN_SETTLEMENT_DETAILS_VIEWED", null, {
+    fields_returned: PAYMENT_FIELDS.filter((f) => details[f] !== undefined),
+    employee_code_returned: Boolean(target.employee_code)
   });
-  return res.json({ success: true, data });
-}
+  res.json({
+    success: true,
+    data: {
+      technician_id: target.id,
+      employee_code: target.employee_code ?? null,
+      payment_method: details.payment_method ?? null,
+      ecocash_number: details.ecocash_number ?? null,
+      bank_name: details.bank_name ?? null,
+      bank_account: details.bank_account ?? null,
+      bank_branch: details.bank_branch ?? null
+    }
+  });
+};
