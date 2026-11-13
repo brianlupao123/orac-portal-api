@@ -108,7 +108,7 @@ test("a sheet with no technician linked has null identity snapshot fields", () =
   assert.equal(res.body.data.national_id, null);
 });
 
-test("GET technician-profiles returns active technicians with trade and national ID, and no credentials", () => {
+test("GET technician-profiles returns active technicians with trade only, without credentials or identity/payment data", () => {
   const db = makeDb();
   const res = makeRes();
   listTechnicianProfiles(req(db, "u_sales"), res);
@@ -118,13 +118,15 @@ test("GET technician-profiles returns active technicians with trade and national
   const moyo = res.body.data.find((p) => p.id === "tech-01");
   assert.equal(moyo.name, "Tendai Moyo");
   assert.equal(moyo.trade, "Boilermaker");
-  assert.equal(moyo.national_id, "63-1234567-X-42");
+  assert.equal("national_id" in moyo, false);
   assert.equal(moyo.worker_type, "permanent");
   assert.equal(moyo.has_login, false);
   assert.equal(res.body.data.find((p) => p.id === "u_tech").has_login, true);
   for (const p of res.body.data) {
     assert.equal("password_hash" in p, false);
     assert.equal("email" in p, false);
+    assert.equal("phone_number" in p, false);
+    assert.equal("bank_account" in p, false);
   }
 });
 
