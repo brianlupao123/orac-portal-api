@@ -33,7 +33,7 @@ export function makeDb() {
       { id: "u_sales", role: "Sales", name: "Sales One", is_active: true },
       { id: "u_client", role: "Client Viewer", name: "Client One", client_id: "c_test", is_active: true }
     ],
-    clients: [{ id: "c_test", name: "Test Client" }, { id: "c_other", name: "Other Client" }],
+    clients: [{ id: "c_test", name: "Test Client", primary_sales_owner_id: "u_sales" }, { id: "c_other", name: "Other Client" }],
     quotes: [{ id: "q_test", client_id: "c_test" }, { id: "q_other", client_id: "c_other" }],
     purchase_orders: [{ id: "po_test", quotation_id: "q_test" }],
     dispatch_cards: [{ id: "d_1", quotation_id: "q_test" }, { id: "d_2", quotation_id: "q_test" }, { id: "d_other", quotation_id: "q_other" }],

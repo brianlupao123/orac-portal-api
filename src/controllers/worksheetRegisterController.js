@@ -1,6 +1,7 @@
 import { hasPermission, requirePermission, roles } from "../permissions.js";
 import { registerReviewRefusal, reviewPaused, flag as tsFlag } from "../timesheetWorkflow.js";
 import { legacyTimesheetViews } from "../legacyAdapters.js";
+import { isDispatchInSalesPortfolio, isQuoteInSalesPortfolio, isPurchaseOrderInSalesPortfolio } from "./coreController.js";
 import {
   REGISTER_STATUS, RECONCILIATION_STATE, SEVERITY,
   consolidate, mergeAcknowledgements, deriveReconciliationState, countExceptions,
@@ -22,6 +23,34 @@ function getActor(req) {
 }
 
 const fail = (res, status, message, extra = {}) => res.status(status).json({ success: false, message, ...extra });
+const salesScopeRefusal = (res) => fail(res, 403, "This Worksheet is outside your assigned commercial portfolio.");
+function inSalesPortfolio(db, actor, scope) {
+  if (actor.role !== roles.SALES) return true;
+  const clientId = scope?.client_id;
+  if (!clientId) return false;
+  const client = (db.clients || []).find((item) => item.id === clientId);
+  if (client?.primary_sales_owner_id === actor.id || client?.account_team_user_ids?.includes(actor.id)) return true;
+  const quote = (db.quotes || []).find((item) => item.id === scope.quote_id && item.client_id === clientId);
+  if (quote && isQuoteInSalesPortfolio(quote, actor, db)) return true;
+  const po = (db.purchase_orders || []).find((item) => item.id === scope.purchase_order_id);
+  const poQuote = po && (db.quotes || []).find((item) => item.id === po.quotation_id);
+  return Boolean(poQuote?.client_id === clientId && isPurchaseOrderInSalesPortfolio(po, actor, db));
+}
+function salesCanSeeLegacy(db, actor, item) {
+  if (actor.role !== roles.SALES) return true;
+  if (item.legacy_kind === "daily_timesheet") {
+    const sheet = (db.daily_timesheets || []).find((row) => row.id === item.record_id);
+    if (sheet?.source === "paper_entry" && sheet.created_by === actor.id) return true;
+    const dispatch = (db.dispatch_cards || []).find((row) => row.id === sheet?.dispatch_card_id);
+    return Boolean(dispatch && isDispatchInSalesPortfolio(dispatch, actor, db));
+  }
+  if (item.legacy_kind === "timesheet_without_breakdown") {
+    const dispatch = (db.dispatch_cards || []).find((row) => row.id === item.dispatch_card_id);
+    return Boolean(dispatch && isDispatchInSalesPortfolio(dispatch, actor, db));
+  }
+  // Contractor logs have no dependable client or dispatch link.
+  return false;
+}
 const userName = (db, id) => (id ? (db.users.find((u) => u.id === id)?.name || null) : null);
 const nowIso = () => new Date().toISOString();
 const slug = (s) => normaliseName(s).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60);
@@ -211,6 +240,7 @@ export const listWorksheetRegisters = (req, res) => {
   requirePermission(actor, "viewWorksheetRegister");
   const status = req.query?.status;
   const data = (req.db.worksheet_registers || [])
+    .filter((m) => inSalesPortfolio(req.db, actor, m.scope))
     .filter((m) => !status || m.status === status)
     .map((m) => summaryView(req.db, m))
     .sort((a, b) => String(b.period.start).localeCompare(String(a.period.start)) || String(b.created_at).localeCompare(String(a.created_at)));
@@ -221,7 +251,7 @@ export const listWorksheetRegisters = (req, res) => {
 export const listLegacyTimesheets = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "viewWorksheetRegister");
-  res.json({ success: true, data: legacyTimesheetViews(req.db), read_only: true });
+  res.json({ success: true, data: legacyTimesheetViews(req.db).filter((item) => salesCanSeeLegacy(req.db, actor, item)), read_only: true });
 };
 
 export const getWorksheetRegister = (req, res) => {
@@ -229,6 +259,7 @@ export const getWorksheetRegister = (req, res) => {
   requirePermission(actor, "viewWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   res.json({ success: true, data: detailView(req.db, record, actor) });
 };
 
@@ -237,6 +268,7 @@ export const getWorksheetRegisterDocument = (req, res) => {
   requirePermission(actor, "viewWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   res.json({ success: true, data: { record: detailView(req.db, record, actor), company_profile: req.db.company_profile } });
 };
 
@@ -298,6 +330,7 @@ function rollUpSummary(record) {
 export const previewWorksheetRegister = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageWorksheetRegister");
+  if (!inSalesPortfolio(req.db, actor, req.body?.scope)) return salesScopeRefusal(res);
   const prepared = prepareNewRegister(req.db, req.body, actor, nowIso());
   if (prepared.error) return fail(res, prepared.error.status, prepared.error.message, prepared.error.extra);
   const record = prepared.record;
@@ -329,6 +362,7 @@ export const createWorksheetRegister = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageWorksheetRegister");
   const body = req.body;
+  if (!inSalesPortfolio(req.db, actor, body?.scope)) return salesScopeRefusal(res);
   const now = nowIso();
 
   const prepared = prepareNewRegister(req.db, body, actor, now);
@@ -355,6 +389,7 @@ export const updateWorksheetRegister = (req, res) => {
   requirePermission(actor, "manageWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `A Worksheet cannot be edited in ${record.status} status.`);
 
   const body = req.body;
@@ -370,6 +405,7 @@ export const updateWorksheetRegister = (req, res) => {
     const scopeError = validateScope(req.db, body.scope);
     if (scopeError) return fail(res, 400, scopeError);
     candidate.scope = { client_id: body.scope.client_id, project_title: body.scope.project_title, quote_id: body.scope.quote_id || null, purchase_order_id: body.scope.purchase_order_id || null, department_section: body.scope.department_section || "" };
+    if (!inSalesPortfolio(req.db, actor, candidate.scope)) return salesScopeRefusal(res);
   }
   if (body.roster !== undefined) {
     const { roster, errors } = resolveRoster(req.db, body.roster);
@@ -403,6 +439,7 @@ export const buildWorksheetRegister = (req, res) => {
   requirePermission(actor, "manageWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `A Worksheet cannot be re-consolidated in ${record.status} status.`);
   const before = auditView(req.db, record);
   rebuild(req.db, record, actor);
@@ -417,6 +454,7 @@ export const acknowledgeRegisterExceptions = (req, res) => {
   requirePermission(actor, "manageWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `Exceptions cannot be acknowledged in ${record.status} status.`);
   if (isStale(req.db, record)) return fail(res, 409, STALE_MESSAGE, { code: "STALE_BUILD" });
 
@@ -445,6 +483,7 @@ export const submitWorksheetRegister = (req, res) => {
   requirePermission(actor, "submitWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   if (!EDITABLE.includes(record.status)) return fail(res, 409, `A Worksheet cannot be submitted from ${record.status}.`);
   if (isStale(req.db, record)) return fail(res, 409, STALE_MESSAGE, { code: "STALE_BUILD" });
   const blocking = blockingExceptions(record.exceptions);
@@ -509,6 +548,7 @@ export const cancelWorksheetRegister = (req, res) => {
   requirePermission(actor, "manageWorksheetRegister");
   const record = (req.db.worksheet_registers || []).find((m) => m.id === req.params.id);
   if (!record) return fail(res, 404, "Worksheet register not found.");
+  if (!inSalesPortfolio(req.db, actor, record.scope)) return salesScopeRefusal(res);
   if (record.status === REGISTER_STATUS.APPROVED) return fail(res, 409, "An approved Worksheet cannot be cancelled here. Revising an approved month needs an owner-approved process.");
   if (record.status === REGISTER_STATUS.CANCELLED) return fail(res, 409, "This Worksheet is already cancelled.");
   const before = auditView(req.db, record);

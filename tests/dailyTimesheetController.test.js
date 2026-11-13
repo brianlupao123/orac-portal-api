@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet, reviewDailyTimesheet
+  createDailyTimesheet, updateDailyTimesheet, submitDailyTimesheet, reviewDailyTimesheet, getDailyTimesheetDocument
 } from "../src/controllers/dailyTimesheetController.js";
 
 function makeRes() {
@@ -174,6 +174,31 @@ test("Sales creates a paper entry natively: created_by is Sales, capture_method 
   assert.equal(r.paper_entry.scan_hash, "abc123");
   assert.equal(r.signed_copy_image, "scans/booklet-104-sheet-12.pdf", "the scan doubles as the signed copy");
   assert.equal(db.audit_logs.at(-1).actor_id, "u_sales");
+});
+
+test("Sales can print only its own paper entry without receiving private user fields", () => {
+  const db = makeDb();
+  db.users.find((user) => user.id === "u_tech").password_hash = "private-hash";
+  db.users.find((user) => user.id === "u_tech").bank_account_number = "private-bank";
+  db.company_profile = { company_name: "Fictional ORAC", address: "Test Address", tax_approval_reference: "private-tax-config" };
+  const created = makeRes();
+  createDailyTimesheet(req(db, "u_sales", paperBody()), created);
+  const id = created.body.data.id;
+
+  const own = makeRes();
+  getDailyTimesheetDocument(req(db, "u_sales", {}, { id }), own);
+  assert.equal(own.statusCode, 200);
+  assert.equal(own.body.data.record.id, id);
+  assert.deepEqual(own.body.data.technician, { id: "u_tech", name: "Tech One", trade: undefined });
+  assert.deepEqual(own.body.data.company_profile, { company_name: "Fictional ORAC", address: "Test Address" });
+
+  const colleague = makeRes();
+  getDailyTimesheetDocument(req(db, "u_sales2", {}, { id }), colleague);
+  assert.equal(colleague.statusCode, 403);
+  const nonPaper = makeRes();
+  db.daily_timesheets[0].source = undefined;
+  getDailyTimesheetDocument(req(db, "u_sales", {}, { id }), nonPaper);
+  assert.equal(nonPaper.statusCode, 403);
 });
 
 test("the scan is optional on a paper entry", () => {
