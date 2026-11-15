@@ -87,6 +87,7 @@ import { getSuppliers, createSupplier, updateSupplier, getStockItems, createStoc
 import { getNotifications, markAllRead, markRead } from "./controllers/notificationController.js";
 import { getAiHealth, getBriefing, getAttentionItems, getMetricExplanation, getChatResponse, getWorkflowGuide, getRecordAnalysis, flagAiResponse } from "./controllers/aiController.js";
 import { getPastelReviewQuotes, getPastelReviewInvoiceReady, previewLeadImport, commitLeadImport, getOperationalAnalytics } from "./controllers/operationalDataController.js";
+import { getJobTracker } from "./controllers/jobTrackerController.js";
 import { getDailyTaskReport, getInvoiceReadySummary, getClientCompletionRecord } from "./controllers/operationalDocumentsController.js";
 import {
   createServiceRequest, listOwnServiceRequests, listServiceRequestTriageQueue,
@@ -186,6 +187,7 @@ router.post("/credit-notes/:creditNoteId/issue", validate(IssueInvoiceCreditNote
 router.get("/documents/purchase-orders/:id.pdf", getPoDocumentPdf);
 
 // Reports (Phase 04)
+router.get("/job-tracker", getJobTracker);
 router.get("/reports/pipeline", getPipelineReport);
 router.get("/reports/po-compliance", getPoComplianceReport);
 router.get("/reports/dispatch", getDispatchReport);
