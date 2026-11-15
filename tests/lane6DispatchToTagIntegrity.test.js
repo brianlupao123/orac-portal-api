@@ -14,6 +14,10 @@
 //                  test seam proposed here, not an existing production API.)
 //   The test titled "subject mode" prints which one ran.
 //
+// Follow-up (FB2_FOLLOWUP_INACTIVE_TAG): the inactive-tag policy is now a live assertion — see the
+// "inactive tag" tests below. Status 400 and message text are contract assumptions shared with the other
+// refusal tests (the owner decided the policy, not the status code).
+//
 // Fixture fields used (all visible in the packet source): quotes.client_id, dispatch_cards.quotation_id,
 // dispatch_cards.site_id, equipment_tags.plant_section_id, plant_sections.plant_id, plants.mine_site_id,
 // mine_sites.client_id, and the field name `equipment_tag_ids` supplied by the owner's verification.
@@ -33,6 +37,8 @@ function referenceValidate(db, { dispatch, equipmentTagIds }) {
   for (const id of new Set(equipmentTagIds)) {
     const tag = (db.equipment_tags || []).find((t) => t.id === id);
     if (!tag) return { ok: false, status: 400, message: `No equipment tag exists with id ${id}.` };
+    // Owner decision (inactive tags): an inactive tag (is_active === false) cannot be linked to new work.
+    if (tag.is_active === false) return { ok: false, status: 400, message: "An inactive equipment tag cannot be linked to new work." };
     if (chainClientId(db, tag) !== dispatchClientId) return { ok: false, status: 400, message: "An equipment tag belongs to a different client than this dispatch." };
   }
   return { ok: true };
@@ -209,5 +215,52 @@ test("OPTIONAL stricter policy: a tag at another mine site of the same client is
 // listed so they are not forgotten (see DEPENDENCIES.md).
 test("PENDING: link changes are refused once a dispatch has an active invoice", { skip: "needs the invoice fixture shape and signature of dispatchHasActiveInvoice (src/dispatchFreeze.js not in the package; call sites pass the dispatch object, not an id)" }, () => {});
 test("PENDING: the single-valued `equipment_tag` field — is its value an id or a code?", { skip: "semantics not stated in the package; not guessed" }, () => {});
-test("PENDING: inactive tag may/may not be linked to new work", { skip: "owner decision D2.2 open" }, () => {});
+
+// ---- inactive-tag policy (owner decision: inactive tags cannot be linked to new work) ----
+test("inactive tag: linking an inactive tag to a new dispatch is refused; nothing is written", () => {
+  const db = database();
+  db.equipment_tags.find((t) => t.id === "eq_a1").is_active = false;
+  const before = clone(db);
+  assertRefused(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1"] }), db, before);
+});
+
+test("inactive tag: one inactive tag among active ones refuses the whole request", () => {
+  const db = database();
+  db.equipment_tags.find((t) => t.id === "eq_a1b").is_active = false;
+  const before = clone(db);
+  assertRefused(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1", "eq_a1b"] }), db, before);
+});
+
+test("inactive tag: the other active tags of the same section stay linkable", () => {
+  const db = database();
+  db.equipment_tags.find((t) => t.id === "eq_a1b").is_active = false;
+  assert.deepEqual(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1"] }), { ok: true });
+});
+
+test("inactive tag: reactivating the tag makes it linkable again", () => {
+  const db = database();
+  const tag = db.equipment_tags.find((t) => t.id === "eq_a1");
+  tag.is_active = false;
+  assert.equal(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1"] }).ok, false);
+  tag.is_active = true;
+  assert.deepEqual(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1"] }), { ok: true });
+});
+
+test("inactive tag: the cross-client verdict is unchanged (an inactive foreign tag is still refused)", () => {
+  const db = database();
+  db.equipment_tags.find((t) => t.id === "eq_b1").is_active = false;
+  const before = clone(db);
+  assertRefused(validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_b1"] }), db, before);
+});
+
+test("inactive tag: a historical dispatch keeps its inactive tag reference; validation never edits it", () => {
+  const db = database();
+  db.dispatch_cards[0].equipment_tag_ids = ["eq_a1"];
+  db.equipment_tags.find((t) => t.id === "eq_a1").is_active = false;
+  const before = clone(db);
+  // refusing a NEW link attempt must not strip or alter references already stored on the dispatch
+  validate(db, { dispatch: dispatchOf(db), equipmentTagIds: ["eq_a1"] });
+  assert.deepEqual(db, before);
+  assert.deepEqual(db.dispatch_cards[0].equipment_tag_ids, ["eq_a1"]);
+});
 test("PENDING: idempotent retry with different links", { skip: "needs dispatch creation code and idempotency fingerprint inputs (not in the package)" }, () => {});
