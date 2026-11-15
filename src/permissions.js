@@ -41,11 +41,10 @@ export const permissions = {
   // Admin-only, reason required: reopen a reviewed Daily Time Sheet that was handled by mistake.
   reopenDailyTimesheet: [roles.ADMIN],
   reviewDailyTimesheet: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
-  // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
   // Contractor payment details (EcoCash / bank). Reads are audited and never include other roles.
   viewTechnicianSettlementDetails: [roles.ADMIN, roles.FINANCE],
+  // Dropdown source for Daily Time Sheet auto-fill (Trade, National ID). Read-only.
   viewTechnicianProfiles: [roles.ADMIN, roles.MANAGEMENT, roles.OPERATIONS, roles.SUPERVISOR, roles.SALES],
-  viewTechnicianSettlementDetails: [roles.ADMIN, roles.FINANCE],
   createContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   submitContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
   reviewContractorLog: [roles.ADMIN, roles.OPERATIONS, roles.SUPERVISOR],
@@ -69,6 +68,9 @@ export const permissions = {
   viewTimesheetPeriodSummary: [roles.ADMIN, roles.OPERATIONS, roles.MANAGEMENT],
   approveAmendment: [roles.ADMIN, roles.FINANCE],
   invoice: [roles.ADMIN, roles.FINANCE],
+  // Void an unpaid invoice (reason required; paid invoices are refused in the controller).
+  // Same actor set the controller previously hard-coded; no second-person rule is added here.
+  voidInvoice: [roles.ADMIN, roles.FINANCE],
   // Legacy controlled invoicing mirrors the two-person control used by the
   // separate V5 writer. Preparing a calculation never creates an invoice.
   manageLegacyInvoiceDraft: [roles.ADMIN, roles.FINANCE, roles.SALES],

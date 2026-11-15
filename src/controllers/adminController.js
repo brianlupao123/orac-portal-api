@@ -16,6 +16,7 @@ import {
   enrichPlantSection,
   enrichEquipmentTag
 } from "../services/entityHierarchy.js";
+import { hasPermission } from "../permissions.js";
 
 function getActor(req) {
   return req.db.users.find((u) => u.id === req.user.id);
@@ -379,7 +380,7 @@ export const updateCompanyProfile = (req, res) => {
 
 export function assignCommercialOwnership(req, res) {
   const actor = (req.db.users || []).find((u) => u.id === req.user?.id);
-  if (!actor || ![roles.ADMIN, roles.MANAGEMENT].includes(actor.role)) {
+  if (!hasPermission(actor, "manageCommercialOwnership")) {
     return res.status(403).json({ success: false, message: "Only Admin or Management can assign commercial ownership." });
   }
 

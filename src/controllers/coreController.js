@@ -591,7 +591,7 @@ export const reactivateEntity = (collectionName) => {
 
 export const voidInvoice = (req, res) => {
   const actor = getActor(req);
-  if (!actor || ![roles.ADMIN, roles.FINANCE].includes(actor.role)) {
+  if (!hasPermission(actor, "voidInvoice")) {
     return res.status(403).json({ success: false, message: "Only Admin or Finance can void invoices." });
   }
 
