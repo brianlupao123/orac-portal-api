@@ -7,6 +7,9 @@ import { toPublicUser } from "../accountTokens.js";
 import { revokeSessions } from "../middleware/auth.js";
 import {
   validateParentAssignment,
+  validateTagCodeUnique,
+  normaliseTagCode,
+  mineSiteIdForPlantSection,
   enrichClient,
   enrichMineSite,
   enrichPlant,
@@ -259,6 +262,10 @@ export const createEquipmentTag = (req, res) => {
   const parentCheck = validateParentAssignment(req.db, { collection: "equipment_tags", parentId: body.plant_section_id });
   if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
 
+  // Tag codes are unique per mine site (ignoring case and extra spaces).
+  const uniqueCheck = validateTagCodeUnique(req.db, { tagCode: body.tag_code, plantSectionId: body.plant_section_id });
+  if (!uniqueCheck.ok) return res.status(uniqueCheck.status).json({ success: false, message: uniqueCheck.message });
+
   const equipment = {
     id: req.store.id("eq"),
     plant_section_id: body.plant_section_id,
@@ -286,6 +293,24 @@ export const updateEquipmentTag = (req, res) => {
       previousParentId: item.plant_section_id
     });
     if (!parentCheck.ok) return res.status(parentCheck.status).json({ success: false, message: parentCheck.message });
+  }
+
+  // Uniqueness is re-checked only when the code really changes, or when a
+  // move puts the tag under a different mine site. Saving a legacy
+  // duplicate without touching either is never blocked.
+  const nextSectionId = req.body.plant_section_id !== undefined ? req.body.plant_section_id : item.plant_section_id;
+  const codeChanged =
+    req.body.tag_code !== undefined && normaliseTagCode(req.body.tag_code) !== normaliseTagCode(item.tag_code);
+  const mineSiteChanged =
+    nextSectionId !== item.plant_section_id &&
+    mineSiteIdForPlantSection(req.db, nextSectionId) !== mineSiteIdForPlantSection(req.db, item.plant_section_id);
+  if (codeChanged || mineSiteChanged) {
+    const uniqueCheck = validateTagCodeUnique(req.db, {
+      tagCode: req.body.tag_code !== undefined ? req.body.tag_code : item.tag_code,
+      plantSectionId: nextSectionId,
+      excludeId: item.id
+    });
+    if (!uniqueCheck.ok) return res.status(uniqueCheck.status).json({ success: false, message: uniqueCheck.message });
   }
 
   const before = { ...item };
