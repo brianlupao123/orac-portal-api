@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, createStockItem, updateStockItem } from "../src/controllers/inventoryController.js";
+import { recordStockMovement, issueDirectSaleStock, getStockMovements, getStockItemMovements, createStockItem, updateStockItem, createSupplier, updateSupplier } from "../src/controllers/inventoryController.js";
 
 function createResponse() {
   return {
@@ -503,4 +503,179 @@ test("direct-sale issue is dormant by default: 404, and neither balance nor ledg
   } finally {
     process.env.ENABLE_DIRECT_SALE_STOCK_ISSUE = previous;
   }
+});
+
+// ── Supplier hygiene (Lane 3, Batch 1): inactive-supplier receipts and duplicate names ──
+// Fictional data only. Handlers are called directly, as in the tests above.
+
+function supplierWorld(suppliers) {
+  const users = [
+    { id: "u-ops", role: "Operations", is_active: true },
+    { id: "u-sales", role: "Sales", is_active: true }
+  ];
+  const audits = [];
+  let n = 0;
+  return {
+    audits,
+    db: {
+      users,
+      suppliers,
+      stock_items: [{ id: "stock-1", item_code: "GSK-1", item_name: "Gasket", quantity_on_hand: 10, unit_of_measure: "each" }],
+      stock_movements: []
+    },
+    store: { id: (prefix) => `${prefix}-${++n}`, audit: (...args) => audits.push(args) }
+  };
+}
+
+const supplierRequest = (w, body, { id, userId = "u-ops" } = {}) => ({ user: { id: userId }, params: id ? { id } : {}, body, db: w.db, store: w.store });
+const receiptRequest = (w, supplierId, extra = {}) => ({
+  user: { id: "u-ops" },
+  params: {},
+  headers: {},
+  query: {},
+  body: { stock_item_id: "stock-1", movement_type: "in", quantity: 5, reason: "Delivery received", reference_type: "supplier", reference_id: supplierId, source_document_ref: "DN-1001", ...extra },
+  db: w.db,
+  store: w.store
+});
+
+test("a receipt from an inactive supplier is refused and changes nothing", () => {
+  const w = supplierWorld([{ id: "sup-off", name: "Dormant Supplies", is_active: false }]);
+  const res = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-off"), res);
+  assert.equal(res.statusCode, 409);
+  assert.match(res.body.message, /inactive/i);
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 10, "on-hand is untouched");
+  assert.equal(w.db.stock_movements.length, 0, "no ledger entry was written");
+  assert.equal(w.audits.length, 0, "no audit entry was written");
+});
+
+test("a refused inactive-supplier receipt leaves an earlier valid ledger untouched, and a later receipt from an active supplier still works", () => {
+  const w = supplierWorld([{ id: "sup-on", name: "Active Supplies", is_active: true }, { id: "sup-off", name: "Dormant Supplies", is_active: false }]);
+  const first = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-on", { quantity: 2, source_document_ref: "DN-1" }), first);
+  assert.equal(first.statusCode, 200);
+  const snapshot = JSON.stringify(w.db.stock_movements);
+  const refused = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-off", { quantity: 3, source_document_ref: "DN-2" }), refused);
+  assert.equal(refused.statusCode, 409);
+  assert.equal(JSON.stringify(w.db.stock_movements), snapshot, "ledger is byte-for-byte unchanged by the refusal");
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 12);
+  const next = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-on", { quantity: 4, source_document_ref: "DN-3" }), next);
+  assert.equal(next.statusCode, 200);
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 16);
+});
+
+test("a legacy supplier with no is_active field, and an explicitly active one, can still be received from", () => {
+  const w = supplierWorld([{ id: "sup-legacy", name: "Legacy Supplies" }, { id: "sup-true", name: "Flagged Supplies", is_active: true }]);
+  assert.equal("is_active" in w.db.suppliers[0], false);
+  const legacy = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-legacy", { quantity: 3, source_document_ref: "DN-L" }), legacy);
+  assert.equal(legacy.statusCode, 200);
+  const flagged = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-true", { quantity: 2, source_document_ref: "DN-T" }), flagged);
+  assert.equal(flagged.statusCode, 200);
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 15);
+  assert.equal(w.db.stock_movements.length, 2);
+});
+
+test("only an explicit false blocks: a supplier with is_active null or undefined is treated as active", () => {
+  const w = supplierWorld([{ id: "sup-null", name: "Null Supplies", is_active: null }, { id: "sup-undef", name: "Undefined Supplies", is_active: undefined }]);
+  for (const id of ["sup-null", "sup-undef"]) {
+    const res = createResponse();
+    recordStockMovement(receiptRequest(w, id, { quantity: 1, source_document_ref: `DN-${id}` }), res);
+    assert.equal(res.statusCode, 200, id);
+  }
+});
+
+test("a reactivated supplier can be received from again", () => {
+  const w = supplierWorld([{ id: "sup-1", name: "Returning Supplies", is_active: false }]);
+  const refused = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-1"), refused);
+  assert.equal(refused.statusCode, 409);
+  w.db.suppliers[0].is_active = true;
+  const accepted = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-1"), accepted);
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 15);
+});
+
+test("an inactive supplier does not block issues, corrections or returns, and the unknown-supplier and missing-document refusals are unchanged", () => {
+  const w = supplierWorld([{ id: "sup-off", name: "Dormant Supplies", is_active: false }]);
+  const issue = createResponse();
+  recordStockMovement({ ...receiptRequest(w, undefined), body: { stock_item_id: "stock-1", movement_type: "out", quantity: 2, reason: "Issued to workshop" } }, issue);
+  assert.equal(issue.statusCode, 200);
+  const correction = createResponse();
+  recordStockMovement({ ...receiptRequest(w, undefined), body: { stock_item_id: "stock-1", movement_type: "adjustment", quantity: -1, reason: "Count correction" } }, correction);
+  assert.equal(correction.statusCode, 200);
+  assert.equal(w.db.stock_items[0].quantity_on_hand, 7);
+  const unknown = createResponse();
+  recordStockMovement(receiptRequest(w, "sup-missing"), unknown);
+  assert.equal(unknown.statusCode, 400);
+  const active = supplierWorld([{ id: "sup-on", name: "Active Supplies" }]);
+  const noDocument = createResponse();
+  recordStockMovement(receiptRequest(active, "sup-on", { source_document_ref: "" }), noDocument);
+  assert.equal(noDocument.statusCode, 400);
+  assert.equal(active.db.stock_items[0].quantity_on_hand, 10);
+});
+
+test("creating a supplier whose name matches an existing one ignoring case and spacing is rejected, with nothing written", () => {
+  const w = supplierWorld([{ id: "sup-1", name: "Acme Supplies" }]);
+  for (const name of ["acme supplies", "ACME SUPPLIES", "  Acme   Supplies  "]) {
+    const res = createResponse();
+    createSupplier(supplierRequest(w, { name }), res);
+    assert.equal(res.statusCode, 409, name);
+    assert.match(res.body.message, /already exists/i);
+  }
+  assert.equal(w.db.suppliers.length, 1);
+  assert.equal(w.audits.length, 0);
+});
+
+test("an inactive supplier still blocks a duplicate name, and a legacy supplier without is_active does too", () => {
+  const w = supplierWorld([{ id: "sup-off", name: "Dormant Supplies", is_active: false }, { id: "sup-legacy", name: "Legacy Supplies" }]);
+  for (const name of ["dormant supplies", "LEGACY SUPPLIES"]) {
+    const res = createResponse();
+    createSupplier(supplierRequest(w, { name }), res);
+    assert.equal(res.statusCode, 409, name);
+  }
+  assert.equal(w.db.suppliers.length, 2);
+});
+
+test("suppliers with different names are accepted, and the stored name keeps the caller's spelling", () => {
+  const w = supplierWorld([{ id: "sup-1", name: "Acme Supplies" }]);
+  const other = createResponse();
+  createSupplier(supplierRequest(w, { name: "Acme Supplies East" }), other);
+  assert.equal(other.statusCode, 200);
+  const mixed = createResponse();
+  createSupplier(supplierRequest(w, { name: "Borehole Rubber CC", email: "" }), mixed);
+  assert.equal(mixed.statusCode, 200);
+  assert.equal(mixed.body.data.name, "Borehole Rubber CC");
+  assert.equal(w.db.suppliers.length, 3);
+  assert.equal(w.audits.filter((a) => a[4] === "SUPPLIER_CREATED").length, 2);
+});
+
+test("renaming a supplier to another supplier's name is rejected; its own name, in any case, and a fresh name are allowed", () => {
+  const w = supplierWorld([{ id: "sup-1", name: "Acme Supplies" }, { id: "sup-2", name: "Borehole Rubber" }]);
+  const clash = createResponse();
+  updateSupplier(supplierRequest(w, { name: "ACME supplies" }, { id: "sup-2" }), clash);
+  assert.equal(clash.statusCode, 409);
+  assert.equal(w.db.suppliers[1].name, "Borehole Rubber");
+  assert.equal(w.audits.length, 0);
+  const ownCase = createResponse();
+  updateSupplier(supplierRequest(w, { name: "BOREHOLE RUBBER" }, { id: "sup-2" }), ownCase);
+  assert.equal(ownCase.statusCode, 200);
+  const fresh = createResponse();
+  updateSupplier(supplierRequest(w, { name: "Borehole Rubber and Hose" }, { id: "sup-2" }), fresh);
+  assert.equal(fresh.statusCode, 200);
+  assert.equal(w.db.suppliers[1].name, "Borehole Rubber and Hose");
+  const phoneOnly = createResponse();
+  updateSupplier(supplierRequest(w, { phone: "+263 77 000 0000" }, { id: "sup-1" }), phoneOnly);
+  assert.equal(phoneOnly.statusCode, 200);
+});
+
+test("supplier create and update remain restricted to inventory roles, and the duplicate check does not reveal names to others", () => {
+  const w = supplierWorld([{ id: "sup-1", name: "Acme Supplies" }]);
+  assert.throws(() => createSupplier(supplierRequest(w, { name: "acme supplies" }, { userId: "u-sales" }), createResponse()), (e) => e.status === 403);
+  assert.throws(() => updateSupplier(supplierRequest(w, { name: "acme supplies" }, { id: "sup-1", userId: "u-sales" }), createResponse()), (e) => e.status === 403);
+  assert.equal(w.db.suppliers.length, 1);
 });

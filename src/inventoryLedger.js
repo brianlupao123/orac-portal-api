@@ -350,6 +350,11 @@ export function validateManualMovement({ db, stockItem, body }) {
     if (refType === "supplier") {
       const supplier = refId ? (db.suppliers || []).find((s) => s.id === refId) : null;
       if (!supplier) return fail(400, "A receipt must reference a registered supplier.");
+      // Only an explicit `false` blocks. A supplier with no `is_active` field
+      // (registered before suppliers could be deactivated) is active.
+      if (supplier.is_active === false) {
+        return fail(409, `Supplier ${supplier.name || supplier.id} is inactive. Reactivate the supplier or choose another supplier before recording a receipt.`);
+      }
       if (RECEIPT_REQUIRES_SOURCE_DOCUMENT && !clean(body.source_document_ref)) {
         return fail(400, "A receipt needs a source document reference (for example a delivery note or supplier invoice number).");
       }

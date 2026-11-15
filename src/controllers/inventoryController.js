@@ -25,6 +25,19 @@ function reorderExplanation(item, supplier) {
 
 // ── Suppliers ────────────────────────────────────────────────────────────────
 
+// Supplier names are compared ignoring case and surrounding/repeated spaces, so
+// "Acme Supplies", "ACME  supplies " and "acme supplies" are one supplier. The
+// stored name is left exactly as the caller typed it. An inactive supplier still
+// counts: the right fix for a returning supplier is to reactivate it, not to
+// register a second record. A blank name never matches anything.
+const supplierNameKey = (name) => String(name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+function findDuplicateSupplier(db, name, excludeId = null) {
+  const key = supplierNameKey(name);
+  if (!key) return null;
+  return (db.suppliers || []).find((s) => s.id !== excludeId && supplierNameKey(s.name) === key) || null;
+}
+
 export const getSuppliers = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageInventory");
@@ -35,6 +48,10 @@ export const createSupplier = (req, res) => {
   const actor = getActor(req);
   requirePermission(actor, "manageInventory");
   const body = req.body;
+  const duplicate = findDuplicateSupplier(req.db, body.name);
+  if (duplicate) {
+    return res.status(409).json({ success: false, message: `A supplier named "${duplicate.name}" already exists.` });
+  }
   const supplier = {
     id: req.store.id("sup"),
     name: body.name,
@@ -53,6 +70,12 @@ export const updateSupplier = (req, res) => {
   requirePermission(actor, "manageInventory");
   const supplier = req.db.suppliers.find((s) => s.id === req.params.id);
   if (!supplier) return res.status(404).json({ success: false, message: "Supplier not found." });
+  if (req.body.name !== undefined) {
+    const duplicate = findDuplicateSupplier(req.db, req.body.name, supplier.id);
+    if (duplicate) {
+      return res.status(409).json({ success: false, message: `A supplier named "${duplicate.name}" already exists.` });
+    }
+  }
   const before = { ...supplier };
   ["name", "contact_person", "email", "phone", "lead_time_days"].forEach((k) => {
     if (req.body[k] !== undefined) supplier[k] = req.body[k];
