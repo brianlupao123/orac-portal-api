@@ -482,7 +482,15 @@ export const getCollection = (collectionName) => {
     if (!req.db[collectionName]) {
       return res.status(404).json({ success: false, message: "Collection not found" });
     }
-    const actor = getActor(req);
+    let actor;
+    try {
+      actor = getActor(req);
+    } catch {
+      return res.status(403).json({
+        success: false,
+        message: `Role Unknown cannot view ${collectionName}.`
+      });
+    }
     const allowedRoles = collectionGuards[collectionName];
     if (!allowedRoles || !actor?.is_active || !allowedRoles.includes(actor.role)) {
       return res.status(403).json({
