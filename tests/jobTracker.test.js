@@ -95,6 +95,7 @@ function makeMockDb() {
     field_worksheets: [
       {
         id: "ws_01_orig",
+        timesheet_version: 2,
         dispatch_card_id: "d_102",
         technician_id: "u_tech",
         status: "Supervisor_Approved",
@@ -104,6 +105,7 @@ function makeMockDb() {
       },
       {
         id: "ws_01_rev1",
+        timesheet_version: 2,
         dispatch_card_id: "d_102",
         technician_id: "u_tech",
         status: "Supervisor_Approved",
@@ -113,6 +115,7 @@ function makeMockDb() {
       },
       {
         id: "ws_draft",
+        timesheet_version: 2,
         dispatch_card_id: "d_102",
         technician_id: "u_tech",
         status: "Draft",

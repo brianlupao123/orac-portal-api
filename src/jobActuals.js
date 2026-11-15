@@ -1,4 +1,5 @@
 import { evaluateForDb } from "./timesheetEligibility.js";
+import { isTimesheetV2 } from "./timesheetModel.js";
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const CLASSES = ["normal", "ot_15", "ot_20"];
@@ -17,6 +18,7 @@ export function jobActuals(db, dispatchId) {
 
   for (const ws of db.field_worksheets || []) {
     if (ws.dispatch_card_id !== dispatchId) continue;
+    if (!isTimesheetV2(ws)) continue;
     if (ws.superseded_by) continue;
 
     const evalResult = evaluateForDb(db, ws);
