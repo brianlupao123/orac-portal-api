@@ -92,6 +92,17 @@ export const updateUser = (req, res) => {
   // uses: a rejected request must leave no partial change.
   const finalRole = req.body.role !== undefined ? req.body.role : target.role;
   const finalClientId = req.body.client_id !== undefined ? req.body.client_id : target.client_id;
+  const finalIsActive = req.body.is_active !== undefined ? req.body.is_active : target.is_active;
+
+  // Last active Admin safeguard: prevent lockout by demoting or deactivating the last active Admin
+  if (target.role === roles.ADMIN && target.is_active !== false) {
+    if (finalRole !== roles.ADMIN || finalIsActive === false) {
+      const activeAdmins = (req.db.users || []).filter((u) => u.role === roles.ADMIN && u.is_active !== false);
+      if (activeAdmins.length <= 1) {
+        return res.status(409).json({ success: false, message: "Cannot demote or deactivate the last active Admin." });
+      }
+    }
+  }
   const linkProblem = clientLinkProblem(req.db, finalRole, finalClientId || null);
   if (linkProblem) return res.status(400).json({ success: false, message: linkProblem });
   const pay = preparePaymentDetails(target, req.body, finalRole);

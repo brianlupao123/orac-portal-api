@@ -20,9 +20,20 @@ import {
 } from "../idempotency.js";
 
 export function getActor(req) {
-  // GET endpoints might be called by an authenticated user
-  if (!req.user) return req.db.users[0]; // fallback for unauthenticated leads
-  return req.db.users.find((u) => u.id === req.user.id);
+  // Fail-closed actor resolution: callers must be authenticated.
+  // Anonymous endpoints (such as public leads) do not route through getActor.
+  if (!req?.user?.id) {
+    const err = new Error("Unauthenticated request: user identity is required.");
+    err.status = 401;
+    throw err;
+  }
+  const actor = (req.db?.users || []).find((u) => u.id === req.user.id);
+  if (!actor) {
+    const err = new Error("User record not found.");
+    err.status = 401;
+    throw err;
+  }
+  return actor;
 }
 
 // Role guards for every generic collection GET endpoint. Keep this explicit:
