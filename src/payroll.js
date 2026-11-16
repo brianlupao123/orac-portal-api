@@ -19,6 +19,27 @@ const r2 = (n) => Math.round(Number(n) * 100) / 100;
 export const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 export const isPayrollMonth = (v) => MONTH_PATTERN.test(String(v || ""));
 
+/**
+ * Derived payroll evidence readiness validator (Lane 5 Addendum E1).
+ * Evaluates whether a worker would be export-ready or blocked in Sage Pastel payroll export.
+ * Must produce identical decisions and blockers to computeMonthlyPayroll.
+ */
+export function evaluateWorkerPayrollReadiness(worker) {
+  const missing = [];
+  if (!worker) {
+    return { export_ready: false, export_blockers: ["Worker record not found"] };
+  }
+  const technicianId = worker.technician_id || worker.user_id || worker.id || null;
+  const employeeCode = worker.employee_code || null;
+  if (!technicianId) missing.push("Not linked to a Technician account");
+  if (!employeeCode) missing.push("No employee code on file (national ID fallback is disabled)");
+  return {
+    export_ready: missing.length === 0,
+    export_blockers: missing
+  };
+}
+
+
 // Pay codes are company-defined in Pastel Payroll; defaults can be overridden
 // without a code change (process env), e.g. PASTEL_PAYCODE_OT15=OT1.5.
 export function pastelPayCodes(env = process.env) {
@@ -115,9 +136,7 @@ export function computeTechnicianPayroll(db, month) {
   const employees = [...byEmployee.values()]
     .map((e) => {
       const payrollCode = e.employee_code || null;
-      const missing = [];
-      if (!e.technician_id) missing.push("Not linked to a Technician account");
-      if (!payrollCode) missing.push("No employee code on file (national ID fallback is disabled)");
+      const readiness = evaluateWorkerPayrollReadiness(e);
       return {
         technician_id: e.technician_id,
         full_name: e.full_name,
@@ -130,8 +149,8 @@ export function computeTechnicianPayroll(db, month) {
         overtime_20_hours: e.overtime_20_hours,
         total_hours: e.total_hours,
         days_worked: e.days.size,
-        export_ready: missing.length === 0,
-        export_blockers: missing,
+        export_ready: readiness.export_ready,
+        export_blockers: readiness.export_blockers,
         daily: e.daily.sort((x, y) => x.date.localeCompare(y.date))
       };
     })

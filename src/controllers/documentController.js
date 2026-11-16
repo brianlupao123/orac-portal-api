@@ -4,6 +4,7 @@ import { CLIENT_VISIBLE_QUOTE_STATUSES } from "./coreController.js";
 import { fromCents, PROVISIONAL_VAT_NOTICE, TAX_STATUSES } from "../quoteCalculation.js";
 import { isEligibleForDb } from "../timesheetEligibility.js";
 import { generateControlledPdf, humanizeTimestamp, formatCurrency } from "../pdfGenerator.js";
+import { shapeDocumentForClient } from "../clientAllowlist.js";
 
 function getActor(req) {
   return req.user?.id ? req.db.users.find((u) => u.id === req.user.id) : null;
@@ -231,6 +232,10 @@ export const getQuoteDocument = (req, res) => {
   const doc = findQuoteDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Quote not found." });
   if (!assertQuoteAccess(req, res, doc)) return;
+  const actor = getActor(req);
+  if (actor?.role === roles.CLIENT_VIEWER) {
+    return res.json({ success: true, data: shapeDocumentForClient("quote", doc) });
+  }
   res.json({ success: true, data: doc });
 };
 
@@ -250,6 +255,10 @@ export const getWorksheetDocument = (req, res) => {
   if (getActor(req).role === roles.CLIENT_VIEWER && !isEligibleForDb(req.db, doc.worksheet)) {
     return res.status(409).json({ success: false, message: "Client completion document requires a supervisor-approved worksheet." });
   }
+  const actor = getActor(req);
+  if (actor?.role === roles.CLIENT_VIEWER) {
+    return res.json({ success: true, data: shapeDocumentForClient("worksheet", doc) });
+  }
   res.json({ success: true, data: doc });
 };
 
@@ -267,6 +276,10 @@ export const getInvoiceDocument = (req, res) => {
   if (doc.worksheets.length === 0) {
     return res.status(409).json({ success: false, message: "Invoice document blocked: supervisor-approved timesheet is required." });
   }
+  const actor = getActor(req);
+  if (actor?.role === roles.CLIENT_VIEWER) {
+    return res.json({ success: true, data: shapeDocumentForClient("invoice", doc) });
+  }
   res.json({ success: true, data: doc });
 };
 
@@ -275,6 +288,10 @@ export const getPoDocument = (req, res) => {
   const doc = findPoDoc(req.db, req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: "Purchase order not found." });
   if (!assertPoAccess(req, res, doc)) return;
+  const actor = getActor(req);
+  if (actor?.role === roles.CLIENT_VIEWER) {
+    return res.json({ success: true, data: shapeDocumentForClient("po", doc) });
+  }
   res.json({ success: true, data: doc });
 };
 
